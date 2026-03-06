@@ -2,26 +2,264 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
-body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
-}
-
 @layer utilities {
   .text-balance {
     text-wrap: balance;
+  }
+}
+
+@layer base {
+  :root {
+    /* Dark blue theme */
+    --background: 220 35% 8%;
+    --foreground: 210 40% 98%;
+    --card: 220 35% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 220 35% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 220 35% 8%;
+    --secondary: 220 30% 18%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 220 30% 18%;
+    --muted-foreground: 220 15% 55%;
+    --accent: 220 30% 22%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 63% 55%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 25% 20%;
+    --input: 220 30% 18%;
+    --ring: 217 91% 60%;
+    --radius: 0.75rem;
+
+    /* Extended palette */
+    --success: 142 71% 45%;
+    --warning: 38 92% 50%;
+    --info: 199 89% 48%;
+
+    /* Gradients */
+    --gradient-start: 220 35% 8%;
+    --gradient-end: 220 35% 12%;
+  }
+
+  .dark {
+    --background: 220 35% 8%;
+    --foreground: 210 40% 98%;
+    --card: 220 35% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 220 35% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 220 35% 8%;
+    --secondary: 220 30% 18%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 220 30% 18%;
+    --muted-foreground: 220 15% 55%;
+    --accent: 220 30% 22%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 63% 55%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 220 25% 20%;
+    --input: 220 30% 18%;
+    --ring: 217 91% 60%;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@layer components {
+  /* Modern card with subtle gradient and glow */
+  .card-modern {
+    @apply relative overflow-hidden rounded-xl border border-border/50 bg-card;
+    background: linear-gradient(
+      135deg,
+      hsl(220 35% 12%) 0%,
+      hsl(220 35% 10%) 100%
+    );
+    box-shadow:
+      0 0 0 1px rgba(255, 255, 255, 0.03),
+      0 4px 12px rgba(0, 0, 0, 0.25),
+      0 1px 2px rgba(0, 0, 0, 0.15);
+  }
+
+  .card-modern:hover {
+    border-color: hsl(var(--primary) / 0.3);
+    box-shadow:
+      0 0 0 1px hsl(var(--primary) / 0.1),
+      0 8px 24px rgba(0, 0, 0, 0.35),
+      0 2px 4px rgba(0, 0, 0, 0.2),
+      0 0 40px hsl(var(--primary) / 0.05);
+  }
+
+  /* Glass effect */
+  .glass {
+    background: rgba(17, 24, 39, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+  }
+
+  /* Gradient border effect */
+  .gradient-border {
+    position: relative;
+  }
+
+  .gradient-border::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    padding: 1px;
+    border-radius: inherit;
+    background: linear-gradient(
+      135deg,
+      hsl(var(--primary) / 0.5) 0%,
+      transparent 50%,
+      hsl(var(--primary) / 0.2) 100%
+    );
+    -webkit-mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    mask:
+      linear-gradient(#fff 0 0) content-box,
+      linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+  }
+
+  /* Glow effects */
+  .glow-sm {
+    box-shadow: 0 0 15px hsl(var(--primary) / 0.15);
+  }
+
+  .glow-md {
+    box-shadow: 0 0 30px hsl(var(--primary) / 0.2);
+  }
+
+  .glow-lg {
+    box-shadow: 0 0 50px hsl(var(--primary) / 0.25);
+  }
+
+  /* Modern input styling */
+  .input-modern {
+    @apply rounded-lg border border-border/50 bg-secondary/50 px-4 py-2.5;
+    @apply transition-all duration-200 ease-out;
+    @apply focus:border-primary/50 focus:bg-secondary focus:ring-2 focus:ring-primary/20;
+    @apply placeholder:text-muted-foreground/50;
+  }
+
+  /* Button enhancements */
+  .btn-glow {
+    @apply relative overflow-hidden;
+    transition: all 0.3s ease;
+  }
+
+  .btn-glow:hover {
+    transform: translateY(-2px);
+    box-shadow:
+      0 4px 12px hsl(var(--primary) / 0.3),
+      0 0 20px hsl(var(--primary) / 0.2);
+  }
+
+  .btn-glow:active {
+    transform: translateY(0);
+  }
+
+  /* Sidebar styling */
+  .sidebar-modern {
+    background: linear-gradient(
+      180deg,
+      hsl(220 35% 10%) 0%,
+      hsl(220 35% 8%) 100%
+    );
+    border-right: 1px solid hsl(var(--border) / 0.5);
+  }
+
+  /* Pipeline stepper */
+  .pipeline-step {
+    @apply relative flex items-center gap-2 px-3 py-2 rounded-lg;
+    @apply transition-all duration-200 ease-out;
+  }
+
+  .pipeline-step:hover {
+    @apply bg-accent/50;
+  }
+
+  .pipeline-step.active {
+    background: linear-gradient(
+      135deg,
+      hsl(var(--primary)) 0%,
+      hsl(var(--primary) / 0.8) 100%
+    );
+    @apply text-primary-foreground shadow-lg;
+    box-shadow:
+      0 2px 8px hsl(var(--primary) / 0.3),
+      0 0 20px hsl(var(--primary) / 0.15);
+  }
+
+  /* Status badges */
+  .badge-success {
+    @apply bg-emerald-500/15 text-emerald-400 border-emerald-500/30;
+  }
+
+  .badge-warning {
+    @apply bg-amber-500/15 text-amber-400 border-amber-500/30;
+  }
+
+  .badge-error {
+    @apply bg-red-500/15 text-red-400 border-red-500/30;
+  }
+
+  .badge-info {
+    @apply bg-blue-500/15 text-blue-400 border-blue-500/30;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: hsl(var(--background));
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: hsl(var(--muted-foreground) / 0.5);
+  }
+
+  /* Animation utilities */
+  .animate-glow {
+    animation: glow 2s ease-in-out infinite alternate;
+  }
+
+  @keyframes glow {
+    from {
+      box-shadow: 0 0 10px hsl(var(--primary) / 0.2);
+    }
+    to {
+      box-shadow: 0 0 20px hsl(var(--primary) / 0.4);
+    }
+  }
+
+  .animate-pulse-slow {
+    animation: pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
   }
 }
