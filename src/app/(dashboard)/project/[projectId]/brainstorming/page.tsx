@@ -1,16 +1,20 @@
 'use client';
 
 import { useEffect, useState, useRef } from 'react';
+import { useRouter } from 'next/navigation';
 import { useProject } from '@/hooks/use-project';
 import { Textarea } from '@/components/ui/textarea';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Save, Upload, Sparkles, FileText, Loader2 } from 'lucide-react';
+import { Save, Upload, Sparkles, FileText, Loader2, Wand2 } from 'lucide-react';
 
 export default function BrainstormingPage() {
-  const { brainstorming, setBrainstorming, isLoading } = useProject();
+  const router = useRouter();
+  const { projectId, brainstorming, setBrainstorming, isLoading } = useProject();
   const [content, setContent] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -32,6 +36,40 @@ export default function BrainstormingPage() {
         setContent((prev) => prev + (prev ? '\n\n' : '') + text);
       };
       reader.readAsText(file);
+    }
+  };
+
+  const handleGenerateScript = async () => {
+    if (!projectId || !content.trim()) {
+      setGenerationError('Ajoutez du contenu au brainstorming avant de générer le script.');
+      return;
+    }
+
+    // Save content first
+    setIsSaving(true);
+    await setBrainstorming(content);
+    setIsSaving(false);
+
+    setIsGenerating(true);
+    setGenerationError(null);
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/generate-script`, {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Erreur lors de la génération');
+      }
+
+      // Redirect to script page
+      router.push(`/project/${projectId}/script`);
+    } catch (error) {
+      setGenerationError(error instanceof Error ? error.message : 'Erreur inconnue');
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -128,6 +166,45 @@ Quel style visuel souhaitez-vous ?"
               <h4 className="font-medium text-slate-200 mb-1">Style visuel</h4>
               <p>Décrivez l&apos;esthétique, les couleurs, les références.</p>
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-[#151d28] border-white/5">
+          <CardHeader>
+            <CardTitle className="text-lg text-white flex items-center gap-2">
+              <Wand2 className="w-5 h-5 text-blue-400" />
+              Génération IA
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-slate-300">
+              Transformez votre brainstorming en script professionnel formaté avec Claude AI.
+            </p>
+            <p className="text-xs text-slate-400">
+              Le script sera automatiquement découpé en scènes et plans, prêt pour le storyboard.
+            </p>
+            {generationError && (
+              <p className="text-sm text-red-400 bg-red-500/10 p-2 rounded">
+                {generationError}
+              </p>
+            )}
+            <Button
+              onClick={handleGenerateScript}
+              disabled={isGenerating || !content.trim()}
+              className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Génération en cours...
+                </>
+              ) : (
+                <>
+                  <Wand2 className="w-4 h-4 mr-2" />
+                  Générer le script
+                </>
+              )}
+            </Button>
           </CardContent>
         </Card>
 

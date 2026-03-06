@@ -2,8 +2,6 @@
 
 import Link from 'next/link';
 import type { Project, PipelineStep } from '@/types/database';
-import { Card, CardContent, CardFooter } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -33,15 +31,15 @@ const PIPELINE_STEPS: { step: PipelineStep; label: string }[] = [
 const statusConfig = {
   draft: {
     label: 'Brouillon',
-    className: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+    className: 'bg-slate-500/20 text-slate-400 border-slate-500/30',
   },
   in_progress: {
     label: 'En cours',
-    className: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+    className: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   },
   completed: {
     label: 'Terminé',
-    className: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+    className: 'bg-slate-400/20 text-slate-300 border-slate-400/30',
   },
 };
 
@@ -52,50 +50,89 @@ export function ProjectCard({ project, onDelete, onEdit }: ProjectCardProps) {
   const status = statusConfig[project.status];
 
   return (
-    <Card className="group overflow-hidden bg-gradient-to-br from-[#1e3a52] to-[#1a3048] border-white/5 hover:border-blue-500/30 transition-all duration-300 hover:shadow-xl hover:shadow-blue-500/5">
+    <div className="group relative rounded-xl overflow-hidden bg-[#151d28] border border-white/5 hover:border-white/20 transition-all duration-300 hover:shadow-xl hover:shadow-black/20">
+      {/* Image / Thumbnail */}
       <Link href={`/project/${project.id}/${project.current_step}`}>
-        <div className="aspect-video relative bg-[#0f1f2e] flex items-center justify-center overflow-hidden">
+        <div className="aspect-video relative bg-[#0d1520] overflow-hidden">
           {project.thumbnail_url ? (
-            // eslint-disable-next-line @next/next/no-img-element
             <img
               src={project.thumbnail_url}
               alt={project.name}
               className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
             />
           ) : (
-            <div className="flex flex-col items-center gap-3 text-slate-600">
-              <div className="w-16 h-16 rounded-2xl bg-white/5 flex items-center justify-center">
-                <Film className="w-8 h-8" />
-              </div>
-              <span className="text-xs font-medium">Pas d&apos;aperçu</span>
+            <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800/50 to-slate-900/50">
+              <Film className="w-12 h-12 text-slate-600" />
             </div>
           )}
 
+          {/* Overlay gradient */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+
+          {/* Title with outlined effect */}
+          <div className="absolute bottom-0 left-0 right-0 p-4">
+            <h3
+              className="text-xl font-bold uppercase tracking-wide"
+              style={{
+                color: 'transparent',
+                WebkitTextStroke: '1px rgba(255,255,255,0.9)',
+                textShadow: '0 2px 10px rgba(0,0,0,0.5)',
+              }}
+            >
+              {project.name}
+            </h3>
+          </div>
+
           {/* Hover overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-6">
-            <div className="flex items-center gap-2 text-white text-sm font-medium">
+          <div className="absolute inset-0 bg-blue-500/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+            <div className="flex items-center gap-2 text-white text-sm font-medium bg-black/50 px-4 py-2 rounded-full backdrop-blur-sm">
               <Play className="w-4 h-4" />
-              Ouvrir le projet
+              Ouvrir
             </div>
           </div>
         </div>
       </Link>
 
-      <CardContent className="p-4">
+      {/* Content */}
+      <div className="p-4">
         <div className="flex items-start justify-between gap-2">
-          <Link href={`/project/${project.id}/${project.current_step}`} className="flex-1 min-w-0">
-            <h3 className="font-semibold text-lg text-white hover:text-blue-400 transition-colors line-clamp-1">
-              {project.name}
-            </h3>
-          </Link>
+          <div className="flex-1 min-w-0">
+            {project.description && (
+              <p className="text-sm text-slate-500 line-clamp-2 mb-3">
+                {project.description}
+              </p>
+            )}
+
+            <div className="flex items-center gap-3">
+              <span
+                className={cn(
+                  'text-xs px-2 py-1 rounded border',
+                  status.className
+                )}
+              >
+                {status.label}
+              </span>
+              <span className="text-xs text-slate-600">
+                {currentStepInfo?.label}
+              </span>
+            </div>
+          </div>
+
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-white hover:bg-white/5">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-slate-500 hover:text-white hover:bg-white/5 flex-shrink-0"
+              >
                 <MoreVertical className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-[#1e3a52] border-white/10">
-              <DropdownMenuItem onClick={() => onEdit?.(project)} className="text-slate-300 focus:text-white focus:bg-white/5">
+            <DropdownMenuContent align="end" className="bg-[#1a2433] border-white/10">
+              <DropdownMenuItem
+                onClick={() => onEdit?.(project)}
+                className="text-slate-300 focus:text-white focus:bg-white/5"
+              >
                 <Edit className="w-4 h-4 mr-2" />
                 Modifier
               </DropdownMenuItem>
@@ -110,21 +147,7 @@ export function ProjectCard({ project, onDelete, onEdit }: ProjectCardProps) {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
-        {project.description && (
-          <p className="text-sm text-slate-500 mt-1.5 line-clamp-2">
-            {project.description}
-          </p>
-        )}
-      </CardContent>
-
-      <CardFooter className="p-4 pt-0 flex items-center justify-between">
-        <Badge variant="outline" className={cn('border', status.className)}>
-          {status.label}
-        </Badge>
-        <span className="text-xs text-slate-600 font-medium">
-          {currentStepInfo?.label}
-        </span>
-      </CardFooter>
-    </Card>
+      </div>
+    </div>
   );
 }

@@ -79,15 +79,36 @@ export async function PUT(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Upsert brainstorming content
-    const { data: brainstorming, error } = await supabase
+    // Check if brainstorming exists for this project
+    const { data: existing } = await supabase
       .from('brainstorming')
-      .upsert(
-        { project_id: projectId, content: content || '' },
-        { onConflict: 'project_id' }
-      )
-      .select()
+      .select('id')
+      .eq('project_id', projectId)
       .single();
+
+    let brainstorming;
+    let error;
+
+    if (existing) {
+      // Update existing
+      const result = await supabase
+        .from('brainstorming')
+        .update({ content: content || '' })
+        .eq('project_id', projectId)
+        .select()
+        .single();
+      brainstorming = result.data;
+      error = result.error;
+    } else {
+      // Insert new
+      const result = await supabase
+        .from('brainstorming')
+        .insert({ project_id: projectId, content: content || '' })
+        .select()
+        .single();
+      brainstorming = result.data;
+      error = result.error;
+    }
 
     if (error) {
       console.error('Error updating brainstorming:', error);

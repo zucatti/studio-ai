@@ -14,7 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import type { Project } from '@/types/database';
-import { Sparkles, Upload, X, Image as ImageIcon } from 'lucide-react';
+import { Sparkles, Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
 
 interface CreateProjectDialogProps {
   open: boolean;
@@ -31,8 +31,11 @@ export function CreateProjectDialog({
 }: CreateProjectDialogProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
+  const [existingThumbnailUrl, setExistingThumbnailUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -42,21 +45,94 @@ export function CreateProjectDialog({
     if (open && editProject) {
       setName(editProject.name);
       setDescription(editProject.description || '');
+      setExistingThumbnailUrl(editProject.thumbnail_url || null);
       setThumbnailPreview(editProject.thumbnail_url || null);
+      setThumbnailFile(null);
     } else if (!open) {
       setName('');
       setDescription('');
       setThumbnailPreview(null);
+      setThumbnailFile(null);
+      setExistingThumbnailUrl(null);
     }
   }, [open, editProject]);
 
-  const handleFileChange = (file: File | null) => {
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        setThumbnailPreview(e.target?.result as string);
+  const resizeImage = (file: File, maxWidth: number, maxHeight: number): Promise<Blob> => {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+
+        // Calculate new dimensions maintaining aspect ratio
+        if (width > maxWidth || height > maxHeight) {
+          const ratio = Math.min(maxWidth / width, maxHeight / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('Could not get canvas context'));
+          return;
+        }
+
+        // Use high quality image smoothing
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(blob);
+            } else {
+              reject(new Error('Could not create blob'));
+            }
+          },
+          'image/jpeg',
+          0.85 // Quality 85%
+        );
       };
-      reader.readAsDataURL(file);
+      img.onerror = () => reject(new Error('Could not load image'));
+      img.src = URL.createObjectURL(file);
+    });
+  };
+
+  const handleFileChange = async (file: File | null) => {
+    if (file && file.type.startsWith('image/')) {
+      // Validate size (5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('L\'image est trop volumineuse. Maximum: 5MB');
+        return;
+      }
+
+      try {
+        // Resize image to max 1280x720 (HD thumbnail)
+        const resizedBlob = await resizeImage(file, 1280, 720);
+        const resizedFile = new File([resizedBlob], file.name.replace(/\.[^/.]+$/, '.jpg'), {
+          type: 'image/jpeg',
+        });
+
+        setThumbnailFile(resizedFile);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setThumbnailPreview(e.target?.result as string);
+        };
+        reader.readAsDataURL(resizedBlob);
+      } catch (error) {
+        console.error('Error resizing image:', error);
+        // Fallback: use original file
+        setThumbnailFile(file);
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          setThumbnailPreview(e.target?.result as string);
+        };
+        reader.readAsDataURL(file);
+      }
     }
   };
 
@@ -64,7 +140,7 @@ export function CreateProjectDialog({
     e.preventDefault();
     setIsDragging(false);
     const file = e.dataTransfer.files[0];
-    handleFileChange(file);
+    void handleFileChange(file);
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -76,6 +152,30 @@ export function CreateProjectDialog({
     setIsDragging(false);
   };
 
+  const uploadImage = async (file: File): Promise<string | null> => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('bucket', 'project-thumbnails');
+
+    try {
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Upload failed');
+      }
+
+      const data = await res.json();
+      return data.url;
+    } catch (error) {
+      console.error('Upload error:', error);
+      return null;
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
@@ -83,21 +183,44 @@ export function CreateProjectDialog({
     setIsLoading(true);
 
     try {
-      await onSubmit(name.trim(), description.trim() || undefined, thumbnailPreview || undefined);
+      let thumbnailUrl: string | undefined = existingThumbnailUrl || undefined;
+
+      // Upload new image if selected
+      if (thumbnailFile) {
+        setIsUploading(true);
+        const uploadedUrl = await uploadImage(thumbnailFile);
+        setIsUploading(false);
+
+        if (uploadedUrl) {
+          thumbnailUrl = uploadedUrl;
+        }
+      } else if (!thumbnailPreview && existingThumbnailUrl) {
+        // Image was removed
+        thumbnailUrl = undefined;
+      }
+
+      await onSubmit(name.trim(), description.trim() || undefined, thumbnailUrl);
       setName('');
       setDescription('');
       setThumbnailPreview(null);
+      setThumbnailFile(null);
+      setExistingThumbnailUrl(null);
     } finally {
       setIsLoading(false);
+      setIsUploading(false);
     }
   };
 
   const removeThumbnail = () => {
     setThumbnailPreview(null);
+    setThumbnailFile(null);
+    setExistingThumbnailUrl(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
   };
+
+  const displayPreview = thumbnailPreview;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -129,11 +252,11 @@ export function CreateProjectDialog({
                 <span className="text-slate-500 font-normal">(optionnelle)</span>
               </Label>
 
-              {thumbnailPreview ? (
+              {displayPreview ? (
                 <div className="relative group">
                   <div className="aspect-video rounded-xl overflow-hidden border border-white/10 bg-[#0d1829]">
                     <img
-                      src={thumbnailPreview}
+                      src={displayPreview}
                       alt="Aperçu"
                       className="w-full h-full object-cover"
                     />
@@ -197,7 +320,7 @@ export function CreateProjectDialog({
                 ref={fileInputRef}
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
-                onChange={(e) => handleFileChange(e.target.files?.[0] || null)}
+                onChange={(e) => void handleFileChange(e.target.files?.[0] || null)}
                 className="hidden"
               />
             </div>
@@ -240,19 +363,25 @@ export function CreateProjectDialog({
               variant="ghost"
               onClick={() => onOpenChange(false)}
               className="text-slate-400 hover:text-white hover:bg-white/5"
+              disabled={isLoading}
             >
               Annuler
             </Button>
             <Button
               type="submit"
               disabled={!name.trim() || isLoading}
-              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg shadow-blue-500/25"
+              className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg shadow-blue-500/25 min-w-[140px]"
             >
-              {isLoading
-                ? 'Chargement...'
-                : isEditing
-                ? 'Enregistrer'
-                : 'Créer le projet'}
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  {isUploading ? 'Upload...' : 'Création...'}
+                </>
+              ) : isEditing ? (
+                'Enregistrer'
+              ) : (
+                'Créer le projet'
+              )}
             </Button>
           </DialogFooter>
         </form>

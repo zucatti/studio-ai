@@ -2,11 +2,8 @@
 
 import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
-import { PipelineStepper } from '@/components/layout/pipeline-stepper';
 import { useProject } from '@/hooks/use-project';
-import { ArrowLeft, Film, Loader2 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import Link from 'next/link';
+import { Film, Loader2 } from 'lucide-react';
 
 export default function ProjectLayout({
   children,
@@ -14,7 +11,7 @@ export default function ProjectLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
-  const { projectId, project, currentStep, isLoading, error } = useProject();
+  const { project, isLoading, error } = useProject();
 
   useEffect(() => {
     if (!isLoading && error) {
@@ -46,40 +43,5 @@ export default function ProjectLayout({
     );
   }
 
-  return (
-    <div className="space-y-6">
-      {/* Project Header */}
-      <div className="flex items-center gap-4">
-        <Button
-          variant="ghost"
-          size="icon"
-          asChild
-          className="text-slate-500 hover:text-white hover:bg-white/5 rounded-xl"
-        >
-          <Link href="/projects">
-            <ArrowLeft className="h-5 w-5" />
-          </Link>
-        </Button>
-        <div className="flex-1 min-w-0">
-          <h1 className="text-2xl font-bold text-white truncate">
-            {project.name}
-          </h1>
-          {project.description && (
-            <p className="text-slate-500 text-sm truncate">
-              {project.description}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {/* Pipeline Stepper */}
-      <PipelineStepper
-        projectId={projectId!}
-        currentStep={currentStep}
-      />
-
-      {/* Page Content */}
-      <div className="mt-6">{children}</div>
-    </div>
-  );
+  return <>{children}</>;
 }

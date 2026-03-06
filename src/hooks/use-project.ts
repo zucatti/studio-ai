@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'next/navigation';
-import type { Project, Scene, Brainstorming, Character, Prop, Location, PipelineStep } from '@/types/database';
+import type { Project, Scene, Character, Prop, Location, PipelineStep } from '@/types/database';
 
 interface SceneWithShots extends Scene {
   shots: Array<{

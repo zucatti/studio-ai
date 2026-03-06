@@ -174,7 +174,7 @@ export default function ProductionPage() {
 
         <Card>
           <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold text-purple-500">
+            <p className="text-2xl font-bold text-blue-400">
               {stats.generating}
             </p>
             <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
@@ -186,7 +186,7 @@ export default function ProductionPage() {
 
         <Card>
           <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold text-green-500">{stats.completed}</p>
+            <p className="text-2xl font-bold text-slate-300">{stats.completed}</p>
             <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
               <Check className="w-3 h-3" />
               Terminés

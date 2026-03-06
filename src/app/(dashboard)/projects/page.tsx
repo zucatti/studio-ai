@@ -63,16 +63,16 @@ export default function ProjectsPage() {
   return (
     <div className="space-y-8">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold text-white">Projets</h1>
-          <p className="text-slate-500 mt-1">
+          <h1 className="text-2xl font-bold text-white">Mes projets</h1>
+          <p className="text-slate-500 text-sm mt-0.5">
             Gérez vos projets de production vidéo IA
           </p>
         </div>
         <Button
           onClick={() => setDialogOpen(true)}
-          className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg shadow-blue-500/25 hover:shadow-blue-500/40 transition-all duration-300"
+          className="bg-blue-500 hover:bg-blue-600 text-white"
         >
           <Plus className="w-4 h-4 mr-2" />
           Nouveau projet
@@ -81,13 +81,13 @@ export default function ProjectsPage() {
 
       {/* Search */}
       <div className="flex items-center gap-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+        <div className="relative flex-1 max-w-sm">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
           <Input
             placeholder="Rechercher un projet..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-11 bg-white/5 border-white/10 text-white placeholder:text-slate-500 focus:bg-white/10 focus:border-blue-500/50 rounded-xl h-11"
+            className="h-9 pl-9 bg-[#1a2433] border-0 text-sm text-white placeholder:text-slate-500 focus:ring-1 focus:ring-blue-500/50 rounded-lg"
           />
         </div>
       </div>
@@ -112,7 +112,7 @@ export default function ProjectsPage() {
           </div>
           {!searchQuery && (
             <Button
-              className="mt-6 bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white shadow-lg shadow-blue-500/25"
+              className="mt-6 bg-blue-600 hover:bg-blue-700 text-white"
               onClick={() => setDialogOpen(true)}
             >
               <Sparkles className="w-4 h-4 mr-2" />
