@@ -776,7 +776,7 @@ function ShotCard({
               <div className="aspect-video rounded-lg bg-muted flex items-center justify-center overflow-hidden border relative">
                 {/* Aurora Overlay for First Frame */}
                 {frameProgress && (frameProgress.frameType === 'first' || frameProgress.frameType === 'both') && frameProgress.status !== 'completed' && (
-                  <AuroraOverlay />
+                  <AuroraOverlay status={frameProgress.status} />
                 )}
                 {shot.first_frame_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
@@ -820,7 +820,7 @@ function ShotCard({
               <div className="aspect-video rounded-lg bg-muted flex items-center justify-center overflow-hidden border relative">
                 {/* Aurora Overlay for Last Frame */}
                 {frameProgress && (frameProgress.frameType === 'last' || frameProgress.frameType === 'both') && frameProgress.status !== 'completed' && (
-                  <AuroraOverlay />
+                  <AuroraOverlay status={frameProgress.status} />
                 )}
                 {shot.last_frame_url ? (
                   // eslint-disable-next-line @next/next/no-img-element
