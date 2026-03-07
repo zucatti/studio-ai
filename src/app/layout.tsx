@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { Auth0Provider } from '@auth0/nextjs-auth0';
 import { ThemeProvider } from '@/components/providers/theme-provider';
+import { Toaster } from 'sonner';
 import './globals.css';
 
 const geistSans = localFont({
@@ -39,6 +40,7 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             {children}
+            <Toaster theme="dark" richColors position="bottom-right" />
           </ThemeProvider>
         </Auth0Provider>
       </body>

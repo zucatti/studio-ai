@@ -2,8 +2,7 @@
 -- Studio IA - Initial Database Schema
 -- ============================================================================
 
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- gen_random_uuid() is built-in to PostgreSQL 13+, no extension needed
 
 -- ============================================================================
 -- ENUMS
@@ -25,7 +24,7 @@ CREATE TYPE location_type AS ENUM ('interior', 'exterior');
 -- ============================================================================
 
 CREATE TABLE projects (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT,
@@ -44,7 +43,7 @@ CREATE INDEX idx_projects_status ON projects(status);
 -- ============================================================================
 
 CREATE TABLE brainstorming (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     content TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -57,7 +56,7 @@ CREATE TABLE brainstorming (
 -- ============================================================================
 
 CREATE TABLE scenes (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     scene_number INTEGER NOT NULL,
     int_ext scene_int_ext NOT NULL DEFAULT 'INT',
@@ -77,7 +76,7 @@ CREATE INDEX idx_scenes_sort_order ON scenes(project_id, sort_order);
 -- ============================================================================
 
 CREATE TABLE shots (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     scene_id UUID NOT NULL REFERENCES scenes(id) ON DELETE CASCADE,
     shot_number INTEGER NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -113,7 +112,7 @@ CREATE INDEX idx_shots_sort_order ON shots(scene_id, sort_order);
 -- ============================================================================
 
 CREATE TABLE dialogues (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shot_id UUID NOT NULL REFERENCES shots(id) ON DELETE CASCADE,
     character_name TEXT NOT NULL,
     content TEXT NOT NULL,
@@ -129,7 +128,7 @@ CREATE INDEX idx_dialogues_shot_id ON dialogues(shot_id);
 -- ============================================================================
 
 CREATE TABLE actions (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     shot_id UUID NOT NULL REFERENCES shots(id) ON DELETE CASCADE,
     content TEXT NOT NULL,
     sort_order INTEGER NOT NULL DEFAULT 0,
@@ -143,7 +142,7 @@ CREATE INDEX idx_actions_shot_id ON actions(shot_id);
 -- ============================================================================
 
 CREATE TABLE characters (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     description TEXT NOT NULL DEFAULT '',
@@ -162,7 +161,7 @@ CREATE INDEX idx_characters_project_id ON characters(project_id);
 -- ============================================================================
 
 CREATE TABLE props (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     type prop_type NOT NULL DEFAULT 'object',
@@ -179,7 +178,7 @@ CREATE INDEX idx_props_project_id ON props(project_id);
 -- ============================================================================
 
 CREATE TABLE locations (
-    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     project_id UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
     name TEXT NOT NULL,
     type location_type NOT NULL DEFAULT 'interior',

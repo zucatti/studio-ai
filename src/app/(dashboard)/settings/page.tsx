@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import {
@@ -11,26 +11,51 @@ import {
   AlertCircle,
   RefreshCw,
   Loader2,
-  BarChart3,
   Cpu,
   Image as ImageIcon,
+  Video,
   DollarSign,
-  TrendingUp,
   Zap,
+  ExternalLink,
+  Clock,
+  Hash,
+  TrendingUp,
 } from 'lucide-react';
 
-interface ReplicatePrediction {
-  id: string;
-  model: string;
-  status: string;
-  created_at: string;
-  completed_at?: string;
-  metrics?: {
-    predict_time?: number;
-  };
+interface ClaudeUsageData {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCost: number;
+  byModel: Record<string, { input: number; output: number; cost: number }>;
+}
+
+interface ReplicateStats {
+  totalPredictions: number;
+  successfulPredictions: number;
+  failedPredictions: number;
+  totalGpuTime: number;
+  estimatedCost: number;
+  byModel: Record<string, { count: number; cost: number; gpuTime: number }>;
+}
+
+interface FalUsageData {
+  totalCost: number;
+  totalRequests: number;
+  byEndpoint: Record<string, { requests: number; cost: number }>;
 }
 
 interface UsageData {
+  claude: {
+    status: 'connected' | 'error' | 'not_configured';
+    hasAdminKey: boolean;
+    usage?: ClaudeUsageData;
+    error?: string;
+  };
+  fal: {
+    status: 'connected' | 'error' | 'not_configured';
+    usage?: FalUsageData;
+    error?: string;
+  };
   replicate: {
     status: 'connected' | 'error' | 'not_configured';
     account?: {
@@ -38,41 +63,11 @@ interface UsageData {
       name: string;
       type: string;
     };
-    recentPredictions?: ReplicatePrediction[];
-    error?: string;
-  };
-  anthropic: {
-    status: 'connected' | 'error' | 'not_configured';
+    stats?: ReplicateStats;
     error?: string;
   };
 }
 
-// Simple bar chart component
-function SimpleBarChart({ data, label }: { data: { date: string; count: number }[]; label: string }) {
-  const maxCount = Math.max(...data.map((d) => d.count), 1);
-
-  return (
-    <div className="space-y-2">
-      <div className="text-sm text-slate-400">{label}</div>
-      <div className="flex items-end gap-1 h-32">
-        {data.map((item, idx) => (
-          <div key={idx} className="flex-1 flex flex-col items-center gap-1">
-            <div
-              className="w-full bg-blue-500/80 rounded-t transition-all hover:bg-blue-400"
-              style={{ height: `${(item.count / maxCount) * 100}%`, minHeight: item.count > 0 ? '4px' : '0' }}
-              title={`${item.date}: ${item.count}`}
-            />
-            <span className="text-[10px] text-slate-500 -rotate-45 origin-center whitespace-nowrap">
-              {item.date.slice(5)}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// Status badge component
 function StatusBadge({ status }: { status: string }) {
   switch (status) {
     case 'connected':
@@ -97,6 +92,33 @@ function StatusBadge({ status }: { status: string }) {
         </span>
       );
   }
+}
+
+function StatCard({ icon: Icon, label, value, subValue, color }: {
+  icon: any;
+  label: string;
+  value: string;
+  subValue?: string;
+  color: string;
+}) {
+  return (
+    <div className="flex items-center gap-3 p-3 rounded-lg bg-slate-900/50">
+      <div className={`p-2 rounded-lg ${color}`}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div>
+        <div className="text-lg font-bold text-white">{value}</div>
+        <div className="text-xs text-slate-400">{label}</div>
+        {subValue && <div className="text-xs text-slate-500">{subValue}</div>}
+      </div>
+    </div>
+  );
+}
+
+function formatNumber(num: number): string {
+  if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+  if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+  return num.toString();
 }
 
 export default function SettingsPage() {
@@ -126,82 +148,6 @@ export default function SettingsPage() {
     fetchUsage();
   };
 
-  // Model pricing (approximate per image)
-  const MODEL_PRICES: Record<string, number> = {
-    'flux-1.1-pro': 0.04,
-    'flux-pro': 0.055,
-    'flux-dev': 0.025,
-    'flux-schnell': 0.003,
-    'sdxl': 0.002,
-  };
-
-  // Get price for a model
-  const getModelPrice = (modelName: string): number => {
-    const name = modelName.toLowerCase();
-    if (name.includes('flux-1.1-pro')) return MODEL_PRICES['flux-1.1-pro'];
-    if (name.includes('flux-pro')) return MODEL_PRICES['flux-pro'];
-    if (name.includes('flux-dev')) return MODEL_PRICES['flux-dev'];
-    if (name.includes('flux-schnell')) return MODEL_PRICES['flux-schnell'];
-    if (name.includes('sdxl')) return MODEL_PRICES['sdxl'];
-    return 0.02; // Default
-  };
-
-  // Process Replicate predictions for charts
-  const replicateStats = useMemo(() => {
-    if (!usage?.replicate?.recentPredictions) {
-      return { dailyUsage: [], totalPredictions: 0, modelUsage: {}, modelCosts: {}, estimatedCost: 0 };
-    }
-
-    const predictions = usage.replicate.recentPredictions;
-    const dailyMap = new Map<string, number>();
-    const modelMap = new Map<string, number>();
-    const modelCostMap = new Map<string, number>();
-    let estimatedCost = 0;
-
-    // Get last 7 days
-    const today = new Date();
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(date.getDate() - i);
-      const key = date.toISOString().split('T')[0];
-      dailyMap.set(key, 0);
-    }
-
-    predictions.forEach((p) => {
-      const date = p.created_at.split('T')[0];
-      if (dailyMap.has(date)) {
-        dailyMap.set(date, (dailyMap.get(date) || 0) + 1);
-      }
-
-      // Clean model name (remove version hash)
-      let modelName = p.model.split('/').pop() || p.model;
-      modelName = modelName.split(':')[0]; // Remove :version_hash
-
-      modelMap.set(modelName, (modelMap.get(modelName) || 0) + 1);
-
-      // Calculate cost for this model
-      const price = getModelPrice(modelName);
-      estimatedCost += price;
-      modelCostMap.set(modelName, (modelCostMap.get(modelName) || 0) + price);
-    });
-
-    const dailyUsage = Array.from(dailyMap.entries()).map(([date, count]) => ({
-      date,
-      count,
-    }));
-
-    const modelUsage = Object.fromEntries(modelMap);
-    const modelCosts = Object.fromEntries(modelCostMap);
-
-    return {
-      dailyUsage,
-      totalPredictions: predictions.length,
-      modelUsage,
-      modelCosts,
-      estimatedCost: Math.round(estimatedCost * 100) / 100,
-    };
-  }, [usage]);
-
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -211,12 +157,12 @@ export default function SettingsPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-8 max-w-4xl">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Settings className="w-5 h-5 text-slate-400" />
-          <h1 className="text-xl font-semibold text-white">Configuration</h1>
+          <h1 className="text-xl font-semibold text-white">Configuration & Usage</h1>
         </div>
         <Button
           variant="outline"
@@ -234,226 +180,300 @@ export default function SettingsPage() {
         </Button>
       </div>
 
-      {/* API Keys Status */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Replicate */}
-        <Card className="bg-slate-800/50 border-white/10">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-white flex items-center gap-2">
-                <ImageIcon className="w-5 h-5 text-blue-400" />
-                Replicate
-              </CardTitle>
-              <StatusBadge status={usage?.replicate?.status || 'not_configured'} />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {usage?.replicate?.status === 'connected' && usage.replicate.account && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <Key className="w-4 h-4 text-slate-500" />
-                  <span className="text-slate-400">Compte:</span>
-                  <span className="text-white">{usage.replicate.account.username}</span>
-                </div>
-                <div className="text-xs text-slate-500">
-                  Utilisé pour la génération d'images (FLUX, SDXL)
-                </div>
-                <a
-                  href="https://replicate.com/account/billing"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-400 hover:text-blue-300 underline"
-                >
-                  Voir le billing sur replicate.com →
-                </a>
-              </div>
-            )}
-            {usage?.replicate?.status === 'error' && (
-              <div className="text-sm text-red-400">{usage.replicate.error}</div>
-            )}
-            {usage?.replicate?.status === 'not_configured' && (
-              <div className="text-sm text-slate-500">
-                Ajoutez AI_REPLICATE_KEY dans .env.local
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Anthropic */}
-        <Card className="bg-slate-800/50 border-white/10">
-          <CardHeader className="pb-3">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-white flex items-center gap-2">
-                <Cpu className="w-5 h-5 text-orange-400" />
-                Claude (Anthropic)
-              </CardTitle>
-              <StatusBadge status={usage?.anthropic?.status || 'not_configured'} />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {usage?.anthropic?.status === 'connected' && (
-              <div className="space-y-3">
-                <div className="flex items-center gap-2 text-sm">
-                  <Key className="w-4 h-4 text-slate-500" />
-                  <span className="text-slate-400">Clé API:</span>
-                  <span className="text-white">Configurée</span>
-                </div>
-                <div className="text-xs text-slate-500">
-                  Utilisé pour le script, traduction, extraction
-                </div>
-                <a
-                  href="https://console.anthropic.com/settings/usage"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-orange-400 hover:text-orange-300 underline"
-                >
-                  Voir les stats sur console.anthropic.com →
-                </a>
-              </div>
-            )}
-            {usage?.anthropic?.status === 'error' && (
-              <div className="text-sm text-red-400">{usage.anthropic.error}</div>
-            )}
-            {usage?.anthropic?.status === 'not_configured' && (
-              <div className="text-sm text-slate-500">
-                Ajoutez AI_CLAUDE_KEY dans .env.local
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Usage Statistics */}
-      {usage?.replicate?.status === 'connected' && (
-        <>
-          {/* Stats Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            <Card className="bg-slate-800/50 border-white/10">
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-blue-500/20">
-                    <Zap className="w-5 h-5 text-blue-400" />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-white">
-                      {replicateStats.totalPredictions}
-                    </div>
-                    <div className="text-xs text-slate-400">Générations (7j)</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-800/50 border-white/10">
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-green-500/20">
-                    <ImageIcon className="w-5 h-5 text-green-400" />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-white">
-                      ${replicateStats.totalPredictions > 0
-                        ? (replicateStats.estimatedCost / replicateStats.totalPredictions).toFixed(3)
-                        : '0.00'}
-                    </div>
-                    <div className="text-xs text-slate-400">Coût moyen/image</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-800/50 border-white/10">
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-yellow-500/20">
-                    <DollarSign className="w-5 h-5 text-yellow-400" />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-white">
-                      ~${replicateStats.estimatedCost}
-                    </div>
-                    <div className="text-xs text-slate-400">Coût estimé</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-slate-800/50 border-white/10">
-              <CardContent className="pt-4">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 rounded-lg bg-purple-500/20">
-                    <TrendingUp className="w-5 h-5 text-purple-400" />
-                  </div>
-                  <div>
-                    <div className="text-2xl font-bold text-white">
-                      {Object.keys(replicateStats.modelUsage).length}
-                    </div>
-                    <div className="text-xs text-slate-400">Modèles utilisés</div>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+      {/* ========== CLAUDE ========== */}
+      <Card className="bg-slate-800/50 border-white/10">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-white flex items-center gap-2">
+              <Cpu className="w-5 h-5 text-orange-400" />
+              Claude (Anthropic)
+            </CardTitle>
+            <StatusBadge status={usage?.claude?.status || 'not_configured'} />
           </div>
+          <p className="text-sm text-slate-400">
+            Scripts, prompts, extraction, suggestions de durée
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {usage?.claude?.status === 'connected' ? (
+            <>
+              <div className="flex items-center gap-2 text-sm">
+                <Key className="w-4 h-4 text-slate-500" />
+                <span className="text-slate-400">API Key:</span>
+                <span className="text-green-400">Configurée</span>
+                {usage.claude.hasAdminKey && (
+                  <span className="text-xs bg-orange-500/20 text-orange-400 px-2 py-0.5 rounded">
+                    + Admin Key
+                  </span>
+                )}
+              </div>
 
-          {/* Charts */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {/* Daily Usage Chart */}
-            <Card className="bg-slate-800/50 border-white/10">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2 text-base">
-                  <BarChart3 className="w-4 h-4 text-blue-400" />
-                  Générations par jour
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <SimpleBarChart data={replicateStats.dailyUsage} label="7 derniers jours" />
-              </CardContent>
-            </Card>
+              {usage.claude.usage ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <StatCard
+                      icon={DollarSign}
+                      label="Coût total (30j)"
+                      value={`$${usage.claude.usage.totalCost.toFixed(2)}`}
+                      color="bg-yellow-500/20 text-yellow-400"
+                    />
+                    <StatCard
+                      icon={Zap}
+                      label="Tokens input"
+                      value={formatNumber(usage.claude.usage.totalInputTokens)}
+                      color="bg-blue-500/20 text-blue-400"
+                    />
+                    <StatCard
+                      icon={Zap}
+                      label="Tokens output"
+                      value={formatNumber(usage.claude.usage.totalOutputTokens)}
+                      color="bg-purple-500/20 text-purple-400"
+                    />
+                    <StatCard
+                      icon={Hash}
+                      label="Modèles utilisés"
+                      value={Object.keys(usage.claude.usage.byModel).length.toString()}
+                      color="bg-green-500/20 text-green-400"
+                    />
+                  </div>
 
-            {/* Model Usage with Costs */}
-            <Card className="bg-slate-800/50 border-white/10">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2 text-base">
-                  <Cpu className="w-4 h-4 text-purple-400" />
-                  Coût par modèle
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="space-y-3">
-                  {Object.entries(replicateStats.modelUsage)
-                    .sort(([, a], [, b]) => b - a)
-                    .slice(0, 5)
-                    .map(([model, count]) => {
-                      const cost = replicateStats.modelCosts[model] || 0;
-                      const pricePerImage = count > 0 ? cost / count : 0;
-                      return (
-                        <div key={model} className="space-y-1">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-slate-300 truncate max-w-[180px]">
-                              {model}
+                  {/* By model breakdown */}
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-slate-300">Coût par modèle</div>
+                    {Object.entries(usage.claude.usage.byModel)
+                      .sort(([, a], [, b]) => b.cost - a.cost)
+                      .map(([model, data]) => (
+                        <div key={model} className="flex items-center justify-between text-sm p-2 rounded bg-slate-900/50">
+                          <span className="text-slate-300 truncate max-w-[200px]">{model}</span>
+                          <div className="flex items-center gap-4">
+                            <span className="text-slate-500 text-xs">
+                              {formatNumber(data.input + data.output)} tokens
                             </span>
-                            <span className="text-sm font-medium text-yellow-400">
-                              ${cost.toFixed(2)}
+                            <span className="text-yellow-400 font-medium">
+                              ${data.cost.toFixed(2)}
                             </span>
-                          </div>
-                          <div className="flex items-center justify-between text-xs text-slate-500">
-                            <span>{count} images × ${pricePerImage.toFixed(3)}/img</span>
-                            <div
-                              className="h-1.5 bg-purple-500/60 rounded"
-                              style={{
-                                width: `${(cost / replicateStats.estimatedCost) * 80}px`,
-                              }}
-                            />
                           </div>
                         </div>
-                      );
-                    })}
+                      ))}
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
+              ) : (
+                <div className="text-sm text-slate-500 bg-slate-900/50 p-3 rounded">
+                  <p>Pour voir les statistiques détaillées, ajoutez <code className="text-orange-400">AI_CLAUDE_ADMIN_KEY</code></p>
+                  <p className="mt-1 text-xs">Obtenez une clé Admin sur console.anthropic.com → Settings → API Keys</p>
+                </div>
+              )}
+
+              <a
+                href="https://console.anthropic.com/settings/usage"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm text-orange-400 hover:text-orange-300"
+              >
+                <ExternalLink className="w-3 h-3" />
+                Voir sur console.anthropic.com
+              </a>
+            </>
+          ) : usage?.claude?.status === 'error' ? (
+            <div className="text-sm text-red-400">{usage.claude.error}</div>
+          ) : (
+            <div className="text-sm text-slate-500">
+              Ajoutez <code className="text-orange-400">AI_CLAUDE_KEY</code> dans .env.local
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ========== FAL.AI ========== */}
+      <Card className="bg-slate-800/50 border-white/10">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-white flex items-center gap-2">
+              <Video className="w-5 h-5 text-purple-400" />
+              fal.ai (Kling Video)
+            </CardTitle>
+            <StatusBadge status={usage?.fal?.status || 'not_configured'} />
           </div>
-        </>
-      )}
+          <p className="text-sm text-slate-400">
+            Génération vidéo IA avec Kling (interpolation first/last frame)
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {usage?.fal?.status === 'connected' ? (
+            <>
+              <div className="flex items-center gap-2 text-sm">
+                <Key className="w-4 h-4 text-slate-500" />
+                <span className="text-slate-400">API Key:</span>
+                <span className="text-green-400">Configurée</span>
+              </div>
+
+              {usage.fal.usage ? (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <StatCard
+                      icon={DollarSign}
+                      label="Coût total (30j)"
+                      value={`$${usage.fal.usage.totalCost.toFixed(2)}`}
+                      color="bg-yellow-500/20 text-yellow-400"
+                    />
+                    <StatCard
+                      icon={Zap}
+                      label="Requêtes"
+                      value={usage.fal.usage.totalRequests.toString()}
+                      color="bg-purple-500/20 text-purple-400"
+                    />
+                    <StatCard
+                      icon={Hash}
+                      label="Endpoints"
+                      value={Object.keys(usage.fal.usage.byEndpoint).length.toString()}
+                      color="bg-blue-500/20 text-blue-400"
+                    />
+                  </div>
+
+                  {/* By endpoint breakdown */}
+                  {Object.keys(usage.fal.usage.byEndpoint).length > 0 && (
+                    <div className="space-y-2">
+                      <div className="text-sm font-medium text-slate-300">Coût par endpoint</div>
+                      {Object.entries(usage.fal.usage.byEndpoint)
+                        .sort(([, a], [, b]) => b.cost - a.cost)
+                        .map(([endpoint, data]) => (
+                          <div key={endpoint} className="flex items-center justify-between text-sm p-2 rounded bg-slate-900/50">
+                            <span className="text-slate-300 truncate max-w-[200px]">{endpoint}</span>
+                            <div className="flex items-center gap-4">
+                              <span className="text-slate-500 text-xs">
+                                {data.requests} requêtes
+                              </span>
+                              <span className="text-yellow-400 font-medium">
+                                ${data.cost.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-sm text-slate-500 bg-slate-900/50 p-3 rounded">
+                  <p>Aucune donnée d'usage disponible pour les 30 derniers jours.</p>
+                </div>
+              )}
+
+              <a
+                href="https://fal.ai/dashboard/billing"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm text-purple-400 hover:text-purple-300"
+              >
+                <ExternalLink className="w-3 h-3" />
+                Voir le billing sur fal.ai
+              </a>
+            </>
+          ) : usage?.fal?.status === 'error' ? (
+            <div className="text-sm text-red-400">{usage.fal.error}</div>
+          ) : (
+            <div className="text-sm text-slate-500">
+              Ajoutez <code className="text-purple-400">AI_FAL_KEY</code> dans .env.local
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ========== REPLICATE ========== */}
+      <Card className="bg-slate-800/50 border-white/10">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-white flex items-center gap-2">
+              <ImageIcon className="w-5 h-5 text-blue-400" />
+              Replicate
+            </CardTitle>
+            <StatusBadge status={usage?.replicate?.status || 'not_configured'} />
+          </div>
+          <p className="text-sm text-slate-400">
+            Génération d'images pour la bibliothèque (fallback)
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {usage?.replicate?.status === 'connected' && usage.replicate.account ? (
+            <>
+              <div className="flex items-center gap-2 text-sm">
+                <Key className="w-4 h-4 text-slate-500" />
+                <span className="text-slate-400">Compte:</span>
+                <span className="text-white">{usage.replicate.account.username}</span>
+                <span className="text-xs text-slate-500">({usage.replicate.account.type})</span>
+              </div>
+
+              {usage.replicate.stats && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <StatCard
+                      icon={DollarSign}
+                      label="Coût estimé"
+                      value={`$${usage.replicate.stats.estimatedCost.toFixed(2)}`}
+                      subValue="100 dernières"
+                      color="bg-yellow-500/20 text-yellow-400"
+                    />
+                    <StatCard
+                      icon={Zap}
+                      label="Prédictions"
+                      value={usage.replicate.stats.totalPredictions.toString()}
+                      subValue={`${usage.replicate.stats.successfulPredictions} réussies`}
+                      color="bg-green-500/20 text-green-400"
+                    />
+                    <StatCard
+                      icon={Clock}
+                      label="Temps GPU"
+                      value={`${usage.replicate.stats.totalGpuTime.toFixed(0)}s`}
+                      color="bg-purple-500/20 text-purple-400"
+                    />
+                    <StatCard
+                      icon={TrendingUp}
+                      label="Modèles"
+                      value={Object.keys(usage.replicate.stats.byModel).length.toString()}
+                      color="bg-blue-500/20 text-blue-400"
+                    />
+                  </div>
+
+                  {/* By model breakdown */}
+                  <div className="space-y-2">
+                    <div className="text-sm font-medium text-slate-300">Coût par modèle</div>
+                    {Object.entries(usage.replicate.stats.byModel)
+                      .sort(([, a], [, b]) => b.cost - a.cost)
+                      .map(([model, data]) => (
+                        <div key={model} className="flex items-center justify-between text-sm p-2 rounded bg-slate-900/50">
+                          <span className="text-slate-300 truncate max-w-[200px]">{model}</span>
+                          <div className="flex items-center gap-4">
+                            <span className="text-slate-500 text-xs">
+                              {data.count} images • {data.gpuTime.toFixed(1)}s GPU
+                            </span>
+                            <span className="text-yellow-400 font-medium">
+                              ${data.cost.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
+              <a
+                href="https://replicate.com/account/billing"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300"
+              >
+                <ExternalLink className="w-3 h-3" />
+                Voir le billing sur replicate.com
+              </a>
+            </>
+          ) : usage?.replicate?.status === 'error' ? (
+            <div className="text-sm text-red-400">{usage.replicate.error}</div>
+          ) : (
+            <div className="text-sm text-slate-500">
+              Ajoutez <code className="text-blue-400">AI_REPLICATE_KEY</code> dans .env.local
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Environment Variables Guide */}
       <Card className="bg-slate-800/50 border-white/10">
@@ -461,26 +481,33 @@ export default function SettingsPage() {
           <CardTitle className="text-white text-base">Variables d'environnement</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="space-y-3 font-mono text-sm">
-            <div className="flex items-start gap-2">
-              <span className="text-slate-500">#</span>
-              <span className="text-slate-400">Replicate (génération d'images)</span>
-            </div>
-            <div className="bg-slate-900/50 p-2 rounded text-green-400">
-              AI_REPLICATE_KEY=r8_xxxxx
+          <div className="space-y-4 font-mono text-sm">
+            <div>
+              <div className="text-slate-400 mb-1"># Claude (requis)</div>
+              <div className="bg-slate-900/50 p-2 rounded text-green-400">
+                AI_CLAUDE_KEY=sk-ant-api03-xxxxx
+              </div>
+              <div className="bg-slate-900/50 p-2 rounded text-orange-400 mt-1">
+                AI_CLAUDE_ADMIN_KEY=sk-ant-admin-xxxxx <span className="text-slate-500"># optionnel, pour stats</span>
+              </div>
             </div>
 
-            <div className="flex items-start gap-2 mt-4">
-              <span className="text-slate-500">#</span>
-              <span className="text-slate-400">Anthropic Claude (script, traduction)</span>
+            <div>
+              <div className="text-slate-400 mb-1"># Replicate (génération images)</div>
+              <div className="bg-slate-900/50 p-2 rounded text-blue-400">
+                AI_REPLICATE_KEY=r8_xxxxx
+              </div>
             </div>
-            <div className="bg-slate-900/50 p-2 rounded text-green-400">
-              AI_CLAUDE_KEY=sk-ant-api03-xxxxx
+
+            <div>
+              <div className="text-slate-400 mb-1"># fal.ai (génération vidéos Kling)</div>
+              <div className="bg-slate-900/50 p-2 rounded text-purple-400">
+                AI_FAL_KEY=xxxxx
+              </div>
             </div>
           </div>
         </CardContent>
       </Card>
-
     </div>
   );
 }

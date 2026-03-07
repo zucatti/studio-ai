@@ -17,6 +17,7 @@ import {
   Sun,
   Moon,
   X,
+  Frame,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -50,6 +51,7 @@ const projectNavigation: NavSection = {
     { name: 'Script', href: '/script', icon: FileText },
     { name: 'Storyboard', href: '/storyboard', icon: ImageIcon },
     { name: 'Bibliothèque', href: '/library', icon: Layers },
+    { name: 'Préprod', href: '/preprod', icon: Frame },
     { name: 'Production', href: '/production', icon: PlayCircle },
   ],
 };
