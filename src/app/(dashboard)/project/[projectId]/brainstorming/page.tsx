@@ -39,9 +39,9 @@ export default function BrainstormingPage() {
     }
   };
 
-  const handleGenerateScript = async () => {
+  const handleGenerateSynopsis = async () => {
     if (!projectId || !content.trim()) {
-      setGenerationError('Ajoutez du contenu au brainstorming avant de générer le script.');
+      setGenerationError('Ajoutez du contenu au brainstorming avant de générer le synopsis.');
       return;
     }
 
@@ -54,7 +54,7 @@ export default function BrainstormingPage() {
     setGenerationError(null);
 
     try {
-      const res = await fetch(`/api/projects/${projectId}/generate-script`, {
+      const res = await fetch(`/api/projects/${projectId}/generate-synopsis`, {
         method: 'POST',
       });
 
@@ -64,8 +64,8 @@ export default function BrainstormingPage() {
         throw new Error(data.error || 'Erreur lors de la génération');
       }
 
-      // Redirect to script page
-      router.push(`/project/${projectId}/script`);
+      // Redirect to synopsis page
+      router.push(`/project/${projectId}/synopsis`);
     } catch (error) {
       setGenerationError(error instanceof Error ? error.message : 'Erreur inconnue');
     } finally {
@@ -178,10 +178,10 @@ Quel style visuel souhaitez-vous ?"
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-sm text-slate-300">
-              Transformez votre brainstorming en script professionnel formaté avec Claude AI.
+              Transformez votre brainstorming en synopsis structuré avec Claude AI.
             </p>
             <p className="text-xs text-slate-400">
-              Le script sera automatiquement découpé en scènes et plans, prêt pour le storyboard.
+              Le synopsis sera découpé en scènes narratives, prêt pour le repérage et le script détaillé.
             </p>
             {generationError && (
               <p className="text-sm text-red-400 bg-red-500/10 p-2 rounded">
@@ -189,7 +189,7 @@ Quel style visuel souhaitez-vous ?"
               </p>
             )}
             <Button
-              onClick={handleGenerateScript}
+              onClick={handleGenerateSynopsis}
               disabled={isGenerating || !content.trim()}
               className="w-full bg-blue-600 hover:bg-blue-700 text-white"
             >
@@ -201,7 +201,7 @@ Quel style visuel souhaitez-vous ?"
               ) : (
                 <>
                   <Wand2 className="w-4 h-4 mr-2" />
-                  Générer le script
+                  Générer le synopsis
                 </>
               )}
             </Button>

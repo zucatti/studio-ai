@@ -88,6 +88,12 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       'video_provider',
       'video_duration',
       'generation_status',
+      // Audio timeline fields
+      'start_time',
+      'end_time',
+      'has_vocals',
+      'lip_sync_enabled',
+      'singing_character_id',
     ];
 
     const updates: Record<string, any> = {};
@@ -117,6 +123,53 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     console.error('Error updating shot:', error);
     return NextResponse.json(
       { error: 'Failed to update shot: ' + String(error) },
+      { status: 500 }
+    );
+  }
+}
+
+// DELETE - delete a shot
+export async function DELETE(request: Request, { params }: RouteParams) {
+  try {
+    const session = await auth0.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { projectId, shotId } = await params;
+    const supabase = createServerSupabaseClient();
+
+    // Verify project ownership
+    const { data: project } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', session.user.sub)
+      .single();
+
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // Delete related data first (dialogues, actions)
+    await supabase.from('dialogues').delete().eq('shot_id', shotId);
+    await supabase.from('actions').delete().eq('shot_id', shotId);
+
+    // Delete the shot
+    const { error } = await supabase
+      .from('shots')
+      .delete()
+      .eq('id', shotId);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting shot:', error);
+    return NextResponse.json(
+      { error: 'Failed to delete shot: ' + String(error) },
       { status: 500 }
     );
   }

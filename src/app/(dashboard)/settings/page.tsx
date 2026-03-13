@@ -20,7 +20,10 @@ import {
   Clock,
   Hash,
   TrendingUp,
+  Camera,
+  ChevronRight,
 } from 'lucide-react';
+import Link from 'next/link';
 
 interface ClaudeUsageData {
   totalInputTokens: number;
@@ -472,6 +475,51 @@ export default function SettingsPage() {
               Ajoutez <code className="text-blue-400">AI_REPLICATE_KEY</code> dans .env.local
             </div>
           )}
+        </CardContent>
+      </Card>
+
+      {/* Camera Movements */}
+      <Card className="bg-slate-800/50 border-white/10">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-white flex items-center gap-2">
+              <Camera className="w-5 h-5 text-cyan-400" />
+              Mouvements de Caméra
+            </CardTitle>
+            <Link
+              href="/settings/camera-movements"
+              className="flex items-center gap-1 text-sm text-blue-400 hover:text-blue-300"
+            >
+              Voir tout
+              <ChevronRight className="w-4 h-4" />
+            </Link>
+          </div>
+          <p className="text-sm text-slate-400">
+            38 mouvements de caméra professionnels avec descriptions et modèles de prompts
+          </p>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-4 gap-3 text-center">
+            <div className="p-3 bg-slate-900/50 rounded-lg">
+              <div className="text-lg font-bold text-white">6</div>
+              <div className="text-xs text-slate-500">Dolly</div>
+            </div>
+            <div className="p-3 bg-slate-900/50 rounded-lg">
+              <div className="text-lg font-bold text-white">5</div>
+              <div className="text-xs text-slate-500">Zoom</div>
+            </div>
+            <div className="p-3 bg-slate-900/50 rounded-lg">
+              <div className="text-lg font-bold text-white">5</div>
+              <div className="text-xs text-slate-500">Drone</div>
+            </div>
+            <div className="p-3 bg-slate-900/50 rounded-lg">
+              <div className="text-lg font-bold text-white">4</div>
+              <div className="text-xs text-slate-500">Tracking</div>
+            </div>
+          </div>
+          <p className="text-xs text-slate-500 mt-3">
+            Générez des aperçus vidéo pour visualiser chaque mouvement
+          </p>
         </CardContent>
       </Card>
 

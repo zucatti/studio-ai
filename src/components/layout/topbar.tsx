@@ -14,6 +14,7 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { useEffect, useState } from 'react';
 import { useSidebarStore } from '@/store/sidebar-store';
+import { BibleToggleButton } from '@/components/bible/BibleSidebar';
 
 interface Project {
   id: string;
@@ -57,8 +58,9 @@ export function Topbar() {
   const getCurrentStep = () => {
     if (pathname.includes('/brainstorming')) return 'Brainstorming';
     if (pathname.includes('/script')) return 'Script';
+    if (pathname.includes('/decoupage')) return 'Decoupage';
     if (pathname.includes('/storyboard')) return 'Storyboard';
-    if (pathname.includes('/library')) return 'Bibliothèque';
+    if (pathname.includes('/preprod')) return 'Preprod';
     if (pathname.includes('/production')) return 'Production';
     return null;
   };
@@ -104,6 +106,9 @@ export function Topbar() {
 
       {/* Right side */}
       <div className="flex items-center gap-2 ml-auto">
+        {/* Bible toggle - only show in project context */}
+        {project && <BibleToggleButton />}
+
         <Button
           variant="ghost"
           size="icon"

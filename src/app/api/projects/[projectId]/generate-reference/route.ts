@@ -1,72 +1,65 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import Replicate from 'replicate';
 import Anthropic from '@anthropic-ai/sdk';
 
 interface RouteParams {
   params: Promise<{ projectId: string }>;
 }
 
-// Style configurations
+// Style configurations for fal.ai
 const STYLE_CONFIG: Record<string, {
-  model: string;
   promptPrefix: string;
   promptSuffix: string;
-  negativePrompt: string;
+  renderingSpeed: 'TURBO' | 'BALANCED' | 'QUALITY';
+  ideogramStyle: 'AUTO' | 'REALISTIC' | 'FICTION';
 }> = {
   photorealistic: {
-    model: 'black-forest-labs/flux-1.1-pro',
     promptPrefix: 'photorealistic, cinematic still, professional photography, 8k uhd, ',
-    promptSuffix: ', highly detailed, sharp focus, cinematic lighting, film grain',
-    negativePrompt: 'cartoon, anime, drawing, painting, illustration, low quality, blurry',
+    promptSuffix: ', highly detailed, sharp focus, cinematic lighting',
+    renderingSpeed: 'QUALITY',
+    ideogramStyle: 'REALISTIC',
   },
   cartoon: {
-    model: 'stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc',
     promptPrefix: 'pixar style, disney animation, 3d cartoon character, vibrant colors, ',
     promptSuffix: ', stylized, expressive, professional animation quality',
-    negativePrompt: 'photorealistic, photo, realistic, dark, gritty, horror',
+    renderingSpeed: 'BALANCED',
+    ideogramStyle: 'FICTION',
   },
   anime: {
-    model: 'stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc',
     promptPrefix: 'anime style, japanese animation, studio ghibli inspired, ',
     promptSuffix: ', detailed anime artwork, cel shaded, vibrant',
-    negativePrompt: 'photorealistic, photo, realistic, western cartoon, 3d render',
+    renderingSpeed: 'BALANCED',
+    ideogramStyle: 'FICTION',
   },
   cyberpunk: {
-    model: 'stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc',
     promptPrefix: 'cyberpunk style, neon lights, futuristic, blade runner aesthetic, ',
-    promptSuffix: ', high tech, dystopian, rain, reflections, cinematic',
-    negativePrompt: 'medieval, fantasy, natural, bright daylight, cheerful',
+    promptSuffix: ', high tech, dystopian, cinematic',
+    renderingSpeed: 'QUALITY',
+    ideogramStyle: 'REALISTIC',
   },
   noir: {
-    model: 'stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc',
     promptPrefix: 'film noir style, black and white, high contrast, dramatic shadows, ',
     promptSuffix: ', 1940s aesthetic, moody, atmospheric, cinematic',
-    negativePrompt: 'colorful, bright, cheerful, modern, cartoon',
+    renderingSpeed: 'QUALITY',
+    ideogramStyle: 'REALISTIC',
   },
   watercolor: {
-    model: 'stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc',
     promptPrefix: 'watercolor painting, artistic, soft edges, flowing colors, ',
     promptSuffix: ', traditional art, painterly, delicate brushstrokes',
-    negativePrompt: 'photorealistic, sharp, digital art, 3d render, cartoon',
+    renderingSpeed: 'BALANCED',
+    ideogramStyle: 'FICTION',
   },
-};
-
-// Aspect ratios per entity type
-// Characters: 9:16 (portrait), Props/Locations: 16:9 (landscape)
-const ASPECT_RATIOS: Record<string, { flux: string; sdxlWidth: number; sdxlHeight: number }> = {
-  character: { flux: '9:16', sdxlWidth: 768, sdxlHeight: 1344 },
-  prop: { flux: '16:9', sdxlWidth: 1344, sdxlHeight: 768 },
-  location: { flux: '16:9', sdxlWidth: 1344, sdxlHeight: 768 },
 };
 
 // Character view configurations for multi-view generation
 const CHARACTER_VIEWS = [
-  { name: 'front', prompt: 'front view, facing camera, full body portrait' },
-  { name: 'profile', prompt: 'side profile view, looking left, full body portrait' },
-  { name: 'back', prompt: 'back view, facing away from camera, full body portrait' },
+  { name: 'front', perspective: 'front' as const },
+  { name: 'profile', perspective: 'three_quarter_right' as const },
+  { name: 'back', perspective: 'back' as const },
 ];
+
+type PerspectiveTarget = 'front' | 'left_side' | 'right_side' | 'back' | 'top_down' | 'bottom_up' | 'birds_eye' | 'three_quarter_left' | 'three_quarter_right';
 
 // Translate and optimize prompt using Claude
 async function optimizePrompt(
@@ -83,7 +76,7 @@ async function optimizePrompt(
   });
 
   const typeInstructions = {
-    character: 'Focus on the person: face, body type, clothing, pose. Use portrait or full body framing.',
+    character: 'Focus on the person: face, body type, clothing, pose. Use portrait or full body framing. Be very specific about facial features, hair, and distinguishing characteristics.',
     prop: 'Focus on the object: shape, materials, textures, details. Use product photography style.',
     location: 'Focus on the environment: architecture, atmosphere, lighting, depth. Use wide establishing shot.',
   };
@@ -105,10 +98,11 @@ French description:
 
 Rules:
 - Translate to English
-- Keep it concise (max 40 words)
+- Keep it concise (max 50 words)
 - Focus on visual elements only
 - Do NOT include style keywords (they will be added separately)
-- Be specific about visual details
+- Be VERY specific about visual details, especially for faces
+- For characters: include specific details about face shape, eye color, hair style/color, skin tone, age appearance
 
 Return ONLY the optimized English prompt, nothing else.`,
       },
@@ -203,12 +197,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Check API key
-    if (!process.env.AI_REPLICATE_KEY) {
-      return NextResponse.json({ error: 'Replicate API key not configured' }, { status: 500 });
+    if (!process.env.AI_FAL_KEY) {
+      return NextResponse.json({ error: 'fal.ai API key not configured (AI_FAL_KEY)' }, { status: 500 });
     }
 
     // Update status to generating with progress info
-    const totalImages = (multiView && entityType === 'character') ? 3 : 1;
+    const totalImages = useMultiView ? 3 : 1;
     await supabase
       .from(tableName)
       .update({
@@ -224,86 +218,29 @@ export async function POST(request: Request, { params }: RouteParams) {
       entityType,
       style
     );
+    console.log(`Optimized description: ${optimizedDescription}`);
 
-    // Get aspect ratio for entity type
-    const aspectRatio = ASPECT_RATIOS[entityType] || ASPECT_RATIOS.character;
-
-    // Initialize Replicate
-    const replicate = new Replicate({
-      auth: process.env.AI_REPLICATE_KEY,
+    // Initialize fal.ai
+    const { fal } = await import('@fal-ai/client');
+    fal.config({
+      credentials: process.env.AI_FAL_KEY,
     });
 
-    // Helper to extract URL from FileOutput or other formats
-    const extractUrl = (item: unknown): string | null => {
-      if (!item) return null;
-      if (typeof item === 'string' && item.startsWith('http')) {
-        return item;
+    // Helper to upload image to fal.ai storage (required for reference images)
+    const uploadToFalStorage = async (imageUrl: string): Promise<string> => {
+      // If already on fal.ai, return as-is
+      if (imageUrl.includes('fal.media') || imageUrl.includes('fal-cdn')) {
+        return imageUrl;
       }
-      if (typeof item === 'object') {
-        const obj = item as Record<string, unknown>;
-        if (typeof obj.url === 'function') {
-          try {
-            const urlObj = (obj.url as () => URL)();
-            if (urlObj && urlObj.href) return urlObj.href;
-          } catch (e) {
-            console.error('Error calling url():', e);
-          }
-        }
-        if (typeof obj.href === 'string') return obj.href;
-        if (typeof obj.url === 'string') return obj.url;
+      console.log(`Uploading to fal.ai storage: ${imageUrl}`);
+      const response = await fetch(imageUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch image for fal.ai upload: ${response.status}`);
       }
-      return null;
-    };
-
-    // Helper to wait
-    const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-    // Helper to generate a single image with retry on 429
-    const generateSingleImage = async (prompt: string, retries = 3): Promise<string | null> => {
-      for (let attempt = 0; attempt < retries; attempt++) {
-        try {
-          let output: unknown;
-
-          if (style === 'photorealistic') {
-            output = await replicate.run(styleConfig.model as `${string}/${string}`, {
-              input: {
-                prompt,
-                aspect_ratio: aspectRatio.flux,
-                output_format: 'webp',
-                output_quality: 90,
-              },
-            });
-          } else {
-            output = await replicate.run(styleConfig.model as `${string}/${string}:${string}`, {
-              input: {
-                prompt,
-                negative_prompt: styleConfig.negativePrompt,
-                width: aspectRatio.sdxlWidth,
-                height: aspectRatio.sdxlHeight,
-                num_outputs: 1,
-                scheduler: 'K_EULER',
-                num_inference_steps: 30,
-                guidance_scale: 7.5,
-              },
-            });
-          }
-
-          const outputItem = Array.isArray(output) ? output[0] : output;
-          return extractUrl(outputItem);
-        } catch (error: unknown) {
-          const err = error as { status?: number; message?: string };
-          const isRateLimit = err.status === 429 || (err.message && err.message.includes('429'));
-
-          if (isRateLimit && attempt < retries - 1) {
-            const delay = Math.pow(2, attempt + 1) * 1000; // 2s, 4s, 8s
-            console.log(`Rate limited, waiting ${delay}ms before retry ${attempt + 2}/${retries}`);
-            await wait(delay);
-            continue;
-          }
-          throw error;
-        }
-      }
-      return null;
+      const blob = await response.blob();
+      const uploaded = await fal.storage.upload(blob);
+      console.log(`Uploaded to fal.ai: ${uploaded}`);
+      return uploaded;
     };
 
     // Helper to upload image to Supabase
@@ -335,46 +272,249 @@ export async function POST(request: Request, { params }: RouteParams) {
     try {
       const uploadedUrls: string[] = [];
 
-      if (useMultiView) {
-        // Generate 3 views for characters: front, profile, back
-        console.log(`Generating multi-view (3 images) for character: ${entity.name}`);
+      if (useMultiView && entityType === 'character') {
+        // =========================================================
+        // CHARACTER MULTI-VIEW GENERATION WITH CONSISTENCY
+        // Step 1: Generate front view with Ideogram Character
+        // Step 2: Use Perspective Change to generate other views
+        // =========================================================
 
-        for (let i = 0; i < CHARACTER_VIEWS.length; i++) {
-          const view = CHARACTER_VIEWS[i];
+        console.log(`=== Generating multi-view for character: ${entity.name} ===`);
 
-          // Add delay between generations to avoid rate limits
-          if (i > 0) {
-            console.log('Waiting 1.5s before next generation...');
-            await wait(1500);
+        // Step 1: Generate the front view using Ideogram V3 Character
+        console.log('Step 1: Generating front view with Ideogram V3 Character...');
+        const frontPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, front view, facing camera, full body portrait, standing pose${styleConfig.promptSuffix}`;
+        console.log('Front prompt:', frontPrompt);
+
+        let frontImageUrl: string;
+
+        // Check if character already has a reference image to use for consistency
+        const existingRef = entity.reference_images?.[0];
+
+        if (existingRef) {
+          // Use existing reference for consistency with Ideogram Character
+          console.log('Using existing reference image for consistency:', existingRef);
+
+          // Upload existing reference to fal.ai storage
+          const falExistingRef = await uploadToFalStorage(existingRef);
+
+          const frontResult = await fal.subscribe('fal-ai/ideogram/character', {
+            input: {
+              prompt: frontPrompt,
+              reference_image_urls: [falExistingRef],
+              rendering_speed: styleConfig.renderingSpeed,
+              style: styleConfig.ideogramStyle,
+              image_size: 'portrait_4_3',
+              num_images: 1,
+            } as any,
+            logs: true,
+          });
+
+          frontImageUrl = (frontResult.data as any)?.images?.[0]?.url;
+        } else {
+          // Generate new front view with Flux Pro (high quality base)
+          console.log('No existing reference, generating new front view with Flux Pro...');
+
+          const fluxResult = await fal.subscribe('fal-ai/flux-pro/v1.1', {
+            input: {
+              prompt: frontPrompt,
+              image_size: 'portrait_4_3',
+              num_images: 1,
+            },
+            logs: true,
+          });
+
+          frontImageUrl = (fluxResult.data as any)?.images?.[0]?.url;
+        }
+
+        if (!frontImageUrl) {
+          throw new Error('Failed to generate front view');
+        }
+
+        console.log('Front view generated:', frontImageUrl);
+
+        // Upload front view
+        const frontPublicUrl = await uploadImage(frontImageUrl, 'front');
+        uploadedUrls.push(frontPublicUrl);
+        console.log('Front view uploaded:', frontPublicUrl);
+
+        // Update progress
+        await supabase
+          .from(tableName)
+          .update({
+            generation_progress: JSON.stringify({ current: 1, total: 3 }),
+            reference_images: uploadedUrls,
+          })
+          .eq('id', entityId);
+
+        // Step 2: Generate profile and back views using Perspective Change
+        // This ensures consistency as the views are derived from the front view
+        const perspectiveViews: { name: string; target: PerspectiveTarget }[] = [
+          { name: 'profile', target: 'three_quarter_right' },
+          { name: 'back', target: 'back' },
+        ];
+
+        for (let i = 0; i < perspectiveViews.length; i++) {
+          const view = perspectiveViews[i];
+          console.log(`Step ${i + 2}: Generating ${view.name} view with Perspective Change...`);
+
+          try {
+            // Upload front image to fal.ai storage if needed
+            const falFrontImageUrl = await uploadToFalStorage(frontImageUrl);
+
+            const perspectiveResult = await fal.subscribe('fal-ai/image-apps-v2/perspective', {
+              input: {
+                image_url: falFrontImageUrl,
+                target_perspective: view.target,
+                aspect_ratio: { ratio: '3:4' }, // Portrait aspect ratio (object format required)
+              } as any,
+              logs: true,
+            });
+
+            const viewImageUrl = (perspectiveResult.data as any)?.images?.[0]?.url;
+
+            if (!viewImageUrl) {
+              console.error(`Failed to generate ${view.name} view, falling back to Ideogram...`);
+              // Fallback: use Ideogram Character with front view as reference
+              const fallbackResult = await fal.subscribe('fal-ai/ideogram/character', {
+                input: {
+                  prompt: `${styleConfig.promptPrefix}${optimizedDescription}, ${view.name} view, ${view.target === 'back' ? 'facing away from camera, back of head visible' : 'side profile, looking to the side'}, full body portrait${styleConfig.promptSuffix}`,
+                  reference_image_urls: [falFrontImageUrl],
+                  rendering_speed: styleConfig.renderingSpeed,
+                  style: styleConfig.ideogramStyle,
+                  image_size: 'portrait_4_3',
+                  num_images: 1,
+                } as any,
+                logs: true,
+              });
+
+              const fallbackUrl = (fallbackResult.data as any)?.images?.[0]?.url;
+              if (fallbackUrl) {
+                const publicUrl = await uploadImage(fallbackUrl, view.name);
+                uploadedUrls.push(publicUrl);
+                console.log(`${view.name} view (fallback) uploaded:`, publicUrl);
+              } else {
+                throw new Error(`Failed to generate ${view.name} view`);
+              }
+            } else {
+              const publicUrl = await uploadImage(viewImageUrl, view.name);
+              uploadedUrls.push(publicUrl);
+              console.log(`${view.name} view uploaded:`, publicUrl);
+            }
+          } catch (perspectiveError) {
+            console.error(`Perspective change failed for ${view.name}:`, perspectiveError);
+
+            // Fallback to Ideogram Character
+            console.log(`Falling back to Ideogram Character for ${view.name}...`);
+            const falFrontImageUrlFallback = await uploadToFalStorage(frontImageUrl);
+            const fallbackResult = await fal.subscribe('fal-ai/ideogram/character', {
+              input: {
+                prompt: `${styleConfig.promptPrefix}${optimizedDescription}, ${view.name} view, ${view.target === 'back' ? 'facing away from camera, back of head visible, rear view' : 'side profile view, looking to the side, 3/4 view'}, full body portrait${styleConfig.promptSuffix}`,
+                reference_image_urls: [falFrontImageUrlFallback],
+                rendering_speed: styleConfig.renderingSpeed,
+                style: styleConfig.ideogramStyle,
+                image_size: 'portrait_4_3',
+                num_images: 1,
+              } as any,
+              logs: true,
+            });
+
+            const fallbackUrl = (fallbackResult.data as any)?.images?.[0]?.url;
+            if (fallbackUrl) {
+              const publicUrl = await uploadImage(fallbackUrl, view.name);
+              uploadedUrls.push(publicUrl);
+              console.log(`${view.name} view (fallback) uploaded:`, publicUrl);
+            } else {
+              throw new Error(`Failed to generate ${view.name} view with fallback`);
+            }
           }
-
-          const viewPrompt = styleConfig.promptPrefix + optimizedDescription + ', ' + view.prompt + styleConfig.promptSuffix;
-          console.log(`Generating ${view.name} view:`, viewPrompt);
-
-          const imageUrl = await generateSingleImage(viewPrompt);
-          if (!imageUrl) {
-            throw new Error(`Failed to generate ${view.name} view`);
-          }
-
-          const publicUrl = await uploadImage(imageUrl, view.name);
-          uploadedUrls.push(publicUrl);
-          console.log(`Uploaded ${view.name} view:`, publicUrl);
 
           // Update progress
           await supabase
             .from(tableName)
             .update({
-              generation_progress: JSON.stringify({ current: i + 1, total: CHARACTER_VIEWS.length }),
-              reference_images: uploadedUrls, // Save partial results
+              generation_progress: JSON.stringify({ current: i + 2, total: 3 }),
+              reference_images: uploadedUrls,
             })
             .eq('id', entityId);
         }
-      } else {
-        // Single image generation
-        const fullPrompt = styleConfig.promptPrefix + optimizedDescription + styleConfig.promptSuffix;
-        console.log('Full prompt:', fullPrompt);
 
-        const imageUrl = await generateSingleImage(fullPrompt);
+      } else if (entityType === 'character') {
+        // =========================================================
+        // SINGLE CHARACTER IMAGE
+        // =========================================================
+        console.log(`=== Generating single view for character: ${entity.name} ===`);
+
+        const fullPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, front view, facing camera, full body portrait${styleConfig.promptSuffix}`;
+        console.log('Prompt:', fullPrompt);
+
+        // Check for existing reference
+        const existingRef = entity.reference_images?.[0];
+
+        let imageUrl: string;
+
+        if (existingRef) {
+          // Regenerate with consistency using Ideogram Character
+          console.log('Using existing reference for consistency...');
+
+          // Upload to fal.ai storage first
+          const falExistingRef = await uploadToFalStorage(existingRef);
+
+          const result = await fal.subscribe('fal-ai/ideogram/character', {
+            input: {
+              prompt: fullPrompt,
+              reference_image_urls: [falExistingRef],
+              rendering_speed: styleConfig.renderingSpeed,
+              style: styleConfig.ideogramStyle,
+              image_size: 'portrait_4_3',
+              num_images: 1,
+            } as any,
+            logs: true,
+          });
+          imageUrl = (result.data as any)?.images?.[0]?.url;
+        } else {
+          // Generate new with Flux Pro
+          console.log('Generating new character with Flux Pro...');
+          const result = await fal.subscribe('fal-ai/flux-pro/v1.1', {
+            input: {
+              prompt: fullPrompt,
+              image_size: 'portrait_4_3',
+              num_images: 1,
+            },
+            logs: true,
+          });
+          imageUrl = (result.data as any)?.images?.[0]?.url;
+        }
+
+        if (!imageUrl) {
+          throw new Error('No image generated');
+        }
+
+        const publicUrl = await uploadImage(imageUrl, 'main');
+        uploadedUrls.push(publicUrl);
+
+      } else {
+        // =========================================================
+        // PROPS AND LOCATIONS (non-character)
+        // =========================================================
+        console.log(`=== Generating image for ${entityType}: ${entity.name} ===`);
+
+        const fullPrompt = `${styleConfig.promptPrefix}${optimizedDescription}${styleConfig.promptSuffix}`;
+        console.log('Prompt:', fullPrompt);
+
+        // Use Flux Pro for props and locations
+        const aspectRatio = entityType === 'location' ? 'landscape_16_9' : 'square_hd';
+
+        const result = await fal.subscribe('fal-ai/flux-pro/v1.1', {
+          input: {
+            prompt: fullPrompt,
+            image_size: aspectRatio,
+            num_images: 1,
+          },
+          logs: true,
+        });
+
+        const imageUrl = (result.data as any)?.images?.[0]?.url;
         if (!imageUrl) {
           throw new Error('No image generated');
         }
@@ -399,7 +539,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({
         success: true,
         imageUrls: uploadedUrls,
-        imageUrl: uploadedUrls[0], // For backwards compatibility
+        imageUrl: uploadedUrls[0],
         entity: entity.name,
         multiView: useMultiView,
       });

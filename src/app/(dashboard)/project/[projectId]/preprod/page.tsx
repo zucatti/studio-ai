@@ -84,6 +84,18 @@ interface DurationSuggestion {
   reasoning: string;
 }
 
+// Visual styles for frame generation
+const VISUAL_STYLES = [
+  { value: 'photorealistic', label: 'Photoréaliste', description: 'Cinématique haute qualité' },
+  { value: 'cartoon', label: 'Cartoon', description: 'Style dessin animé coloré' },
+  { value: 'anime', label: 'Anime', description: 'Style anime japonais' },
+  { value: 'illustration', label: 'Illustration', description: 'Illustration artistique' },
+  { value: 'pixar', label: 'Pixar 3D', description: 'Style Pixar/Disney 3D' },
+  { value: 'watercolor', label: 'Aquarelle', description: 'Peinture aquarelle' },
+  { value: 'oil_painting', label: 'Peinture à l\'huile', description: 'Style peinture classique' },
+  { value: 'noir', label: 'Film Noir', description: 'Noir et blanc dramatique' },
+] as const;
+
 // Map legacy providers to new ones
 const mapProvider = (provider: string | null | undefined): string => {
   const legacyMap: Record<string, string> = {
@@ -106,6 +118,7 @@ export default function PreprodPage() {
   const [suggestingDurations, setSuggestingDurations] = useState(false);
   const [expandedShots, setExpandedShots] = useState<Set<string>>(new Set());
   const [videoModal, setVideoModal] = useState<{ url: string; shotNumber: number } | null>(null);
+  const [visualStyle, setVisualStyle] = useState<string>('photorealistic');
 
   const fetchShots = useCallback(async () => {
     try {
@@ -198,7 +211,7 @@ export default function PreprodPage() {
       const res = await fetch(`/api/projects/${projectId}/shots/${shotId}/generate-frames`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ frameType }),
+        body: JSON.stringify({ frameType, visualStyle }),
       });
 
       clearInterval(pollInterval);
@@ -406,18 +419,39 @@ export default function PreprodPage() {
           <Frame className="w-5 h-5" />
           <h2 className="text-xl font-semibold">Préproduction</h2>
         </div>
-        <Button
-          variant="outline"
-          onClick={handleSuggestDurations}
-          disabled={suggestingDurations}
-        >
-          {suggestingDurations ? (
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-          ) : (
-            <Clock className="w-4 h-4 mr-2" />
-          )}
-          Suggérer les durées
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Visual Style Selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Style :</span>
+            <Select value={visualStyle} onValueChange={setVisualStyle}>
+              <SelectTrigger className="w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {VISUAL_STYLES.map((style) => (
+                  <SelectItem key={style.value} value={style.value}>
+                    <div className="flex flex-col">
+                      <span>{style.label}</span>
+                      <span className="text-xs text-muted-foreground">{style.description}</span>
+                    </div>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <Button
+            variant="outline"
+            onClick={handleSuggestDurations}
+            disabled={suggestingDurations}
+          >
+            {suggestingDurations ? (
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+            ) : (
+              <Clock className="w-4 h-4 mr-2" />
+            )}
+            Suggérer les durées
+          </Button>
+        </div>
       </div>
 
       {/* Stats */}

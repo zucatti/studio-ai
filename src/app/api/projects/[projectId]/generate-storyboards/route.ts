@@ -1,18 +1,152 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import Replicate from 'replicate';
+import { fal } from '@fal-ai/client';
 import Anthropic from '@anthropic-ai/sdk';
+import { generateReferenceName } from '@/lib/reference-name';
+
+// Configure fal.ai client
+fal.config({
+  credentials: process.env.AI_FAL_KEY,
+});
 
 interface RouteParams {
   params: Promise<{ projectId: string }>;
 }
 
-const STORYBOARD_STYLE_PREFIX = `single cinematic scene, pencil sketch illustration, black and white drawing, graphite on paper, hand-drawn artwork, dramatic lighting, film noir style, professional concept art, `;
+interface EntityWithImage {
+  reference: string;
+  name: string;
+  visual_description: string;
+  reference_images: string[];
+  type: 'character' | 'prop' | 'location';
+}
 
-const STORYBOARD_STYLE_SUFFIX = `, detailed linework, crosshatching shading, monochrome, grayscale, artistic sketch`;
+interface EntityMap {
+  [reference: string]: string;
+}
 
-const NEGATIVE_PROMPT = `multiple panels, grid, collage, comic strip, photograph, photorealistic, 3d render, color, colorful, vibrant, saturated, anime, cartoon, low quality, blurry, text, watermark, border, frame, split screen`;
+// Build a map of @references to visual descriptions
+async function buildEntityMap(supabase: ReturnType<typeof createServerSupabaseClient>, projectId: string): Promise<EntityMap> {
+  const entityMap: EntityMap = {};
+
+  const [charactersRes, propsRes, locationsRes] = await Promise.all([
+    supabase.from('characters').select('name, visual_description').eq('project_id', projectId),
+    supabase.from('props').select('name, visual_description').eq('project_id', projectId),
+    supabase.from('locations').select('name, visual_description').eq('project_id', projectId),
+  ]);
+
+  for (const char of charactersRes.data || []) {
+    const ref = generateReferenceName(char.name);
+    if (char.visual_description) {
+      entityMap[ref] = char.visual_description;
+    }
+  }
+
+  for (const prop of propsRes.data || []) {
+    const ref = generateReferenceName(prop.name);
+    if (prop.visual_description) {
+      entityMap[ref] = prop.visual_description;
+    }
+  }
+
+  for (const loc of locationsRes.data || []) {
+    const ref = generateReferenceName(loc.name);
+    if (loc.visual_description) {
+      entityMap[ref] = loc.visual_description;
+    }
+  }
+
+  return entityMap;
+}
+
+// Fetch all entities with their reference images
+async function fetchEntitiesWithImages(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  projectId: string
+): Promise<EntityWithImage[]> {
+  const entities: EntityWithImage[] = [];
+
+  const [charactersRes, propsRes, locationsRes] = await Promise.all([
+    supabase.from('characters').select('name, visual_description, reference_images').eq('project_id', projectId),
+    supabase.from('props').select('name, visual_description, reference_images').eq('project_id', projectId),
+    supabase.from('locations').select('name, visual_description, reference_images').eq('project_id', projectId),
+  ]);
+
+  for (const char of charactersRes.data || []) {
+    entities.push({
+      reference: generateReferenceName(char.name),
+      name: char.name,
+      visual_description: char.visual_description || '',
+      reference_images: char.reference_images || [],
+      type: 'character',
+    });
+  }
+
+  for (const prop of propsRes.data || []) {
+    entities.push({
+      reference: generateReferenceName(prop.name),
+      name: prop.name,
+      visual_description: prop.visual_description || '',
+      reference_images: prop.reference_images || [],
+      type: 'prop',
+    });
+  }
+
+  for (const loc of locationsRes.data || []) {
+    entities.push({
+      reference: generateReferenceName(loc.name),
+      name: loc.name,
+      visual_description: loc.visual_description || '',
+      reference_images: loc.reference_images || [],
+      type: 'location',
+    });
+  }
+
+  return entities;
+}
+
+// Find entities mentioned in the description
+function findMentionedEntities(description: string, entities: EntityWithImage[]): EntityWithImage[] {
+  const mentions = description.match(/@[A-Z][a-zA-Z0-9]*/g) || [];
+  const mentionedEntities: EntityWithImage[] = [];
+
+  for (const mention of mentions) {
+    const entity = entities.find(e => e.reference === mention);
+    if (entity && entity.reference_images.length > 0) {
+      mentionedEntities.push(entity);
+    }
+  }
+
+  return mentionedEntities;
+}
+
+// Get valid image URL (first from reference_images array)
+function getFirstReferenceImage(entity: EntityWithImage): string | null {
+  const images = entity.reference_images || [];
+  // Find front view first, or any image
+  const frontImage = images.find(img => img.includes('_front_'));
+  return frontImage || images[0] || null;
+}
+
+// Expand @mentions in text to their visual descriptions
+function expandMentions(text: string, entityMap: EntityMap): string {
+  if (!text) return text;
+
+  let expanded = text;
+  const mentions = text.match(/@[A-Z][a-zA-Z0-9]*/g) || [];
+
+  for (const mention of mentions) {
+    if (entityMap[mention]) {
+      expanded = expanded.replace(mention, entityMap[mention]);
+    }
+  }
+
+  return expanded;
+}
+
+// Storyboard style for Nano Banana 2 - natural language description
+const STORYBOARD_STYLE = `black and white graphite pencil sketch storyboard frame, hand-drawn on white paper, monochrome grayscale drawing, rough pencil strokes with hatching shading, professional film production concept art, single cinematic panel, no color, no text, no labels, no annotations, no scene numbers, no panel numbers, no writing, clean image only`;
 
 // Translate and optimize French description to English SDXL prompt
 async function optimizePromptForSDXL(
@@ -170,14 +304,26 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Check API key
-    if (!process.env.AI_REPLICATE_KEY) {
-      return NextResponse.json({ error: 'Replicate API key not configured' }, { status: 500 });
+    if (!process.env.AI_FAL_KEY) {
+      return NextResponse.json({ error: 'Fal.ai API key not configured' }, { status: 500 });
     }
 
-    // Initialize Replicate
-    const replicate = new Replicate({
-      auth: process.env.AI_REPLICATE_KEY,
-    });
+    // Fetch entity map from Repérage
+    console.log('Building entity map from Repérage...');
+    const entityMap = await buildEntityMap(supabase, projectId);
+    console.log('Entity map:', Object.keys(entityMap).length, 'entities');
+
+    // Fetch entities with reference images
+    const entities = await fetchEntitiesWithImages(supabase, projectId);
+    console.log('Found entities with images:', entities.length);
+
+    // Find entities mentioned in this shot
+    const mentionedEntities = findMentionedEntities(shotToGenerate.description, entities);
+    console.log('Mentioned entities with images:', mentionedEntities.map(e => e.reference));
+
+    // Expand @mentions in description
+    const expandedDescription = expandMentions(shotToGenerate.description, entityMap);
+    console.log('Expanded description:', expandedDescription.substring(0, 200) + '...');
 
     // Update status to generating
     await supabase
@@ -188,41 +334,36 @@ export async function POST(request: Request, { params }: RouteParams) {
     // Optimize prompt using Claude (translate French to English + optimize for SDXL)
     console.log(`Optimizing prompt for shot ${shotToGenerate.id}...`);
     const optimizedDescription = await optimizePromptForSDXL(
-      shotToGenerate.description,
+      expandedDescription,
       shotToGenerate.sceneContext,
       shotToGenerate.shotType,
       shotToGenerate.cameraAngle
     );
 
-    const prompt = STORYBOARD_STYLE_PREFIX + optimizedDescription + STORYBOARD_STYLE_SUFFIX;
+    // Build final prompt: style FIRST, then scene content
+    const fullPrompt = `${STORYBOARD_STYLE}, ${optimizedDescription}`;
 
     console.log(`Generating storyboard for shot ${shotToGenerate.id}...`);
+    console.log('Full prompt:', fullPrompt);
 
-    // Generate image
-    const output = await replicate.run(
-      "stability-ai/sdxl:7762fd07cf82c948538e41f63f77d685e02b063e37e496e96eefd46c929f9bdc",
-      {
-        input: {
-          prompt: prompt,
-          negative_prompt: NEGATIVE_PROMPT,
-          width: 1024,
-          height: 576,
-          num_outputs: 1,
-          scheduler: "K_EULER",
-          num_inference_steps: 35,
-          guidance_scale: 9,
-          refine: "expert_ensemble_refiner",
-          high_noise_frac: 0.75,
-        }
-      }
-    );
+    // Use Nano Banana 2 which handles style prompts well
+    console.log('Using Nano Banana 2 for storyboard generation');
 
-    // Extract image URL
+    const result = await fal.subscribe('fal-ai/nano-banana-2', {
+      input: {
+        prompt: fullPrompt,
+        resolution: '0.5K',
+        aspect_ratio: '16:9',
+        num_images: 1,
+        output_format: 'png',
+      } as any,
+      logs: true,
+    });
+
     let imageUrl: string | null = null;
-    if (Array.isArray(output) && output.length > 0) {
-      imageUrl = String(output[0]);
-    } else if (typeof output === 'string') {
-      imageUrl = output;
+    const images = (result.data as any)?.images;
+    if (images && images.length > 0) {
+      imageUrl = images[0].url;
     }
 
     if (!imageUrl) {

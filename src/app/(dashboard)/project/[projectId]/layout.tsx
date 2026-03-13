@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect } from 'react';
 import { useProject } from '@/hooks/use-project';
 import { Film, Loader2 } from 'lucide-react';
+import { BibleSidebar } from '@/components/bible/BibleSidebar';
 
 export default function ProjectLayout({
   children,
@@ -43,5 +44,15 @@ export default function ProjectLayout({
     );
   }
 
-  return <>{children}</>;
+  return (
+    <div className="flex h-full">
+      {/* Main content */}
+      <div className="flex-1 overflow-auto">
+        {children}
+      </div>
+
+      {/* Bible Sidebar - transversal across all project pages */}
+      <BibleSidebar />
+    </div>
+  );
 }

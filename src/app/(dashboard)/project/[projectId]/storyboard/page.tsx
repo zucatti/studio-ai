@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import {
@@ -33,78 +33,114 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
+import { PromptEditor } from '@/components/storyboard/PromptEditor';
+import { useShotsStore } from '@/store/shots-store';
 
-interface Shot {
-  id: string;
-  scene_id: string;
-  shot_number: number;
-  description: string;
-  shot_type: string | null;
-  camera_angle: string | null;
-  camera_movement: string | null;
-  storyboard_image_url: string | null;
-  generation_status: string;
-  generation_error: string | null;
-}
+// Render text with @mentions highlighted as tags
+function RenderWithMentions({ text, className }: { text: string; className?: string }) {
+  if (!text) return null;
 
-interface Scene {
-  id: string;
-  scene_number: number;
-  int_ext: string;
-  location: string;
-  time_of_day: string;
-  shots: Shot[];
+  const parts = text.split(/(@[A-Z][a-zA-Z0-9]*)/g);
+
+  return (
+    <span className={className}>
+      {parts.map((part, index) => {
+        if (part.match(/^@[A-Z][a-zA-Z0-9]*$/)) {
+          return (
+            <span
+              key={index}
+              className="inline-flex items-center px-1.5 py-0.5 mx-0.5 rounded bg-blue-500/20 text-blue-300 text-xs font-mono border border-blue-500/30"
+            >
+              {part}
+            </span>
+          );
+        }
+        return <span key={index}>{part}</span>;
+      })}
+    </span>
+  );
 }
 
 export default function StoryboardPage() {
   const params = useParams();
   const projectId = params.projectId as string;
 
-  const [scenes, setScenes] = useState<Scene[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // Use shared store
+  const {
+    scenes,
+    shots,
+    isLoading,
+    fetchScenes,
+    updateShot,
+    deleteShot,
+    getShotsByScene,
+  } = useShotsStore();
+
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<string | null>(null);
   const [selectedSceneId, setSelectedSceneId] = useState<string | 'all'>('all');
   const [currentShotIndex, setCurrentShotIndex] = useState(0);
 
-  const fetchScenes = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const res = await fetch(`/api/projects/${projectId}/scenes`);
-      if (res.ok) {
-        const data = await res.json();
-        setScenes(data.scenes || []);
-      }
-    } catch (error) {
-      console.error('Error fetching scenes:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [projectId]);
-
+  // Fetch scenes on mount
   useEffect(() => {
-    fetchScenes();
-  }, [fetchScenes]);
+    fetchScenes(projectId);
+  }, [projectId, fetchScenes]);
 
-  // Flatten all shots and sort them
+  // Flatten all shots and sort them with global index
   const allShots = useMemo(() => {
     const filteredScenes = selectedSceneId === 'all'
       ? scenes
       : scenes.filter((s) => s.id === selectedSceneId);
 
-    // Sort scenes by scene_number, then flatten and sort shots by shot_number
-    return filteredScenes
+    let globalIndex = 0;
+    const result: Array<{
+      id: string;
+      scene_id: string;
+      shot_number: number;
+      description: string;
+      shot_type: string | null;
+      camera_angle: string | null;
+      camera_movement: string | null;
+      storyboard_image_url: string | null;
+      storyboard_prompt: string | null;
+      generation_status: string;
+      generation_error: string | null;
+      sceneName: string;
+      sceneNumber: number;
+      sceneId: string;
+      globalIndex: number;
+      isFirstInScene: boolean;
+    }> = [];
+
+    [...filteredScenes]
       .sort((a, b) => a.scene_number - b.scene_number)
-      .flatMap((scene) =>
-        (scene.shots || [])
-          .sort((a, b) => a.shot_number - b.shot_number)
-          .map((shot) => ({
-            ...shot,
+      .forEach((scene) => {
+        const sceneShots = getShotsByScene(scene.id);
+        sceneShots.forEach((shot, idx) => {
+          globalIndex++;
+          result.push({
+            id: shot.id,
+            scene_id: shot.scene_id,
+            shot_number: shot.shot_number,
+            description: shot.description,
+            shot_type: shot.shot_type,
+            camera_angle: shot.camera_angle,
+            camera_movement: shot.camera_movement,
+            storyboard_image_url: shot.storyboard_image_url,
+            storyboard_prompt: shot.storyboard_prompt,
+            generation_status: shot.generation_status,
+            generation_error: shot.generation_error,
             sceneName: `${scene.int_ext}. ${scene.location}`,
             sceneNumber: scene.scene_number,
-          }))
-      );
-  }, [scenes, selectedSceneId]);
+            sceneId: scene.id,
+            globalIndex,
+            isFirstInScene: idx === 0,
+          });
+        });
+      });
+
+    return result;
+  }, [scenes, shots, selectedSceneId, getShotsByScene]);
 
   const currentShot = allShots[currentShotIndex];
 
@@ -139,10 +175,10 @@ export default function StoryboardPage() {
         } else if (data.done) {
           setGenerationProgress('Tous les storyboards sont générés !');
           continueGenerating = false;
-          await fetchScenes();
+          fetchScenes(projectId, true); // Force refresh
         } else {
           setGenerationProgress(`${data.completed}/${data.total} storyboards générés...`);
-          await fetchScenes(); // Refresh to show new image
+          fetchScenes(projectId, true); // Refresh to show new image
         }
       } catch (error) {
         setGenerationProgress('Erreur lors de la génération');
@@ -154,16 +190,28 @@ export default function StoryboardPage() {
     setTimeout(() => setGenerationProgress(null), 3000);
   };
 
-  const handleGenerateSingle = async (shotId: string) => {
+  const handleGenerateSingle = async (shotId: string, customPrompt?: string) => {
     setIsGenerating(true);
 
     try {
       const res = await fetch(`/api/projects/${projectId}/shots/${shotId}/generate-storyboard`, {
         method: 'POST',
+        headers: customPrompt ? { 'Content-Type': 'application/json' } : undefined,
+        body: customPrompt ? JSON.stringify({ customPrompt }) : undefined,
       });
 
       if (res.ok) {
-        await fetchScenes();
+        const data = await res.json();
+        // Update the shot in the store with the new storyboard URL
+        if (data.shot) {
+          updateShot(projectId, shotId, {
+            storyboard_image_url: data.shot.storyboard_image_url,
+            storyboard_prompt: data.shot.storyboard_prompt,
+            generation_status: data.shot.generation_status,
+          });
+        } else {
+          fetchScenes(projectId, true);
+        }
       }
     } catch (error) {
       console.error('Error generating storyboard:', error);
@@ -182,7 +230,7 @@ export default function StoryboardPage() {
       });
 
       if (res.ok) {
-        await fetchScenes();
+        fetchScenes(projectId, true);
         setGenerationProgress('Tous les storyboards ont été supprimés');
       } else {
         const data = await res.json();
@@ -194,6 +242,14 @@ export default function StoryboardPage() {
     } finally {
       setIsGenerating(false);
       setTimeout(() => setGenerationProgress(null), 3000);
+    }
+  };
+
+  const handleDeleteShot = async (shotId: string) => {
+    await deleteShot(projectId, shotId);
+    // Adjust current index if needed
+    if (currentShotIndex >= allShots.length - 1 && currentShotIndex > 0) {
+      setCurrentShotIndex(currentShotIndex - 1);
     }
   };
 
@@ -273,42 +329,57 @@ export default function StoryboardPage() {
         </div>
       </div>
 
-      {/* Thumbnail strip */}
+      {/* Thumbnail strip with scene separators */}
       <div className="rounded-xl bg-[#151d28] border border-white/5">
-        <div className="flex gap-2 p-3 overflow-x-auto">
+        <div className="flex gap-2 p-3 overflow-x-auto items-center">
           {allShots.map((shot, index) => (
-            <button
-              key={shot.id}
-              onClick={() => setCurrentShotIndex(index)}
-              className={`
-                relative flex-shrink-0 w-24 h-14 rounded-lg overflow-hidden border-2 transition-all
-                ${index === currentShotIndex
-                  ? 'border-blue-500 ring-2 ring-blue-500/30'
-                  : 'border-white/10 hover:border-white/30'
-                }
-              `}
-            >
-              {shot.storyboard_image_url ? (
-                <img
-                  src={shot.storyboard_image_url}
-                  alt={`Shot ${shot.shot_number}`}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full bg-white/5 flex items-center justify-center">
-                  {shot.generation_status === 'generating' ? (
-                    <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
-                  ) : shot.generation_status === 'failed' ? (
-                    <AlertCircle className="w-4 h-4 text-red-400" />
-                  ) : (
-                    <ImageIcon className="w-4 h-4 text-slate-500" />
-                  )}
+            <div key={shot.id} className="flex items-center gap-2">
+              {/* Scene separator */}
+              {shot.isFirstInScene && index > 0 && (
+                <div className="flex flex-col items-center px-2">
+                  <div className="w-px h-6 bg-white/20" />
+                  <span className="text-[9px] text-slate-500 whitespace-nowrap">S{shot.sceneNumber}</span>
+                  <div className="w-px h-6 bg-white/20" />
                 </div>
               )}
-              <span className="absolute bottom-0.5 right-0.5 text-[10px] bg-black/60 px-1 rounded text-white">
-                {shot.shot_number}
-              </span>
-            </button>
+              {/* Scene label for first shot */}
+              {shot.isFirstInScene && (
+                <div className="flex-shrink-0 px-2 py-1 bg-slate-700/50 rounded text-[10px] text-slate-300 whitespace-nowrap">
+                  S{shot.sceneNumber}
+                </div>
+              )}
+              <button
+                onClick={() => setCurrentShotIndex(index)}
+                className={`
+                  relative flex-shrink-0 w-24 h-14 rounded-lg overflow-hidden border-2 transition-all
+                  ${index === currentShotIndex
+                    ? 'border-blue-500 ring-2 ring-blue-500/30'
+                    : 'border-white/10 hover:border-white/30'
+                  }
+                `}
+              >
+                {shot.storyboard_image_url ? (
+                  <img
+                    src={shot.storyboard_image_url}
+                    alt={`Shot ${shot.globalIndex}`}
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <div className="w-full h-full bg-white/5 flex items-center justify-center">
+                    {shot.generation_status === 'generating' ? (
+                      <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                    ) : shot.generation_status === 'failed' ? (
+                      <AlertCircle className="w-4 h-4 text-red-400" />
+                    ) : (
+                      <ImageIcon className="w-4 h-4 text-slate-500" />
+                    )}
+                  </div>
+                )}
+                <span className="absolute bottom-0.5 right-0.5 text-[10px] bg-black/60 px-1 rounded text-white">
+                  {shot.globalIndex}
+                </span>
+              </button>
+            </div>
           ))}
         </div>
       </div>
@@ -320,7 +391,7 @@ export default function StoryboardPage() {
             <div className="rounded-xl overflow-hidden bg-[#151d28] border border-white/5">
               <div className="h-12 bg-slate-700 px-4 flex items-center justify-between">
                 <span className="font-bold text-white uppercase tracking-wide text-sm">
-                  SCÈNE {currentShot.sceneNumber} - PLAN {currentShot.shot_number}
+                  SCÈNE {currentShot.sceneNumber} - PLAN {currentShot.globalIndex}
                 </span>
                 <div className="flex items-center gap-2">
                   {currentShot.shot_type && (
@@ -333,6 +404,36 @@ export default function StoryboardPage() {
                       {currentShot.camera_angle}
                     </span>
                   )}
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent className="bg-[#1a2433] border-white/10">
+                      <AlertDialogHeader>
+                        <AlertDialogTitle className="text-white">Supprimer ce plan ?</AlertDialogTitle>
+                        <AlertDialogDescription className="text-slate-400">
+                          Le plan {currentShot.globalIndex} sera définitivement supprimé avec son storyboard.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel className="bg-white/5 border-white/10 text-white hover:bg-white/10">
+                          Annuler
+                        </AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-red-500 hover:bg-red-600"
+                          onClick={() => handleDeleteShot(currentShot.id)}
+                        >
+                          Supprimer
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
                 </div>
               </div>
               <div>
@@ -381,11 +482,31 @@ export default function StoryboardPage() {
                     </div>
                   )}
                 </div>
-                <div className="p-4 border-t border-white/5">
-                  <p className="text-sm text-slate-300">{currentShot.description}</p>
+                <div className="p-4 border-t border-white/5 space-y-3">
+                  <div>
+                    <p className="text-xs text-slate-500 mb-1">Description</p>
+                    <p className="text-sm text-slate-300 leading-relaxed">
+                      <RenderWithMentions text={currentShot.description} />
+                    </p>
+                  </div>
+                  {currentShot.storyboard_prompt && (
+                    <div>
+                      <p className="text-xs text-slate-500 mb-1">Prompt utilise</p>
+                      <p className="text-xs text-slate-400 bg-white/5 p-2 rounded leading-relaxed">
+                        {currentShot.storyboard_prompt}
+                      </p>
+                    </div>
+                  )}
                 </div>
                 {currentShot.storyboard_image_url && (
-                  <div className="px-4 pb-4 flex justify-end">
+                  <div className="px-4 pb-4 flex justify-end gap-2">
+                    <PromptEditor
+                      shotId={currentShot.id}
+                      projectId={projectId}
+                      currentPrompt={currentShot.storyboard_prompt}
+                      onRegenerate={handleGenerateSingle}
+                      isGenerating={isGenerating}
+                    />
                     <Button
                       size="sm"
                       variant="outline"
@@ -394,7 +515,7 @@ export default function StoryboardPage() {
                       disabled={isGenerating}
                     >
                       <RefreshCw className="w-4 h-4 mr-2" />
-                      Régénérer
+                      Regenerer (auto)
                     </Button>
                   </div>
                 )}

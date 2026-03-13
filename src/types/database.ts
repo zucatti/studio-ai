@@ -12,12 +12,73 @@ export type Json =
 
 // Enums
 export type ProjectStatus = 'draft' | 'in_progress' | 'completed';
-export type PipelineStep = 'brainstorming' | 'script' | 'storyboard' | 'library' | 'preprod' | 'production';
+export type PipelineStep = 'brainstorming' | 'script' | 'decoupage' | 'storyboard' | 'preprod' | 'production';
+export type ScriptElementType = 'action' | 'dialogue' | 'transition' | 'note';
+export type DialogueExtension = 'V.O.' | 'O.S.' | "CONT'D" | 'FILTERED' | 'PRE-LAP';
+export type GlobalAssetType = 'character' | 'location' | 'prop' | 'audio';
 export type SceneIntExt = 'INT' | 'EXT' | 'INT/EXT';
 export type TimeOfDay = 'JOUR' | 'NUIT' | 'AUBE' | 'CREPUSCULE';
 export type ShotType = 'wide' | 'medium' | 'close_up' | 'extreme_close_up' | 'over_shoulder' | 'pov';
 export type CameraAngle = 'eye_level' | 'low_angle' | 'high_angle' | 'dutch_angle' | 'birds_eye' | 'worms_eye';
-export type CameraMovement = 'static' | 'pan_left' | 'pan_right' | 'tilt_up' | 'tilt_down' | 'dolly_in' | 'dolly_out' | 'tracking' | 'crane' | 'handheld';
+// Extended camera movements (38 total)
+export type CameraMovement =
+  | 'static'
+  // Dolly movements
+  | 'slow_dolly_in'
+  | 'slow_dolly_out'
+  | 'fast_dolly_in'
+  | 'dolly_zoom'
+  // Zoom movements
+  | 'macro_zoom'
+  | 'hyper_zoom'
+  | 'smooth_zoom_in'
+  | 'smooth_zoom_out'
+  | 'snap_zoom'
+  // Special shots
+  | 'over_the_shoulder'
+  | 'fisheye'
+  | 'reveal_wipe'
+  | 'fly_through'
+  | 'reveal_blur'
+  | 'rack_focus'
+  // Tilt movements
+  | 'tilt_up'
+  | 'tilt_down'
+  // Truck movements
+  | 'truck_left'
+  | 'truck_right'
+  // Orbit movements
+  | 'orbit_180'
+  | 'orbit_360_fast'
+  | 'slow_arc'
+  // Pedestal movements
+  | 'pedestal_down'
+  | 'pedestal_up'
+  // Crane movements
+  | 'crane_up'
+  | 'crane_down'
+  // Drone movements
+  | 'drone_flyover'
+  | 'drone_reveal'
+  | 'drone_orbit'
+  | 'drone_topdown'
+  | 'fpv_dive'
+  // Tracking movements
+  | 'tracking_backward'
+  | 'tracking_forward'
+  | 'tracking_side'
+  | 'pov_walk'
+  // Other movements
+  | 'handheld'
+  | 'whip_pan'
+  | 'dutch_roll'
+  // Legacy values
+  | 'pan_left'
+  | 'pan_right'
+  | 'dolly_in'
+  | 'dolly_out'
+  | 'tracking'
+  | 'crane';
 export type GenerationStatus = 'not_started' | 'pending' | 'generating' | 'completed' | 'failed';
 export type PropType = 'object' | 'vehicle' | 'furniture' | 'weapon' | 'food' | 'other';
 export type LocationType = 'interior' | 'exterior';
@@ -346,6 +407,105 @@ export interface Database {
           updated_at?: string;
         };
       };
+      script_elements: {
+        Row: {
+          id: string;
+          scene_id: string;
+          type: ScriptElementType;
+          content: string;
+          character_id: string | null;
+          character_name: string | null;
+          parenthetical: string | null;
+          extension: DialogueExtension | null;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          scene_id: string;
+          type: ScriptElementType;
+          content?: string;
+          character_id?: string | null;
+          character_name?: string | null;
+          parenthetical?: string | null;
+          extension?: DialogueExtension | null;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          scene_id?: string;
+          type?: ScriptElementType;
+          content?: string;
+          character_id?: string | null;
+          character_name?: string | null;
+          parenthetical?: string | null;
+          extension?: DialogueExtension | null;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      global_assets: {
+        Row: {
+          id: string;
+          user_id: string;
+          asset_type: GlobalAssetType;
+          name: string;
+          data: Json;
+          reference_images: string[];
+          tags: string[];
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          asset_type: GlobalAssetType;
+          name: string;
+          data?: Json;
+          reference_images?: string[];
+          tags?: string[];
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          asset_type?: GlobalAssetType;
+          name?: string;
+          data?: Json;
+          reference_images?: string[];
+          tags?: string[];
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      project_assets: {
+        Row: {
+          id: string;
+          project_id: string;
+          global_asset_id: string;
+          local_overrides: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          global_asset_id: string;
+          local_overrides?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          project_id?: string;
+          global_asset_id?: string;
+          local_overrides?: Json | null;
+          created_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -360,6 +520,9 @@ export interface Database {
       generation_status: GenerationStatus;
       prop_type: PropType;
       location_type: LocationType;
+      script_element_type: ScriptElementType;
+      dialogue_extension: DialogueExtension;
+      global_asset_type: GlobalAssetType;
     };
   };
 }
@@ -379,6 +542,21 @@ export type Action = Tables<'actions'>;
 export type Character = Tables<'characters'>;
 export type Prop = Tables<'props'>;
 export type Location = Tables<'locations'>;
+export type ScriptElement = Tables<'script_elements'>;
+export type GlobalAsset = Tables<'global_assets'>;
+export type ProjectAsset = Tables<'project_assets'>;
+
+// Flattened project asset (from API join)
+export type ProjectAssetFlat = {
+  id: string;
+  project_asset_id: string;
+  name: string;
+  asset_type: GlobalAssetType;
+  data: Record<string, unknown>;
+  reference_images: string[];
+  tags: string[];
+  created_at: string;
+};
 
 // With relations
 export type SceneWithShots = Scene & {

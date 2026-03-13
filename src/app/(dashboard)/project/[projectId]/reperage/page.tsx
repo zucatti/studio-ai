@@ -41,7 +41,10 @@ import {
   ImageIcon,
   AlertCircle,
   Palette,
+  Copy,
 } from 'lucide-react';
+import { generateReferenceName } from '@/lib/reference-name';
+import { toast } from 'sonner';
 
 interface GenerationProgress {
   current: number;
@@ -610,7 +613,7 @@ export default function LibraryPage() {
 
         {/* Card content with flex-grow to push buttons down */}
         <CardContent className="p-4 flex flex-col flex-grow">
-          <div className="flex items-start justify-between mb-2">
+          <div className="flex items-start justify-between mb-1">
             <h3 className="font-medium text-white truncate">{entity.name}</h3>
             <div className="flex gap-1 flex-shrink-0">
               <Button
@@ -630,6 +633,25 @@ export default function LibraryPage() {
                 <Trash2 className="w-3.5 h-3.5" />
               </Button>
             </div>
+          </div>
+          {/* Reference name with copy button */}
+          <div className="flex items-center gap-1 mb-2">
+            <code className="text-xs text-blue-400 bg-blue-500/10 px-1.5 py-0.5 rounded font-mono">
+              {generateReferenceName(entity.name)}
+            </code>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-5 w-5 text-slate-500 hover:text-blue-400"
+              onClick={(e) => {
+                e.stopPropagation();
+                navigator.clipboard.writeText(generateReferenceName(entity.name));
+                toast.success('Référence copiée');
+              }}
+              title="Copier la référence"
+            >
+              <Copy className="w-3 h-3" />
+            </Button>
           </div>
           <p className="text-sm text-slate-400 line-clamp-2 flex-grow">
             {entity.visual_description || 'Aucune description visuelle'}

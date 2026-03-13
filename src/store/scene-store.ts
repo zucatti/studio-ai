@@ -102,7 +102,7 @@ const mockScenes: Scene[] = [
         actions: [],
         cameraAnnotation: {
           angle: 'eye_level',
-          movement: 'tracking',
+          movement: 'tracking_side',
           shotType: 'wide',
         },
         generationStatus: 'not_started',

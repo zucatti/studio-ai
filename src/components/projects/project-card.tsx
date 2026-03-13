@@ -22,9 +22,9 @@ interface ProjectCardProps {
 const PIPELINE_STEPS: { step: PipelineStep; label: string }[] = [
   { step: 'brainstorming', label: 'Brainstorming' },
   { step: 'script', label: 'Script' },
+  { step: 'decoupage', label: 'Decoupage' },
   { step: 'storyboard', label: 'Storyboard' },
-  { step: 'library', label: 'Bibliothèque' },
-  { step: 'preprod', label: 'Préprod' },
+  { step: 'preprod', label: 'Preprod' },
   { step: 'production', label: 'Production' },
 ];
 

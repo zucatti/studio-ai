@@ -7,9 +7,7 @@ import {
   FolderOpen,
   Settings,
   Home,
-  FileText,
   ImageIcon,
-  Layers,
   PlayCircle,
   Lock,
   Unlock,
@@ -18,6 +16,9 @@ import {
   Moon,
   X,
   Frame,
+  Clapperboard,
+  Grid3x3,
+  Lightbulb,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -47,11 +48,11 @@ const mainNavigation: NavSection[] = [
 const projectNavigation: NavSection = {
   title: 'PROJET',
   items: [
-    { name: 'Brainstorming', href: '/brainstorming', icon: Home },
-    { name: 'Script', href: '/script', icon: FileText },
+    { name: 'Brainstorming', href: '/brainstorming', icon: Lightbulb },
+    { name: 'Script', href: '/script', icon: Clapperboard },
+    { name: 'Decoupage', href: '/decoupage', icon: Grid3x3 },
     { name: 'Storyboard', href: '/storyboard', icon: ImageIcon },
-    { name: 'Bibliothèque', href: '/library', icon: Layers },
-    { name: 'Préprod', href: '/preprod', icon: Frame },
+    { name: 'Preprod', href: '/preprod', icon: Frame },
     { name: 'Production', href: '/production', icon: PlayCircle },
   ],
 };

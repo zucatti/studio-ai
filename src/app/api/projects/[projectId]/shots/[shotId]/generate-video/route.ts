@@ -14,9 +14,12 @@ interface Dialogue {
   sort_order: number;
 }
 
-// Video providers available through Higgsfield
-const VIDEO_PROVIDERS = ['kling', 'wan', 'sora', 'veo'] as const;
+// Video providers available through fal.ai
+const VIDEO_PROVIDERS = ['kling', 'wan', 'sora', 'veo', 'avatar'] as const;
 type VideoProvider = typeof VIDEO_PROVIDERS[number];
+
+// Lip sync model for vocal shots
+const KLING_AVATAR_MODEL = 'fal-ai/kling-avatar/v2/pro';
 
 // Generate video for a shot using Higgsfield (Kling, WAN, Sora, Veo)
 export async function POST(request: Request, { params }: RouteParams) {
@@ -53,32 +56,45 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Verify project ownership
-    const { data: project } = await supabase
+    const { data: project, error: projectError } = await supabase
       .from('projects')
-      .select('id')
+      .select('id, audio_url')
       .eq('id', projectId)
       .eq('user_id', session.user.sub)
       .single();
 
     if (!project) {
+      console.error('Project not found. Error:', projectError);
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Get shot
-    const { data: shot } = await supabase
+    // Get shot (simplified query - removed singing_character join that may not exist)
+    const { data: shot, error: shotError } = await supabase
       .from('shots')
       .select('*')
       .eq('id', shotId)
       .single();
 
     if (!shot) {
+      console.error('Shot not found. Error:', shotError);
       return NextResponse.json({ error: 'Shot not found' }, { status: 404 });
     }
 
+    // Lip sync is disabled until audio_url column is added to projects table
+    const isLipSyncShot = false; // shot.has_vocals && shot.lip_sync_enabled;
+
     // Validate frames exist
-    if (!shot.first_frame_url || !shot.last_frame_url) {
+    if (!shot.first_frame_url) {
       return NextResponse.json(
-        { error: 'Both first and last frames are required' },
+        { error: 'First frame is required' },
+        { status: 400 }
+      );
+    }
+
+    // For non-lip sync shots, we need both frames for interpolation
+    if (!isLipSyncShot && !shot.last_frame_url) {
+      return NextResponse.json(
+        { error: 'Last frame is required for video interpolation' },
         { status: 400 }
       );
     }
@@ -92,26 +108,47 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const videoDuration = duration || shot.suggested_duration || 5;
 
+    // Determine effective provider based on lip sync
+    const effectiveProvider = isLipSyncShot ? 'avatar' : (provider as VideoProvider);
+
     // Update status
     await supabase
       .from('shots')
       .update({
         generation_status: 'generating',
-        video_provider: provider,
+        video_provider: effectiveProvider,
         video_duration: videoDuration,
-        video_generation_progress: JSON.stringify({ status: 'starting', progress: 0 }),
+        video_generation_progress: JSON.stringify({
+          status: 'starting',
+          progress: 0,
+          mode: isLipSyncShot ? 'lip_sync' : 'interpolation',
+        }),
       })
       .eq('id', shotId);
 
-    // Generate video using fal.ai (Kling with start/end frame support)
-    const result = await generateWithFal(
-      shot,
-      videoDuration,
-      provider as VideoProvider,
-      supabase,
-      shotId,
-      (dialogues as Dialogue[]) || []
-    );
+    // Generate video using appropriate model
+    let result;
+
+    if (isLipSyncShot) {
+      // Use Kling Avatar for lip sync
+      result = await generateWithLipSync(
+        shot,
+        project.audio_url,
+        videoDuration,
+        supabase,
+        shotId
+      );
+    } else {
+      // Use standard interpolation (Kling v3)
+      result = await generateWithFal(
+        shot,
+        videoDuration,
+        provider as VideoProvider,
+        supabase,
+        shotId,
+        (dialogues as Dialogue[]) || []
+      );
+    }
 
     if (result.error) {
       await supabase
@@ -139,8 +176,13 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({
       success: true,
       videoUrl: result.videoUrl,
-      provider,
+      provider: effectiveProvider,
       duration: videoDuration,
+      mode: isLipSyncShot ? 'lip_sync' : 'interpolation',
+      lipSync: isLipSyncShot ? {
+        characterId: shot.singing_character_id,
+        characterName: shot.singing_character?.name,
+      } : null,
       audioEnabled: enableAudio && provider === 'kling' && (dialogues?.length || 0) > 0,
       dialoguesCount: dialogues?.length || 0,
     });
@@ -220,6 +262,97 @@ async function uploadToFalStorage(imageUrl: string, fal: any): Promise<string> {
   return uploadedUrl;
 }
 
+// Generate video with lip sync using Kling Avatar v2 Pro
+async function generateWithLipSync(
+  shot: any,
+  audioUrl: string,
+  duration: number,
+  supabase: any,
+  shotId: string
+): Promise<{ videoUrl?: string; generationId?: string; error?: string }> {
+  try {
+    const { fal } = await import('@fal-ai/client');
+
+    fal.config({
+      credentials: process.env.AI_FAL_KEY,
+    });
+
+    console.log(`Generating lip sync video with Kling Avatar v2 Pro...`);
+    console.log(`Image: ${shot.first_frame_url}`);
+    console.log(`Audio: ${audioUrl}`);
+
+    // Upload image to fal.ai storage if needed
+    const imageUrl = await uploadToFalStorage(shot.first_frame_url, fal);
+
+    // Build input for Kling Avatar
+    // Note: The model expects a face image and audio, and generates a talking head video
+    const input: Record<string, any> = {
+      face_image_url: imageUrl,
+      audio_url: audioUrl,
+    };
+
+    // If shot has specific time range, we could add timestamps
+    // For now, we use the full audio (model will handle it)
+    // In the future, we could extract audio segments using ffmpeg
+
+    console.log('Kling Avatar input:', JSON.stringify(input, null, 2));
+
+    // Subscribe to Kling Avatar generation
+    const result = await fal.subscribe(KLING_AVATAR_MODEL, {
+      input,
+      logs: true,
+      onQueueUpdate: async (update) => {
+        if (update.status === 'IN_PROGRESS') {
+          await supabase
+            .from('shots')
+            .update({
+              video_generation_progress: JSON.stringify({
+                status: 'generating',
+                progress: 50,
+                mode: 'lip_sync',
+              }),
+            })
+            .eq('id', shotId);
+        }
+      },
+    });
+
+    const generationId = result.requestId;
+
+    // Update progress
+    await supabase
+      .from('shots')
+      .update({
+        video_generation_progress: JSON.stringify({
+          status: 'completed',
+          progress: 100,
+          mode: 'lip_sync',
+        }),
+      })
+      .eq('id', shotId);
+
+    // Get video URL from result
+    const videoUrl = result.data?.video?.url;
+    if (!videoUrl) {
+      return { error: 'No video URL in lip sync response' };
+    }
+
+    return {
+      videoUrl,
+      generationId,
+    };
+  } catch (error: any) {
+    console.error('Kling Avatar lip sync error:', {
+      message: error.message,
+      body: error.body,
+      status: error.status,
+      detail: error.detail,
+    });
+    const errorMsg = error.body?.detail || error.message || String(error);
+    return { error: `Lip sync failed: ${errorMsg}` };
+  }
+}
+
 async function generateWithFal(
   shot: any,
   duration: number,
@@ -236,12 +369,13 @@ async function generateWithFal(
       credentials: process.env.AI_FAL_KEY,
     });
 
-    // Map provider to fal.ai Kling model versions
+    // Map provider to fal.ai Kling model versions (upgraded to v3)
     const modelMap: Record<VideoProvider, string> = {
-      kling: 'fal-ai/kling-video/v2.1/pro/image-to-video',      // Pro quality
-      sora: 'fal-ai/kling-video/v2.1/standard/image-to-video',  // Standard
-      wan: 'fal-ai/kling-video/v2.1/standard/image-to-video',   // Standard
-      veo: 'fal-ai/kling-video/v2.1/master/image-to-video',     // Master quality
+      kling: 'fal-ai/kling-video/v3/pro/image-to-video',        // Pro quality (Kling 3)
+      sora: 'fal-ai/kling-video/v3/standard/image-to-video',    // Standard (Kling 3)
+      wan: 'fal-ai/kling-video/v3/standard/image-to-video',     // Standard (Kling 3)
+      veo: 'fal-ai/kling-video/v3/pro/image-to-video',          // Pro quality (Kling 3)
+      avatar: KLING_AVATAR_MODEL,                                // Lip sync (Avatar v2 Pro)
     };
 
     const model = modelMap[provider];
@@ -262,17 +396,18 @@ async function generateWithFal(
     // Ensure duration is valid ("5" or "10")
     const videoDuration = duration >= 7.5 ? '10' : '5';
 
-    // Build input object
+    // Build input object for Kling v3
     const input: Record<string, any> = {
       prompt: prompt || 'Smooth cinematic motion between frames',
-      image_url: firstFrameUrl,
+      start_image_url: firstFrameUrl, // Kling 3 uses start_image_url
       duration: videoDuration,
       aspect_ratio: '16:9',
+      generate_audio: false, // Disable audio generation
     };
 
-    // Add tail image only if available
+    // Add end image only if available (Kling 3 uses end_image_url)
     if (lastFrameUrl) {
-      input.tail_image_url = lastFrameUrl;
+      input.end_image_url = lastFrameUrl;
     }
 
     console.log('fal.ai input:', JSON.stringify(input, null, 2));
