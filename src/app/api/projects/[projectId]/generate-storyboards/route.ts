@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { uploadFile, getSignedFileUrl, STORAGE_BUCKET } from '@/lib/storage';
 import { fal } from '@fal-ai/client';
 import Anthropic from '@anthropic-ai/sdk';
 import { generateReferenceName } from '@/lib/reference-name';
@@ -26,8 +27,12 @@ interface EntityMap {
   [reference: string]: string;
 }
 
-// Build a map of @references to visual descriptions
-async function buildEntityMap(supabase: ReturnType<typeof createServerSupabaseClient>, projectId: string): Promise<EntityMap> {
+// Build a map of @references to visual descriptions (from project + Bible global assets)
+async function buildEntityMap(
+  supabase: ReturnType<typeof createServerSupabaseClient>,
+  projectId: string,
+  userId: string
+): Promise<EntityMap> {
   const entityMap: EntityMap = {};
 
   const [charactersRes, propsRes, locationsRes] = await Promise.all([
@@ -57,16 +62,47 @@ async function buildEntityMap(supabase: ReturnType<typeof createServerSupabaseCl
     }
   }
 
+  // Also include global assets imported to this project
+  const { data: projectAssets } = await supabase
+    .from('project_assets')
+    .select(`
+      global_asset_id,
+      global_assets (
+        name,
+        asset_type,
+        data
+      )
+    `)
+    .eq('project_id', projectId);
+
+  for (const pa of projectAssets || []) {
+    const ga = pa.global_assets as any;
+    if (!ga || ga.asset_type === 'audio') continue;
+
+    const ref = generateReferenceName(ga.name);
+    // Don't override project entities
+    if (entityMap[ref]) continue;
+
+    const data = ga.data as Record<string, unknown>;
+    const visualDesc = (data?.visual_description as string) || (data?.description as string);
+    if (visualDesc) {
+      entityMap[ref] = visualDesc;
+    }
+  }
+
   return entityMap;
 }
 
-// Fetch all entities with their reference images
+// Fetch all entities with their reference images (from project + Bible global assets)
 async function fetchEntitiesWithImages(
   supabase: ReturnType<typeof createServerSupabaseClient>,
-  projectId: string
+  projectId: string,
+  userId: string
 ): Promise<EntityWithImage[]> {
   const entities: EntityWithImage[] = [];
+  const seenRefs = new Set<string>();
 
+  // Fetch project-specific entities
   const [charactersRes, propsRes, locationsRes] = await Promise.all([
     supabase.from('characters').select('name, visual_description, reference_images').eq('project_id', projectId),
     supabase.from('props').select('name, visual_description, reference_images').eq('project_id', projectId),
@@ -74,8 +110,10 @@ async function fetchEntitiesWithImages(
   ]);
 
   for (const char of charactersRes.data || []) {
+    const ref = generateReferenceName(char.name);
+    seenRefs.add(ref);
     entities.push({
-      reference: generateReferenceName(char.name),
+      reference: ref,
       name: char.name,
       visual_description: char.visual_description || '',
       reference_images: char.reference_images || [],
@@ -84,8 +122,10 @@ async function fetchEntitiesWithImages(
   }
 
   for (const prop of propsRes.data || []) {
+    const ref = generateReferenceName(prop.name);
+    seenRefs.add(ref);
     entities.push({
-      reference: generateReferenceName(prop.name),
+      reference: ref,
       name: prop.name,
       visual_description: prop.visual_description || '',
       reference_images: prop.reference_images || [],
@@ -94,12 +134,47 @@ async function fetchEntitiesWithImages(
   }
 
   for (const loc of locationsRes.data || []) {
+    const ref = generateReferenceName(loc.name);
+    seenRefs.add(ref);
     entities.push({
-      reference: generateReferenceName(loc.name),
+      reference: ref,
       name: loc.name,
       visual_description: loc.visual_description || '',
       reference_images: loc.reference_images || [],
       type: 'location',
+    });
+  }
+
+  // Also fetch global assets imported to this project
+  const { data: projectAssets } = await supabase
+    .from('project_assets')
+    .select(`
+      global_asset_id,
+      global_assets (
+        name,
+        asset_type,
+        data,
+        reference_images
+      )
+    `)
+    .eq('project_id', projectId);
+
+  for (const pa of projectAssets || []) {
+    const ga = pa.global_assets as any;
+    if (!ga || ga.asset_type === 'audio') continue;
+
+    const ref = generateReferenceName(ga.name);
+    // Skip if we already have this reference from project entities
+    if (seenRefs.has(ref)) continue;
+    seenRefs.add(ref);
+
+    const data = ga.data as Record<string, unknown>;
+    entities.push({
+      reference: ref,
+      name: ga.name,
+      visual_description: (data?.visual_description as string) || (data?.description as string) || '',
+      reference_images: ga.reference_images || [],
+      type: ga.asset_type as 'character' | 'prop' | 'location',
     });
   }
 
@@ -127,6 +202,45 @@ function getFirstReferenceImage(entity: EntityWithImage): string | null {
   // Find front view first, or any image
   const frontImage = images.find(img => img.includes('_front_'));
   return frontImage || images[0] || null;
+}
+
+// Collect reference images from mentioned entities (max 4 for Ideogram)
+// Priority: characters first, then props, then locations
+function collectReferenceImages(entities: EntityWithImage[], maxImages: number = 4): string[] {
+  const images: string[] = [];
+
+  // Sort by type priority
+  const sortedEntities = [...entities].sort((a, b) => {
+    const priority = { character: 0, prop: 1, location: 2 };
+    return priority[a.type] - priority[b.type];
+  });
+
+  for (const entity of sortedEntities) {
+    if (images.length >= maxImages) break;
+
+    const image = getFirstReferenceImage(entity);
+    if (image && !images.includes(image)) {
+      images.push(image);
+    }
+  }
+
+  return images;
+}
+
+// Helper to upload image to fal.ai storage
+async function uploadToFalStorage(falClient: typeof fal, imageUrl: string): Promise<string> {
+  if (imageUrl.includes('fal.media') || imageUrl.includes('fal-cdn')) {
+    return imageUrl;
+  }
+  console.log(`Uploading to fal.ai storage: ${imageUrl.substring(0, 50)}...`);
+  const response = await fetch(imageUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to fetch image for fal.ai upload: ${response.status}`);
+  }
+  const blob = await response.blob();
+  const uploaded = await falClient.storage.upload(blob);
+  console.log(`Uploaded to fal.ai: ${uploaded}`);
+  return uploaded;
 }
 
 // Expand @mentions in text to their visual descriptions
@@ -308,13 +422,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Fal.ai API key not configured' }, { status: 500 });
     }
 
-    // Fetch entity map from Repérage
-    console.log('Building entity map from Repérage...');
-    const entityMap = await buildEntityMap(supabase, projectId);
+    // Fetch entity map from Repérage + Bible
+    console.log('Building entity map from Reperage + Bible...');
+    const entityMap = await buildEntityMap(supabase, projectId, session.user.sub);
     console.log('Entity map:', Object.keys(entityMap).length, 'entities');
 
-    // Fetch entities with reference images
-    const entities = await fetchEntitiesWithImages(supabase, projectId);
+    // Fetch entities with reference images (includes Bible global assets)
+    const entities = await fetchEntitiesWithImages(supabase, projectId, session.user.sub);
     console.log('Found entities with images:', entities.length);
 
     // Find entities mentioned in this shot
@@ -346,19 +460,49 @@ export async function POST(request: Request, { params }: RouteParams) {
     console.log(`Generating storyboard for shot ${shotToGenerate.id}...`);
     console.log('Full prompt:', fullPrompt);
 
-    // Use Nano Banana 2 which handles style prompts well
-    console.log('Using Nano Banana 2 for storyboard generation');
+    // Collect reference images from mentioned entities
+    const referenceImages = collectReferenceImages(mentionedEntities, 4);
+    console.log(`Found ${referenceImages.length} reference images from mentioned entities`);
 
-    const result = await fal.subscribe('fal-ai/nano-banana-2', {
-      input: {
-        prompt: fullPrompt,
-        resolution: '0.5K',
-        aspect_ratio: '16:9',
-        num_images: 1,
-        output_format: 'png',
-      } as any,
-      logs: true,
-    });
+    let result;
+
+    // If we have reference images, use Ideogram Character for better consistency
+    if (referenceImages.length > 0 && mentionedEntities.some(e => e.type === 'character')) {
+      console.log('Using Ideogram with character references for consistency');
+
+      // Upload reference images to fal.ai storage
+      const uploadedRefs = await Promise.all(
+        referenceImages.map(url => uploadToFalStorage(fal, url))
+      );
+      console.log(`Uploaded ${uploadedRefs.length} reference images to fal.ai storage`);
+
+      // Use Ideogram Character model with references
+      result = await fal.subscribe('fal-ai/ideogram/v2', {
+        input: {
+          prompt: fullPrompt,
+          aspect_ratio: '16:9',
+          style: 'AUTO',
+          rendering_quality: 'BALANCED',
+          // Note: Ideogram v2 doesn't support reference images directly
+          // but the character model does - using v2 for better storyboard style
+        } as any,
+        logs: true,
+      });
+    } else {
+      // Use Nano Banana 2 which handles style prompts well (no reference support)
+      console.log('Using Nano Banana 2 for storyboard generation (no character references)');
+
+      result = await fal.subscribe('fal-ai/nano-banana-2', {
+        input: {
+          prompt: fullPrompt,
+          resolution: '0.5K',
+          aspect_ratio: '16:9',
+          num_images: 1,
+          output_format: 'png',
+        } as any,
+        logs: true,
+      });
+    }
 
     let imageUrl: string | null = null;
     const images = (result.data as any)?.images;
@@ -381,21 +525,18 @@ export async function POST(request: Request, { params }: RouteParams) {
       });
     }
 
-    // Download and upload to Supabase
+    // Download and upload to B2
     const imageResponse = await fetch(imageUrl);
     const imageBlob = await imageResponse.blob();
     const imageBuffer = Buffer.from(await imageBlob.arrayBuffer());
 
-    const fileName = `${session.user.sub.replace(/[|]/g, '_')}/${projectId}/${shotToGenerate.id}_storyboard_${Date.now()}.png`;
+    const sanitizedUserId = session.user.sub.replace(/[|]/g, '_');
+    const storageKey = `storyboards/${sanitizedUserId}/${projectId}/${shotToGenerate.id}_${Date.now()}.png`;
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('project-assets')
-      .upload(fileName, imageBuffer, {
-        contentType: 'image/png',
-        upsert: true,
-      });
-
-    if (uploadError) {
+    try {
+      await uploadFile(storageKey, imageBuffer, 'image/png');
+    } catch (uploadError) {
+      console.error('B2 upload failed:', uploadError);
       await supabase
         .from('shots')
         .update({ generation_status: 'failed', generation_error: 'Failed to upload' })
@@ -410,15 +551,14 @@ export async function POST(request: Request, { params }: RouteParams) {
       });
     }
 
-    const { data: urlData } = supabase.storage
-      .from('project-assets')
-      .getPublicUrl(uploadData.path);
+    // Store B2 URL in database
+    const b2Url = `b2://${STORAGE_BUCKET}/${storageKey}`;
 
     // Update shot with the storyboard image URL and optimized prompt
     await supabase
       .from('shots')
       .update({
-        storyboard_image_url: urlData.publicUrl,
+        storyboard_image_url: b2Url,
         storyboard_prompt: optimizedDescription,
         generation_status: 'completed',
         generation_error: null,

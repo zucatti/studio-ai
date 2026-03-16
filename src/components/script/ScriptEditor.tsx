@@ -145,6 +145,7 @@ export function ScriptEditor({
 
   // Update element
   const handleUpdateElement = async (elementId: string, updates: Partial<ScriptElement>) => {
+    console.log('[handleUpdateElement] Updating element:', elementId, updates);
     try {
       const res = await fetch(`/api/projects/${projectId}/script-elements/${elementId}`, {
         method: 'PATCH',
@@ -154,6 +155,7 @@ export function ScriptEditor({
 
       if (res.ok) {
         const data = await res.json();
+        console.log('[handleUpdateElement] Success, response:', data);
         setElementsByScene((prev) => {
           const newState = { ...prev };
           for (const sceneId of Object.keys(newState)) {
@@ -163,6 +165,10 @@ export function ScriptEditor({
           }
           return newState;
         });
+      } else {
+        const errorData = await res.json().catch(() => ({}));
+        console.error('[handleUpdateElement] API error:', res.status, errorData);
+        toast.error(errorData.error || 'Erreur lors de la mise a jour');
       }
     } catch (error) {
       console.error('Error updating element:', error);

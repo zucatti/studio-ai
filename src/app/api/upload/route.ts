@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
-import { createServerSupabaseClient } from '@/lib/supabase';
+import { uploadFile, generateStorageKey, getSignedFileUrl } from '@/lib/storage';
 
 export async function POST(request: Request) {
   try {
@@ -12,66 +12,58 @@ export async function POST(request: Request) {
 
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
-    const bucket = (formData.get('bucket') as string) || 'project-thumbnails';
+    const folder = (formData.get('folder') as string) || 'uploads';
 
     if (!file) {
       return NextResponse.json({ error: 'No file provided' }, { status: 400 });
     }
 
     // Validate file type
-    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    const allowedTypes = [
+      'image/jpeg',
+      'image/png',
+      'image/webp',
+      'image/gif',
+      'audio/mpeg',
+      'audio/wav',
+      'audio/mp3',
+      'video/mp4',
+      'video/webm',
+    ];
     if (!allowedTypes.includes(file.type)) {
       return NextResponse.json(
-        { error: 'Invalid file type. Allowed: JPEG, PNG, WebP, GIF' },
+        { error: `Invalid file type: ${file.type}. Allowed: images, audio, video` },
         { status: 400 }
       );
     }
 
-    // Validate file size (5MB max)
-    const maxSize = 5 * 1024 * 1024;
+    // Validate file size (50MB max)
+    const maxSize = 50 * 1024 * 1024;
     if (file.size > maxSize) {
       return NextResponse.json(
-        { error: 'File too large. Maximum size: 5MB' },
+        { error: 'File too large. Maximum size: 50MB' },
         { status: 400 }
       );
     }
 
-    // Generate unique filename
-    const timestamp = Date.now();
-    const randomStr = Math.random().toString(36).substring(2, 8);
-    const extension = file.name.split('.').pop() || 'jpg';
-    const fileName = `${session.user.sub.replace(/[|]/g, '_')}/${timestamp}_${randomStr}.${extension}`;
+    // Generate unique storage key
+    const key = generateStorageKey(session.user.sub, folder, file.name);
 
-    // Convert File to ArrayBuffer
+    // Convert File to Buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const supabase = createServerSupabaseClient();
+    // Upload to B2
+    const { key: storedKey } = await uploadFile(key, buffer, file.type);
 
-    // Upload to Supabase Storage
-    const { data, error } = await supabase.storage
-      .from(bucket)
-      .upload(fileName, buffer, {
-        contentType: file.type,
-        upsert: false,
-      });
+    // Generate a signed URL for immediate use (1 hour expiry)
+    const signedUrl = await getSignedFileUrl(storedKey, 3600);
 
-    if (error) {
-      console.error('Upload error:', error);
-      return NextResponse.json(
-        { error: 'Failed to upload file' },
-        { status: 500 }
-      );
-    }
-
-    // Get public URL
-    const { data: urlData } = supabase.storage
-      .from(bucket)
-      .getPublicUrl(data.path);
-
+    // Return both the storage key (for database) and signed URL (for immediate display)
     return NextResponse.json({
-      url: urlData.publicUrl,
-      path: data.path,
+      key: storedKey,
+      url: `b2://${process.env.S3_BUCKET || 'studio-assets'}/${storedKey}`,
+      signedUrl,
     });
   } catch (error) {
     console.error('Upload error:', error);

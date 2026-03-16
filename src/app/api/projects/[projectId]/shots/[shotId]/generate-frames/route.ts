@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { uploadFile, getSignedFileUrl, parseStorageUrl, STORAGE_BUCKET } from '@/lib/storage';
 import Anthropic from '@anthropic-ai/sdk';
 import { hasReference, generateReferenceName, replaceReferencesWithDescriptions } from '@/lib/reference-name';
 
@@ -131,23 +132,40 @@ export async function POST(request: Request, { params }: RouteParams) {
     // Helper to wait
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    // Helper to upload local images to fal.ai storage
+    // Helper to upload images to fal.ai storage (handles B2, local, and public URLs)
     const uploadToFalStorage = async (imageUrl: string): Promise<string> => {
-      const isLocalUrl = imageUrl.includes('localhost') ||
-                         imageUrl.includes('127.0.0.1') ||
-                         imageUrl.includes('0.0.0.0');
-
-      if (!isLocalUrl) {
-        return imageUrl; // Already public
+      // If already on fal.ai, return as-is
+      if (imageUrl.includes('fal.media') || imageUrl.includes('fal-cdn')) {
+        return imageUrl;
       }
 
-      console.log(`Uploading local image to fal.ai storage...`);
       const { fal } = await import('@fal-ai/client');
       fal.config({ credentials: process.env.AI_FAL_KEY });
 
-      const response = await fetch(imageUrl);
+      // Convert B2 URLs to signed URLs first
+      let fetchUrl = imageUrl;
+      if (imageUrl.startsWith('b2://')) {
+        const parsed = parseStorageUrl(imageUrl);
+        if (parsed) {
+          console.log(`Converting b2:// URL to signed URL: ${imageUrl}`);
+          fetchUrl = await getSignedFileUrl(parsed.key);
+        }
+      }
+
+      // Check if it's a local URL that needs uploading
+      const isLocalUrl = fetchUrl.includes('localhost') ||
+                         fetchUrl.includes('127.0.0.1') ||
+                         fetchUrl.includes('0.0.0.0');
+
+      // For public remote URLs (not local, not B2), return as-is
+      if (!isLocalUrl && !imageUrl.startsWith('b2://')) {
+        return imageUrl;
+      }
+
+      console.log(`Uploading image to fal.ai storage...`);
+      const response = await fetch(fetchUrl);
       if (!response.ok) {
-        throw new Error(`Failed to fetch local image: ${response.status}`);
+        throw new Error(`Failed to fetch image: ${response.status}`);
       }
 
       const blob = await response.blob();
@@ -157,28 +175,19 @@ export async function POST(request: Request, { params }: RouteParams) {
       return uploadedUrl;
     };
 
-    // Helper to upload image to Supabase
-    const uploadToSupabase = async (imageUrl: string, suffix: string): Promise<string> => {
+    // Helper to upload image to B2
+    const uploadToB2 = async (imageUrl: string, suffix: string): Promise<string> => {
       const imageResponse = await fetch(imageUrl);
       const imageBlob = await imageResponse.blob();
       const imageBuffer = Buffer.from(await imageBlob.arrayBuffer());
 
-      const fileName = `${session.user.sub.replace(/[|]/g, '_')}/${projectId}/${shotId}_${suffix}_${Date.now()}.webp`;
+      const sanitizedUserId = session.user.sub.replace(/[|]/g, '_');
+      const storageKey = `frames/${sanitizedUserId}/${projectId}/${shotId}_${suffix}_${Date.now()}.webp`;
 
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('project-assets')
-        .upload(fileName, imageBuffer, {
-          contentType: 'image/webp',
-          upsert: true,
-        });
+      await uploadFile(storageKey, imageBuffer, 'image/webp');
 
-      if (uploadError) throw new Error('Upload failed: ' + uploadError.message);
-
-      const { data: urlData } = supabase.storage
-        .from('project-assets')
-        .getPublicUrl(uploadData.path);
-
-      return urlData.publicUrl;
+      // Return B2 URL format for database storage
+      return `b2://${STORAGE_BUCKET}/${storageKey}`;
     };
 
     // Helper to ensure reference_images is an array
@@ -847,7 +856,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         actualProvider = 'nano-banana-2';
       }
 
-      return uploadToSupabase(imageUrl, 'first');
+      return uploadToB2(imageUrl, 'first');
     };
 
     // Generate last frame - uses SAME character references as first frame (NOT the first frame itself)
@@ -877,7 +886,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         actualProvider = 'nano-banana-2';
       }
 
-      return uploadToSupabase(imageUrl, 'last');
+      return uploadToB2(imageUrl, 'last');
     };
 
     // Generate frames with sequential logic

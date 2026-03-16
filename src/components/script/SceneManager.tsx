@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { Plus, Edit2, Trash2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ProjectBibleButton } from '@/components/bible/ProjectBible';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -176,14 +177,17 @@ export function SceneManager({ projectId, scenes, onRefresh }: SceneManagerProps
 
   return (
     <>
-      {/* Add Scene Button */}
-      <Button
-        onClick={handleOpenCreate}
-        className="bg-blue-600 hover:bg-blue-700"
-      >
-        <Plus className="w-4 h-4 mr-2" />
-        Nouvelle scene
-      </Button>
+      {/* Action buttons */}
+      <div className="flex items-center gap-2">
+        <ProjectBibleButton projectId={projectId} />
+        <Button
+          onClick={handleOpenCreate}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Nouvelle scene
+        </Button>
+      </div>
 
       {/* Create/Edit Dialog */}
       <Dialog open={showDialog} onOpenChange={setShowDialog}>

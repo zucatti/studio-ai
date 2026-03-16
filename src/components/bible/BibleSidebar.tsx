@@ -2,31 +2,33 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Book, User, MapPin, Package, Music, Search, X, ChevronRight, Plus, Loader2 } from 'lucide-react';
+import { Book, User, MapPin, Package, Music, Search, X, Plus, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useBibleStore, BibleTab } from '@/store/bible-store';
 import { BibleCharacters } from './BibleCharacters';
 import { BibleLocations } from './BibleLocations';
 import { BibleProps } from './BibleProps';
 import { BibleAudio } from './BibleAudio';
-import { GlobalAssetPicker } from './GlobalAssetPicker';
 import { cn } from '@/lib/utils';
 
-interface BibleSidebarProps {
-  onInsertReference?: (reference: string) => void;
-}
-
-const TABS: { value: BibleTab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
-  { value: 'characters', label: 'Personnages', icon: User },
-  { value: 'locations', label: 'Lieux', icon: MapPin },
-  { value: 'props', label: 'Accessoires', icon: Package },
-  { value: 'audio', label: 'Audio', icon: Music },
+const TABS: { value: BibleTab; label: string; icon: React.ComponentType<{ className?: string }>; description: string }[] = [
+  { value: 'characters', label: 'Personnages', icon: User, description: 'Créer et gérer les personnages' },
+  { value: 'locations', label: 'Lieux', icon: MapPin, description: 'Créer et gérer les lieux' },
+  { value: 'props', label: 'Accessoires', icon: Package, description: 'Créer et gérer les accessoires' },
+  { value: 'audio', label: 'Audio', icon: Music, description: 'Gérer les fichiers audio' },
 ];
 
-export function BibleSidebar({ onInsertReference }: BibleSidebarProps) {
+// Bible Générale - Global library for creating/managing all assets
+export function BibleSidebar() {
   const params = useParams();
-  const projectId = params.projectId as string | undefined;
+  const projectId = params?.projectId as string | undefined;
 
   const {
     isOpen,
@@ -39,9 +41,10 @@ export function BibleSidebar({ onInsertReference }: BibleSidebarProps) {
     setSearchQuery,
     fetchGlobalAssets,
     fetchProjectAssets,
+    fetchProjectGenericAssets,
+    clearProjectAssets,
   } = useBibleStore();
 
-  const [showPicker, setShowPicker] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
@@ -51,167 +54,143 @@ export function BibleSidebar({ onInsertReference }: BibleSidebarProps) {
   useEffect(() => {
     if (_hasHydrated && isOpen) {
       fetchGlobalAssets('');
+      // Also fetch project assets to know what's already imported
       if (projectId) {
         fetchProjectAssets(projectId);
+        fetchProjectGenericAssets(projectId);
+      } else {
+        // Clear stale project assets when no project is open
+        clearProjectAssets();
       }
     }
-  }, [_hasHydrated, isOpen, projectId, fetchGlobalAssets, fetchProjectAssets]);
+  }, [_hasHydrated, isOpen, fetchGlobalAssets, fetchProjectAssets, fetchProjectGenericAssets, clearProjectAssets, projectId]);
 
-  // Use default state until hydrated
   const effectiveIsOpen = _hasHydrated ? isOpen : false;
 
-  if (!mounted || !effectiveIsOpen) {
+  if (!mounted) {
     return null;
   }
+
+  const currentTab = TABS.find(t => t.value === activeTab);
 
   const renderTabContent = () => {
     switch (activeTab) {
       case 'characters':
-        return <BibleCharacters projectId={projectId} onInsertReference={onInsertReference} />;
+        return <BibleCharacters projectId={projectId} showGlobalOnly={true} />;
       case 'locations':
-        return <BibleLocations projectId={projectId} onInsertReference={onInsertReference} />;
+        return <BibleLocations projectId={projectId} showGlobalOnly={true} />;
       case 'props':
-        return <BibleProps projectId={projectId} onInsertReference={onInsertReference} />;
+        return <BibleProps projectId={projectId} showGlobalOnly={true} />;
       case 'audio':
-        return <BibleAudio projectId={projectId} onInsertReference={onInsertReference} />;
+        return <BibleAudio showGlobalOnly={true} />;
       default:
         return null;
     }
   };
 
   return (
-    <>
-      {/* Sidebar Panel */}
-      <div className="flex flex-col h-full w-72 bg-[#0d1520] border-l border-white/5">
+    <Dialog open={effectiveIsOpen} onOpenChange={setOpen}>
+      <DialogContent className="w-[90vw] max-w-[90vw] h-[90vh] p-0 bg-[#0d1520] border-white/10 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center gap-2 h-14 px-4 border-b border-white/5">
-          <Book className="w-5 h-5 text-blue-400" />
-          <span className="font-semibold text-white">Bible</span>
-          <button
-            onClick={() => setOpen(false)}
-            className="ml-auto p-1 rounded hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Search */}
-        <div className="px-3 py-3">
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
-            <Input
-              placeholder="Rechercher..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-9 pl-8 bg-[#1a2433] border-0 text-sm text-white placeholder:text-slate-500 focus:ring-1 focus:ring-blue-500/50 rounded-lg"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="px-3 pb-3">
-          <div className="flex gap-1 p-1 bg-white/5 rounded-lg">
-            {TABS.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.value}
-                  onClick={() => setActiveTab(tab.value)}
-                  className={cn(
-                    'flex-1 flex items-center justify-center p-2 rounded-md transition-colors',
-                    activeTab === tab.value
-                      ? 'bg-blue-500/20 text-blue-400'
-                      : 'text-slate-400 hover:text-white hover:bg-white/5'
-                  )}
-                  title={tab.label}
-                >
-                  <Icon className="w-4 h-4" />
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Tab Title with Import Button */}
-        <div className="flex items-center justify-between px-4 py-2">
-          <span className="text-xs font-medium text-slate-500 uppercase tracking-wider">
-            {TABS.find(t => t.value === activeTab)?.label}
-          </span>
-          {projectId && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setShowPicker(true)}
-              className="h-6 px-2 text-xs text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
-            >
-              <Plus className="w-3 h-3 mr-1" />
-              Importer
-            </Button>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 overflow-y-auto px-3 pb-3">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+        <DialogHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="p-2 rounded-lg bg-blue-500/20">
+                <Book className="w-5 h-5 text-blue-400" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-semibold text-white">Bible Générale</DialogTitle>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Bibliothèque globale - Créez et gérez vos assets
+                </p>
+              </div>
             </div>
-          ) : (
-            renderTabContent()
-          )}
-        </div>
+            {/* Search */}
+            <div className="relative w-72 mr-8">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+              <Input
+                placeholder="Rechercher..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="h-9 pl-9 bg-white/5 border-white/10 text-sm text-white placeholder:text-slate-500"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          </div>
+        </DialogHeader>
 
-        {/* Footer */}
-        <div className="px-3 py-3 border-t border-white/5">
-          <p className="text-[10px] text-slate-500 text-center">
-            Cliquez sur un element pour inserer @Reference
-          </p>
-        </div>
-      </div>
+        {/* Main content */}
+        <div className="flex flex-1 min-h-0">
+          {/* Left sidebar - Tabs */}
+          <div className="w-52 border-r border-white/10 p-4 flex-shrink-0">
+            <div className="space-y-1">
+              {TABS.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.value;
+                return (
+                  <button
+                    key={tab.value}
+                    onClick={() => setActiveTab(tab.value)}
+                    className={cn(
+                      'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-colors',
+                      isActive
+                        ? 'bg-blue-500/20 text-blue-400'
+                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    )}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span className="text-sm font-medium">{tab.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
 
-      {/* Global Asset Picker Modal */}
-      {projectId && (
-        <GlobalAssetPicker
-          open={showPicker}
-          onOpenChange={setShowPicker}
-          projectId={projectId}
-        />
-      )}
-    </>
+          {/* Right content */}
+          <div className="flex-1 flex flex-col min-h-0">
+            {/* Tab header */}
+            <div className="px-6 py-3 border-b border-white/5 flex-shrink-0">
+              <h3 className="text-sm font-semibold text-white">{currentTab?.label}</h3>
+              <p className="text-xs text-slate-500">{currentTab?.description}</p>
+            </div>
+
+            {/* Content */}
+            <div className="flex-1 overflow-y-auto p-6">
+              {isLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+                </div>
+              ) : (
+                renderTabContent()
+              )}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-// Toggle button component to use in layouts
+// Toggle button for header
 export function BibleToggleButton() {
-  const { isOpen, toggle, _hasHydrated } = useBibleStore();
-  const effectiveIsOpen = _hasHydrated ? isOpen : false;
+  const { toggle, _hasHydrated } = useBibleStore();
 
   return (
     <Button
       variant="ghost"
       size="sm"
       onClick={toggle}
-      className={cn(
-        'gap-2',
-        effectiveIsOpen
-          ? 'bg-blue-500/20 text-blue-400'
-          : 'text-slate-400 hover:text-white'
-      )}
+      className="gap-2 text-slate-400 hover:text-white"
     >
       <Book className="w-4 h-4" />
       <span className="hidden sm:inline">Bible</span>
-      <ChevronRight className={cn(
-        'w-3 h-3 transition-transform',
-        effectiveIsOpen && 'rotate-180'
-      )} />
     </Button>
   );
 }

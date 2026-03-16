@@ -116,6 +116,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (body.extension !== undefined) updateData.extension = body.extension;
     if (body.sort_order !== undefined) updateData.sort_order = body.sort_order;
 
+    console.log('[PATCH script-element] elementId:', elementId, 'updateData:', updateData);
+
     const { data: element, error } = await supabase
       .from('script_elements')
       .update(updateData)

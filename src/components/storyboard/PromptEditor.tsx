@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Edit3, RefreshCw, X, Check, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
+import { ProjectMentionText } from '@/components/ui/project-mention-text';
 import {
   Dialog,
   DialogContent,
@@ -88,7 +89,7 @@ export function PromptEditor({
             <div className="space-y-2">
               <label className="text-sm text-slate-400">Prompt actuel :</label>
               <div className="p-3 bg-white/5 rounded-lg border border-white/10 text-sm text-slate-300">
-                {currentPrompt}
+                <ProjectMentionText text={currentPrompt} />
               </div>
             </div>
           )}
@@ -104,7 +105,7 @@ export function PromptEditor({
               className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 min-h-[120px] resize-none"
             />
             <p className="text-xs text-slate-500">
-              Conseils : Décrivez les personnages, l'action, l'environnement et l'éclairage. Le type de plan et l'angle caméra sont automatiquement inclus.
+              Conseils : Utilisez <span className="text-blue-400 font-mono">@NomPersonnage</span> pour referencer vos personnages. Leurs descriptions visuelles et images de reference seront automatiquement incluses.
             </p>
           </div>
         </div>

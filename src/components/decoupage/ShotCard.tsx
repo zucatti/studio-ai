@@ -12,6 +12,7 @@ import {
   Edit,
   Camera,
 } from 'lucide-react';
+import { StorageImg } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -209,7 +210,7 @@ export function ShotCard({
           {/* Storyboard thumbnail */}
           {shot.storyboard_image_url && (
             <div className="relative aspect-video w-full max-w-xs rounded overflow-hidden bg-black/20">
-              <img
+              <StorageImg
                 src={shot.storyboard_image_url}
                 alt={`Shot ${shot.shot_number} storyboard`}
                 className="w-full h-full object-cover"

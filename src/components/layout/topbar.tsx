@@ -106,8 +106,8 @@ export function Topbar() {
 
       {/* Right side */}
       <div className="flex items-center gap-2 ml-auto">
-        {/* Bible toggle - only show in project context */}
-        {project && <BibleToggleButton />}
+        {/* Bible toggle - always available for global library */}
+        <BibleToggleButton />
 
         <Button
           variant="ghost"

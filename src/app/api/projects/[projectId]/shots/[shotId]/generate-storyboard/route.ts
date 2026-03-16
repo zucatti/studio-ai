@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { uploadFile, deleteFile, parseStorageUrl, getSignedFileUrl, STORAGE_BUCKET } from '@/lib/storage';
 import { fal } from '@fal-ai/client';
 import Anthropic from '@anthropic-ai/sdk';
 import { generateReferenceName } from '@/lib/reference-name';
@@ -22,12 +23,13 @@ interface EntityWithImage {
   type: 'character' | 'prop' | 'location';
 }
 
-// Fetch all entities with their reference images
+// Fetch all entities with their reference images (from project + Bible global assets)
 async function fetchEntitiesWithImages(
   supabase: ReturnType<typeof createServerSupabaseClient>,
   projectId: string
 ): Promise<EntityWithImage[]> {
   const entities: EntityWithImage[] = [];
+  const seenRefs = new Set<string>();
 
   const [charactersRes, propsRes, locationsRes] = await Promise.all([
     supabase.from('characters').select('name, visual_description, reference_images').eq('project_id', projectId),
@@ -36,8 +38,10 @@ async function fetchEntitiesWithImages(
   ]);
 
   for (const char of charactersRes.data || []) {
+    const ref = generateReferenceName(char.name);
+    seenRefs.add(ref);
     entities.push({
-      reference: generateReferenceName(char.name),
+      reference: ref,
       name: char.name,
       visual_description: char.visual_description || '',
       reference_images: char.reference_images || [],
@@ -46,8 +50,10 @@ async function fetchEntitiesWithImages(
   }
 
   for (const prop of propsRes.data || []) {
+    const ref = generateReferenceName(prop.name);
+    seenRefs.add(ref);
     entities.push({
-      reference: generateReferenceName(prop.name),
+      reference: ref,
       name: prop.name,
       visual_description: prop.visual_description || '',
       reference_images: prop.reference_images || [],
@@ -56,12 +62,46 @@ async function fetchEntitiesWithImages(
   }
 
   for (const loc of locationsRes.data || []) {
+    const ref = generateReferenceName(loc.name);
+    seenRefs.add(ref);
     entities.push({
-      reference: generateReferenceName(loc.name),
+      reference: ref,
       name: loc.name,
       visual_description: loc.visual_description || '',
       reference_images: loc.reference_images || [],
       type: 'location',
+    });
+  }
+
+  // Also fetch global assets imported to this project
+  const { data: projectAssets } = await supabase
+    .from('project_assets')
+    .select(`
+      global_asset_id,
+      global_assets (
+        name,
+        asset_type,
+        data,
+        reference_images
+      )
+    `)
+    .eq('project_id', projectId);
+
+  for (const pa of projectAssets || []) {
+    const ga = pa.global_assets as any;
+    if (!ga || ga.asset_type === 'audio') continue;
+
+    const ref = generateReferenceName(ga.name);
+    if (seenRefs.has(ref)) continue;
+    seenRefs.add(ref);
+
+    const data = ga.data as Record<string, unknown>;
+    entities.push({
+      reference: ref,
+      name: ga.name,
+      visual_description: (data?.visual_description as string) || (data?.description as string) || '',
+      reference_images: ga.reference_images || [],
+      type: ga.asset_type as 'character' | 'prop' | 'location',
     });
   }
 
@@ -100,6 +140,27 @@ function getFirstReferenceImage(entity: EntityWithImage): string | null {
   // Find front view first, or any image
   const frontImage = images.find(img => img.includes('_front_'));
   return frontImage || images[0] || null;
+}
+
+// Collect reference images from mentioned entities (max 4 for most models)
+function collectReferenceImages(entities: EntityWithImage[], maxImages: number = 4): string[] {
+  const images: string[] = [];
+
+  // Sort by type priority: characters first
+  const sortedEntities = [...entities].sort((a, b) => {
+    const priority = { character: 0, prop: 1, location: 2 };
+    return priority[a.type] - priority[b.type];
+  });
+
+  for (const entity of sortedEntities) {
+    if (images.length >= maxImages) break;
+    const image = getFirstReferenceImage(entity);
+    if (image && !images.includes(image)) {
+      images.push(image);
+    }
+  }
+
+  return images;
 }
 
 // Storyboard style for Nano Banana 2 - natural language description
@@ -228,9 +289,13 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Delete existing storyboard
     if (shot.storyboard_image_url) {
-      const match = shot.storyboard_image_url.match(/project-assets\/(.+)$/);
-      if (match) {
-        await supabase.storage.from('project-assets').remove([match[1]]);
+      const parsed = parseStorageUrl(shot.storyboard_image_url);
+      if (parsed) {
+        try {
+          await deleteFile(parsed.key);
+        } catch (e) {
+          console.warn('Failed to delete old storyboard:', e);
+        }
       }
     }
 
@@ -273,17 +338,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Failed to generate image' }, { status: 500 });
     }
 
-    // Download and upload to Supabase
+    // Download and upload to B2
     const imageResponse = await fetch(imageUrl);
     const imageBuffer = Buffer.from(await imageResponse.arrayBuffer());
 
-    const fileName = `${session.user.sub.replace(/[|]/g, '_')}/${projectId}/${shotId}_storyboard_${Date.now()}.png`;
+    const sanitizedUserId = session.user.sub.replace(/[|]/g, '_');
+    const storageKey = `storyboards/${sanitizedUserId}/${projectId}/${shotId}_${Date.now()}.png`;
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('project-assets')
-      .upload(fileName, imageBuffer, { contentType: 'image/png', upsert: true });
-
-    if (uploadError) {
+    try {
+      await uploadFile(storageKey, imageBuffer, 'image/png');
+    } catch (uploadError) {
+      console.error('Upload to B2 failed:', uploadError);
       await supabase
         .from('shots')
         .update({ generation_status: 'failed', generation_error: 'Upload failed' })
@@ -291,15 +356,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Failed to save image' }, { status: 500 });
     }
 
-    const { data: urlData } = supabase.storage
-      .from('project-assets')
-      .getPublicUrl(uploadData.path);
+    // Store B2 URL in database
+    const b2Url = `b2://${STORAGE_BUCKET}/${storageKey}`;
+
+    // Generate signed URL for immediate display
+    const signedUrl = await getSignedFileUrl(storageKey, 3600);
 
     // Update shot
     const { data: updatedShot } = await supabase
       .from('shots')
       .update({
-        storyboard_image_url: urlData.publicUrl,
+        storyboard_image_url: b2Url,
         storyboard_prompt: optimizedPrompt,
         generation_status: 'completed',
         generation_error: null,
@@ -311,7 +378,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({
       success: true,
       shot: updatedShot,
-      storyboard_url: urlData.publicUrl,
+      storyboard_url: signedUrl,
     });
   } catch (error) {
     console.error('Error generating storyboard:', error);

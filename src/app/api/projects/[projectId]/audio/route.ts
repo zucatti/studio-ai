@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { uploadFile, deleteFile, parseStorageUrl, getSignedFileUrl, STORAGE_BUCKET } from '@/lib/storage';
 
 interface RouteParams {
   params: Promise<{ projectId: string }>;
@@ -100,26 +101,21 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Invalid audio file type' }, { status: 400 });
     }
 
-    // Upload to Supabase Storage
+    // Upload to B2
     const fileBuffer = Buffer.from(await file.arrayBuffer());
     const fileExt = file.name.split('.').pop() || 'mp3';
-    const fileName = `${session.user.sub.replace(/[|]/g, '_')}/${projectId}/audio_${Date.now()}.${fileExt}`;
+    const sanitizedUserId = session.user.sub.replace(/[|]/g, '_');
+    const storageKey = `audio/${sanitizedUserId}/${projectId}/audio_${Date.now()}.${fileExt}`;
 
-    const { data: uploadData, error: uploadError } = await supabase.storage
-      .from('project-assets')
-      .upload(fileName, fileBuffer, {
-        contentType: file.type,
-        upsert: true,
-      });
-
-    if (uploadError) {
+    try {
+      await uploadFile(storageKey, fileBuffer, file.type);
+    } catch (uploadError) {
       console.error('Upload error:', uploadError);
       return NextResponse.json({ error: 'Failed to upload audio' }, { status: 500 });
     }
 
-    const { data: urlData } = supabase.storage
-      .from('project-assets')
-      .getPublicUrl(uploadData.path);
+    // Store B2 URL format
+    const b2Url = `b2://${STORAGE_BUCKET}/${storageKey}`;
 
     // If this is master, unset previous master
     if (isMaster) {
@@ -133,7 +129,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       await supabase
         .from('projects')
         .update({
-          audio_url: urlData.publicUrl,
+          audio_url: b2Url,
           audio_duration: duration,
           audio_waveform_data: waveformData ? JSON.parse(waveformData) : null,
         })
@@ -147,7 +143,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         project_id: projectId,
         name,
         type,
-        file_url: urlData.publicUrl,
+        file_url: b2Url,
         duration,
         waveform_data: waveformData ? JSON.parse(waveformData) : null,
         is_master: isMaster,
@@ -212,10 +208,14 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Audio asset not found' }, { status: 404 });
     }
 
-    // Delete from storage
-    const match = audioAsset.file_url.match(/project-assets\/(.+)$/);
-    if (match) {
-      await supabase.storage.from('project-assets').remove([match[1]]);
+    // Delete from B2 storage
+    const parsed = parseStorageUrl(audioAsset.file_url);
+    if (parsed) {
+      try {
+        await deleteFile(parsed.key);
+      } catch (e) {
+        console.warn('Failed to delete audio from storage:', e);
+      }
     }
 
     // Delete record

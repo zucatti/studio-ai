@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { StorageImg } from '@/components/ui/storage-image';
 import type { Project } from '@/types/database';
 import { Sparkles, Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
 
@@ -255,7 +256,7 @@ export function CreateProjectDialog({
               {displayPreview ? (
                 <div className="relative group">
                   <div className="aspect-video rounded-xl overflow-hidden border border-white/10 bg-[#0d1829]">
-                    <img
+                    <StorageImg
                       src={displayPreview}
                       alt="Aperçu"
                       className="w-full h-full object-cover"

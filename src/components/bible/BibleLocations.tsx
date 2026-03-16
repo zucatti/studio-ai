@@ -30,7 +30,9 @@ export function BibleLocations({ projectId, onInsertReference, showGlobalOnly = 
   };
 
   const handleRemove = async (projectAssetId: string) => {
-    await removeProjectAsset(projectAssetId);
+    if (projectId) {
+      await removeProjectAsset(projectId, projectAssetId);
+    }
   };
 
   const displayLocations = showGlobalOnly

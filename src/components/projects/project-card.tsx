@@ -10,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { StorageImg } from '@/components/ui/storage-image';
 import { MoreVertical, Trash2, Edit, Film, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -55,7 +56,7 @@ export function ProjectCard({ project, onDelete, onEdit }: ProjectCardProps) {
       <Link href={`/project/${project.id}/${project.current_step}`}>
         <div className="aspect-video relative bg-[#0d1520] overflow-hidden">
           {project.thumbnail_url ? (
-            <img
+            <StorageImg
               src={project.thumbnail_url}
               alt={project.name}
               className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"

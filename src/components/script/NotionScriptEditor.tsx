@@ -1,11 +1,22 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Plus, GripVertical, X, User, Type, MessageSquare, ArrowRight, StickyNote, MoreHorizontal, Trash2 } from 'lucide-react';
+import { Plus, GripVertical, X, User, Type, MessageSquare, ArrowRight, StickyNote, MoreHorizontal, Trash2, Users, Mic, Baby, Radio, BookOpen } from 'lucide-react';
 import { useBibleStore } from '@/store/bible-store';
 import type { ScriptElement, ScriptElementType } from '@/types/script';
 import type { ProjectAssetFlat } from '@/types/database';
+import { GENERIC_CHARACTERS, getGenericCharacter, isGenericCharacter } from '@/lib/generic-characters';
 import { cn } from '@/lib/utils';
+
+// Icons for generic characters
+const GENERIC_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
+  crowd: Users,
+  voice: Mic,
+  person: User,
+  child: Baby,
+  announcer: Radio,
+  narrator: BookOpen,
+};
 
 interface NotionScriptEditorProps {
   projectId: string;
@@ -143,6 +154,7 @@ function CharacterTag({
   characterId,
   characterName,
   characters,
+  importedGenericIds,
   isLoading,
   onRemove,
   onSelect,
@@ -150,6 +162,7 @@ function CharacterTag({
   characterId: string | null;
   characterName: string | null;
   characters: ProjectAssetFlat[];
+  importedGenericIds: Set<string>;
   isLoading?: boolean;
   onRemove: () => void;
   onSelect: (id: string, name: string) => void;
@@ -167,10 +180,18 @@ function CharacterTag({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Check if selected character is generic
+  const isGeneric = characterId ? isGenericCharacter(characterId) : false;
+  const genericChar = characterId ? getGenericCharacter(characterId) : undefined;
+  const GenericIcon = genericChar ? (GENERIC_ICONS[genericChar.icon] || User) : User;
+
   if (characterName) {
     return (
-      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-blue-500/20 text-blue-300 text-sm font-medium">
-        <User className="w-3.5 h-3.5" />
+      <span className={cn(
+        "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium",
+        isGeneric ? "bg-purple-500/20 text-purple-300" : "bg-blue-500/20 text-blue-300"
+      )}>
+        {isGeneric ? <GenericIcon className="w-3.5 h-3.5" /> : <User className="w-3.5 h-3.5" />}
         <span className="uppercase">{characterName}</span>
         <button
           onClick={onRemove}
@@ -185,6 +206,7 @@ function CharacterTag({
   return (
     <div className="relative" ref={pickerRef}>
       <button
+        type="button"
         onClick={() => setShowPicker(!showPicker)}
         className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-dashed border-slate-600 text-slate-500 text-sm hover:border-blue-500/50 hover:text-blue-400 transition-colors"
       >
@@ -193,32 +215,74 @@ function CharacterTag({
       </button>
 
       {showPicker && (
-        <div className="absolute top-full left-0 mt-2 w-56 rounded-lg bg-[#1e293b] border border-white/10 shadow-xl z-50 overflow-hidden">
-          {isLoading ? (
-            <div className="p-4 text-center text-sm text-slate-500">
-              Chargement...
-            </div>
-          ) : characters.length === 0 ? (
-            <div className="p-4 text-center text-sm text-slate-500">
-              Aucun personnage dans la Bible
-            </div>
-          ) : (
-            <div className="py-1 max-h-64 overflow-y-auto">
-              {characters.map((char) => (
-                <button
-                  key={char.id}
-                  onClick={() => {
-                    onSelect(char.id, char.name);
-                    setShowPicker(false);
-                  }}
-                  className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5 transition-colors"
-                >
-                  <User className="w-4 h-4 text-blue-400" />
-                  <span className="uppercase">{char.name}</span>
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="absolute top-full left-0 mt-2 w-64 rounded-lg bg-[#1e293b] border border-white/10 shadow-xl z-50 overflow-hidden">
+          <div className="max-h-80 overflow-y-auto">
+            {/* Custom characters section */}
+            {characters.length > 0 && (
+              <>
+                <div className="px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider bg-white/5">
+                  Personnages du projet
+                </div>
+                {characters.map((char) => (
+                  <button
+                    key={char.id}
+                    type="button"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onClick={() => {
+                      console.log('[CharacterTag] Selecting character:', char.id, char.name);
+                      onSelect(char.id, char.name);
+                      setTimeout(() => setShowPicker(false), 10);
+                    }}
+                    className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-white hover:bg-white/5 transition-colors"
+                  >
+                    <User className="w-4 h-4 text-blue-400" />
+                    <span className="uppercase">{char.name}</span>
+                  </button>
+                ))}
+              </>
+            )}
+
+            {/* Generic characters section - only imported ones */}
+            {importedGenericIds.size > 0 && (
+              <>
+                <div className="px-3 py-2 text-xs font-semibold text-purple-400 uppercase tracking-wider bg-purple-500/10 border-t border-white/10">
+                  Personnages generiques
+                </div>
+                {GENERIC_CHARACTERS.filter(g => importedGenericIds.has(g.id)).map((generic) => {
+                  const Icon = GENERIC_ICONS[generic.icon] || User;
+                  return (
+                    <button
+                      key={generic.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                      }}
+                      onClick={() => {
+                        console.log('[CharacterTag] Selecting generic:', generic.id, generic.name);
+                        onSelect(generic.id, generic.name);
+                        setTimeout(() => setShowPicker(false), 10);
+                      }}
+                      className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-white/5 transition-colors"
+                    >
+                      <Icon className="w-4 h-4 text-purple-400" />
+                      <span className="uppercase">{generic.name}</span>
+                    </button>
+                  );
+                })}
+              </>
+            )}
+
+            {/* Empty state */}
+            {characters.length === 0 && importedGenericIds.size === 0 && (
+              <div className="px-3 py-4 text-center text-xs text-slate-500">
+                Aucun personnage. Importez-en depuis la Bible.
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -229,12 +293,14 @@ function CharacterTag({
 function ElementBlock({
   element,
   characters,
+  importedGenericIds,
   isLoading,
   onUpdate,
   onDelete,
 }: {
   element: ScriptElement;
   characters: ProjectAssetFlat[];
+  importedGenericIds: Set<string>;
   isLoading?: boolean;
   onUpdate: (updates: Partial<ScriptElement>) => void;
   onDelete: () => void;
@@ -275,6 +341,7 @@ function ElementBlock({
               characterId={element.character_id ?? null}
               characterName={element.character_name ?? null}
               characters={characters}
+              importedGenericIds={importedGenericIds}
               isLoading={isLoading}
               onRemove={() => onUpdate({ character_id: null, character_name: null })}
               onSelect={(id, name) => onUpdate({ character_id: id, character_name: name })}
@@ -414,20 +481,16 @@ export function NotionScriptEditor({
   onUpdateElement,
   onDeleteElement,
 }: NotionScriptEditorProps) {
-  const { projectAssets, fetchProjectAssets, isLoading } = useBibleStore();
+  const { projectAssets, projectGenericAssets, fetchProjectAssets, fetchProjectGenericAssets, isLoading } = useBibleStore();
 
   // Fetch project assets once when component mounts or projectId changes
   useEffect(() => {
-    console.log('[NotionScriptEditor] Mount - fetching assets for project:', projectId);
     fetchProjectAssets(projectId);
-  }, [projectId, fetchProjectAssets]);
+    fetchProjectGenericAssets(projectId);
+  }, [projectId, fetchProjectAssets, fetchProjectGenericAssets]);
 
   const characters = projectAssets.filter(a => a.asset_type === 'character');
-
-  // Debug log
-  useEffect(() => {
-    console.log('[NotionScriptEditor] projectAssets:', projectAssets.length, 'characters:', characters.length, 'isLoading:', isLoading);
-  }, [projectAssets, characters.length, isLoading]);
+  const importedGenericIds = new Set(projectGenericAssets.map(pa => pa.id));
 
   const sortedElements = [...elements].sort((a, b) => a.sort_order - b.sort_order);
 
@@ -445,6 +508,7 @@ export function NotionScriptEditor({
               <ElementBlock
                 element={element}
                 characters={characters}
+                importedGenericIds={importedGenericIds}
                 isLoading={isLoading}
                 onUpdate={(updates) => onUpdateElement(element.id, updates)}
                 onDelete={() => onDeleteElement(element.id)}

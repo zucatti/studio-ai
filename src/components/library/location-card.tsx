@@ -4,6 +4,7 @@ import { Location, LOCATION_TYPES } from '@/types/character';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { StorageImg } from '@/components/ui/storage-image';
 import { Edit, Trash2, MapPin, Sun, Sparkles } from 'lucide-react';
 
 interface LocationCardProps {
@@ -19,8 +20,7 @@ export function LocationCard({ location, onEdit, onDelete }: LocationCardProps) 
     <Card className="overflow-hidden hover:shadow-md transition-shadow">
       <div className="aspect-video relative bg-muted">
         {location.referenceImages[0] ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
+          <StorageImg
             src={location.referenceImages[0]}
             alt={location.name}
             className="w-full h-full object-cover"

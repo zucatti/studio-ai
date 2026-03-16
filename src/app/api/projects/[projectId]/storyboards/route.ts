@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { deleteFile, parseStorageUrl } from '@/lib/storage';
 
 interface RouteParams {
   params: Promise<{ projectId: string }>;
@@ -61,24 +62,45 @@ export async function DELETE(request: Request, { params }: RouteParams) {
       return NextResponse.json({ message: 'No storyboards to delete' });
     }
 
-    // Extract file paths from URLs and delete from storage
-    const filePaths: string[] = [];
+    // Delete files from storage (handle both B2 and legacy Supabase URLs)
+    const b2Keys: string[] = [];
+    const supabasePaths: string[] = [];
+
     for (const shot of shotsWithStoryboards) {
-      // URL format: .../storage/v1/object/public/project-assets/path/to/file.png
-      const match = shot.url.match(/project-assets\/(.+)$/);
-      if (match) {
-        filePaths.push(match[1]);
+      // Check if it's a B2 URL
+      if (shot.url.startsWith('b2://')) {
+        const parsed = parseStorageUrl(shot.url);
+        if (parsed) {
+          b2Keys.push(parsed.key);
+        }
+      } else {
+        // Legacy Supabase URL format: .../storage/v1/object/public/project-assets/path/to/file.png
+        const match = shot.url.match(/project-assets\/(.+)$/);
+        if (match) {
+          supabasePaths.push(match[1]);
+        }
       }
     }
 
-    // Delete files from storage
-    if (filePaths.length > 0) {
+    // Delete B2 files
+    for (const key of b2Keys) {
+      try {
+        await deleteFile(key);
+        console.log(`Deleted B2 file: ${key}`);
+      } catch (error) {
+        console.error(`Error deleting B2 file ${key}:`, error);
+        // Continue anyway
+      }
+    }
+
+    // Delete legacy Supabase files
+    if (supabasePaths.length > 0) {
       const { error: storageError } = await supabase.storage
         .from('project-assets')
-        .remove(filePaths);
+        .remove(supabasePaths);
 
       if (storageError) {
-        console.error('Error deleting files from storage:', storageError);
+        console.error('Error deleting files from Supabase storage:', storageError);
         // Continue anyway to clear database references
       }
     }

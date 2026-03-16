@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ChevronDown, ChevronRight, Plus, Wand2, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ProjectMentionText } from '@/components/ui/project-mention-text';
 import { ShotCard } from './ShotCard';
 import type { ShotType, CameraAngle, CameraMovement } from '@/types/shot';
 
@@ -91,7 +92,9 @@ export function SceneDecoupage({
               {scene.time_of_day}
             </CardTitle>
             {scene.description && (
-              <p className="text-sm text-slate-400 mt-1">{scene.description}</p>
+              <p className="text-sm text-slate-400 mt-1">
+                <ProjectMentionText text={scene.description} />
+              </p>
             )}
           </div>
 

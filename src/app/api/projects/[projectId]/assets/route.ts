@@ -133,3 +133,63 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
+
+// DELETE /api/projects/[projectId]/assets?id=xxx - Remove an asset from a project
+export async function DELETE(request: Request, { params }: RouteParams) {
+  try {
+    const session = await auth0.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { projectId } = await params;
+    const url = new URL(request.url);
+    const projectAssetId = url.searchParams.get('id');
+
+    if (!projectAssetId) {
+      return NextResponse.json({ error: 'Project asset ID is required' }, { status: 400 });
+    }
+
+    const supabase = createServerSupabaseClient();
+
+    // Verify project ownership
+    const { data: project } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', session.user.sub)
+      .single();
+
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // Verify the project asset belongs to this project
+    const { data: projectAsset } = await supabase
+      .from('project_assets')
+      .select('id')
+      .eq('id', projectAssetId)
+      .eq('project_id', projectId)
+      .single();
+
+    if (!projectAsset) {
+      return NextResponse.json({ error: 'Project asset not found' }, { status: 404 });
+    }
+
+    // Delete the project asset link
+    const { error } = await supabase
+      .from('project_assets')
+      .delete()
+      .eq('id', projectAssetId);
+
+    if (error) {
+      console.error('Error removing asset from project:', error);
+      return NextResponse.json({ error: 'Failed to remove asset' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}

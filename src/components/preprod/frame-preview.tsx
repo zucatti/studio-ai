@@ -4,6 +4,7 @@ import { Shot } from '@/types/shot';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { StorageImg } from '@/components/ui/storage-image';
 import {
   ImagePlus,
   Check,
@@ -105,8 +106,7 @@ export function FramePreview({
               </div>
               <div className="aspect-video rounded-lg bg-muted flex items-center justify-center overflow-hidden border">
                 {shot.firstFrame?.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <StorageImg
                     src={shot.firstFrame.imageUrl}
                     alt="First frame"
                     className="w-full h-full object-cover"
@@ -163,8 +163,7 @@ export function FramePreview({
               </div>
               <div className="aspect-video rounded-lg bg-muted flex items-center justify-center overflow-hidden border">
                 {shot.lastFrame?.imageUrl ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
+                  <StorageImg
                     src={shot.lastFrame.imageUrl}
                     alt="Last frame"
                     className="w-full h-full object-cover"

@@ -30,7 +30,9 @@ export function BibleProps({ projectId, onInsertReference, showGlobalOnly = fals
   };
 
   const handleRemove = async (projectAssetId: string) => {
-    await removeProjectAsset(projectAssetId);
+    if (projectId) {
+      await removeProjectAsset(projectId, projectAssetId);
+    }
   };
 
   const displayProps = showGlobalOnly

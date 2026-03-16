@@ -4,6 +4,7 @@ import { Prop, PROP_TYPES } from '@/types/character';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { StorageImg } from '@/components/ui/storage-image';
 import { Edit, Trash2, Package } from 'lucide-react';
 
 interface PropCardProps {
@@ -21,8 +22,7 @@ export function PropCard({ prop, onEdit, onDelete }: PropCardProps) {
         <div className="flex items-start gap-4">
           <div className="h-16 w-16 rounded-lg bg-muted flex items-center justify-center flex-shrink-0">
             {prop.referenceImages[0] ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <StorageImg
                 src={prop.referenceImages[0]}
                 alt={prop.name}
                 className="h-full w-full object-cover rounded-lg"

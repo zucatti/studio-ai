@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { MapPin, ChevronDown, Plus, AlertCircle, Sun, Moon, Cloud } from 'lucide-react';
+import { StorageImg } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -195,7 +196,7 @@ export function LocationPicker({
                   )}
                 >
                   {location.data?.reference_images?.[0] ? (
-                    <img
+                    <StorageImg
                       src={location.data.reference_images[0]}
                       alt={location.name}
                       className="w-10 h-10 rounded object-cover"

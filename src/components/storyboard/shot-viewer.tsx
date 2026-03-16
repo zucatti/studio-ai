@@ -4,6 +4,8 @@ import { Shot, SHOT_TYPES, CAMERA_ANGLES, CAMERA_MOVEMENTS } from '@/types/shot'
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ProjectMentionText } from '@/components/ui/project-mention-text';
+import { StorageImg } from '@/components/ui/storage-image';
 import { ImagePlus, Camera, MessageSquare, Clapperboard } from 'lucide-react';
 
 interface ShotViewerProps {
@@ -29,8 +31,7 @@ export function ShotViewer({ shot, sceneName, onUploadImage }: ShotViewerProps) 
       <Card className="overflow-hidden">
         <div className="aspect-video relative bg-muted flex items-center justify-center">
           {shot.storyboardImage ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
+            <StorageImg
               src={shot.storyboardImage}
               alt={`Plan ${shot.shotNumber}`}
               className="object-contain w-full h-full"
@@ -62,7 +63,9 @@ export function ShotViewer({ shot, sceneName, onUploadImage }: ShotViewerProps) 
             )}
           </div>
 
-          <p className="text-sm">{shot.description}</p>
+          <p className="text-sm">
+            <ProjectMentionText text={shot.description} />
+          </p>
 
           {/* Camera annotations */}
           {shot.cameraAnnotation && (
@@ -111,7 +114,9 @@ export function ShotViewer({ shot, sceneName, onUploadImage }: ShotViewerProps) 
                         </span>
                       )}
                     </div>
-                    <p className="text-sm italic">{dialogue.text}</p>
+                    <p className="text-sm italic">
+                      <ProjectMentionText text={dialogue.text} />
+                    </p>
                   </div>
                 ))}
               </div>
@@ -128,7 +133,7 @@ export function ShotViewer({ shot, sceneName, onUploadImage }: ShotViewerProps) 
               <div className="space-y-1 pl-6">
                 {shot.actions.map((action) => (
                   <p key={action.id} className="text-sm text-muted-foreground">
-                    {action.description}
+                    <ProjectMentionText text={action.description} />
                   </p>
                 ))}
               </div>

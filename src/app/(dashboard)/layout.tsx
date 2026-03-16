@@ -2,6 +2,7 @@ import { auth0 } from '@/lib/auth0';
 import { redirect } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
+import { BibleSidebar } from '@/components/bible/BibleSidebar';
 
 export default async function DashboardLayout({
   children,
@@ -23,6 +24,8 @@ export default async function DashboardLayout({
           {children}
         </main>
       </div>
+      {/* Bible Générale - available globally */}
+      <BibleSidebar />
     </div>
   );
 }

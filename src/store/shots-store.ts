@@ -42,7 +42,7 @@ interface ShotsState {
   lastFetchedProjectId: string | null;
 
   // Actions
-  fetchScenes: (projectId: string) => Promise<void>;
+  fetchScenes: (projectId: string, forceRefresh?: boolean) => Promise<void>;
 
   // Scene mutations
   addScene: (projectId: string, scene: Partial<Scene>) => Promise<Scene | null>;

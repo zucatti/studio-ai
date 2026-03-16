@@ -4,6 +4,7 @@ import { Shot } from '@/types/shot';
 import { cn } from '@/lib/utils';
 import { Image as ImageIcon, Check } from 'lucide-react';
 import { ScrollArea, ScrollBar } from '@/components/ui/scroll-area';
+import { StorageImg } from '@/components/ui/storage-image';
 
 interface ThumbnailStripProps {
   shots: Shot[];
@@ -31,8 +32,7 @@ export function ThumbnailStrip({
             )}
           >
             {shot.storyboardImage ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <StorageImg
                 src={shot.storyboardImage}
                 alt={`Plan ${shot.shotNumber}`}
                 className="w-full h-full object-cover"
