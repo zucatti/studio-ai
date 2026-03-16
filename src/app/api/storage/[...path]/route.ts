@@ -48,7 +48,7 @@ export async function GET(request: Request, { params }: RouteParams) {
       // Proxy the file content
       const buffer = await downloadFile(key);
 
-      return new NextResponse(buffer, {
+      return new NextResponse(new Uint8Array(buffer), {
         headers: {
           'Content-Type': metadata.contentType,
           'Content-Length': metadata.size.toString(),

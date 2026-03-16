@@ -413,7 +413,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         // Check if we have an existing front view to use as reference
         const existingFront = existingReferenceImages.find(img => img.type === 'front');
 
-        let imageUrl: string;
+        let imageUrl: string = '';
 
         if (existingFront && viewType !== 'front') {
           // Use existing front as reference - can work without visual description
