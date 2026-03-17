@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { BibleSidebar } from '@/components/bible/BibleSidebar';
+import { checkUserAccess } from '@/lib/user-access';
 
 export default async function DashboardLayout({
   children,
@@ -13,6 +14,13 @@ export default async function DashboardLayout({
 
   if (!session?.user) {
     redirect('/auth/login');
+  }
+
+  // Check if user is authorized (active in database)
+  const { isAuthorized } = await checkUserAccess();
+
+  if (!isAuthorized) {
+    redirect('/unauthorized');
   }
 
   return (

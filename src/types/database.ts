@@ -699,3 +699,21 @@ export type ProviderSpending = {
   spentPercent: number;
   periodStartDate: string;
 };
+
+// ============================================================================
+// Users
+// ============================================================================
+
+export interface User {
+  id: string;
+  auth0_id: string;
+  email: string | null;
+  name: string | null;
+  picture: string | null;
+  active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export type UserInsert = Omit<User, 'id' | 'created_at' | 'updated_at'>;
+export type UserUpdate = Partial<Omit<User, 'id' | 'auth0_id' | 'created_at' | 'updated_at'>>;
