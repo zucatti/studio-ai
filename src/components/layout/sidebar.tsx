@@ -17,7 +17,6 @@ import {
   X,
   Frame,
   Clapperboard,
-  Grid3x3,
   Lightbulb,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -50,7 +49,6 @@ const projectNavigation: NavSection = {
   items: [
     { name: 'Brainstorming', href: '/brainstorming', icon: Lightbulb },
     { name: 'Script', href: '/script', icon: Clapperboard },
-    { name: 'Decoupage', href: '/decoupage', icon: Grid3x3 },
     { name: 'Storyboard', href: '/storyboard', icon: ImageIcon },
     { name: 'Preprod', href: '/preprod', icon: Frame },
     { name: 'Production', href: '/production', icon: PlayCircle },

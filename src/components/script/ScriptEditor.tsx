@@ -1,13 +1,15 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { FileText, Loader2 } from 'lucide-react';
+import { FileText, Loader2, ClipboardList } from 'lucide-react';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ScriptToolbar, type ScriptViewMode } from './ScriptToolbar';
 import { ScriptStructuredView } from './ScriptStructuredView';
 import { ScriptFreeView } from './ScriptFreeView';
 import { ScriptExporter } from './ScriptExporter';
 import { SceneManager } from './SceneManager';
 import { GenerationModal, type GenerationLog } from './GenerationModal';
+import { ScriptBreakdownView } from '@/components/breakdown';
 import type { ScriptElement, ScriptElementType } from '@/types/script';
 import { toast } from 'sonner';
 
@@ -338,15 +340,33 @@ export function ScriptEditor({
   }
 
   return (
-    <div className="space-y-4">
+    <Tabs defaultValue="writing" className="space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 text-white">
-          <FileText className="w-5 h-5 text-blue-400" />
-          <h2 className="text-xl font-semibold">Script</h2>
-          <span className="text-sm text-slate-400 ml-2">
-            {scenes.length} scene{scenes.length > 1 ? 's' : ''}
-          </span>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2 text-white">
+            <FileText className="w-5 h-5 text-blue-400" />
+            <h2 className="text-xl font-semibold">Script</h2>
+            <span className="text-sm text-slate-400 ml-2">
+              {scenes.length} scene{scenes.length > 1 ? 's' : ''}
+            </span>
+          </div>
+          <TabsList className="bg-white/5 border border-white/10">
+            <TabsTrigger
+              value="writing"
+              className="data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+            >
+              <FileText className="w-4 h-4 mr-2" />
+              Écriture
+            </TabsTrigger>
+            <TabsTrigger
+              value="breakdown"
+              className="data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+            >
+              <ClipboardList className="w-4 h-4 mr-2" />
+              Dépouillement
+            </TabsTrigger>
+          </TabsList>
         </div>
         <SceneManager
           projectId={projectId}
@@ -355,57 +375,65 @@ export function ScriptEditor({
         />
       </div>
 
-      {/* Toolbar */}
-      <ScriptToolbar
-        viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        onExport={() => setShowExporter(true)}
-        onGenerate={handleGenerate}
-        onOrganize={handleOrganize}
-        isGenerating={isGenerating}
-        isOrganizing={isOrganizing}
-        canOrganize={canOrganize}
-        sceneFilter={sceneFilter}
-        onSceneFilterChange={setSceneFilter}
-        scenes={scenes.map((s) => ({
-          id: s.id,
-          scene_number: s.scene_number,
-          location: s.location,
-        }))}
-      />
+      {/* Écriture Tab */}
+      <TabsContent value="writing" className="mt-0 space-y-4">
+        {/* Toolbar */}
+        <ScriptToolbar
+          viewMode={viewMode}
+          onViewModeChange={setViewMode}
+          onExport={() => setShowExporter(true)}
+          onGenerate={handleGenerate}
+          onOrganize={handleOrganize}
+          isGenerating={isGenerating}
+          isOrganizing={isOrganizing}
+          canOrganize={canOrganize}
+          sceneFilter={sceneFilter}
+          onSceneFilterChange={setSceneFilter}
+          scenes={scenes.map((s) => ({
+            id: s.id,
+            scene_number: s.scene_number,
+            location: s.location,
+          }))}
+        />
 
-      {/* Content */}
-      {scenes.length === 0 ? (
-        <div className="rounded-xl bg-[#151d28] border border-white/5 py-12 text-center">
-          <FileText className="w-12 h-12 mx-auto mb-4 text-slate-500" />
-          <p className="text-slate-400">Aucune scene dans ce projet.</p>
-          <p className="text-sm mt-1 text-slate-500">
-            Cliquez sur "Nouvelle scene" pour commencer.
-          </p>
-        </div>
-      ) : viewMode === 'structured' ? (
-        <ScriptStructuredView
-          projectId={projectId}
-          scenes={scenes}
-          elementsByScene={elementsByScene}
-          sceneFilter={sceneFilter}
-          onAddElement={handleAddElement}
-          onUpdateElement={handleUpdateElement}
-          onDeleteElement={handleDeleteElement}
-          onReorderElement={handleReorderElement}
-          onRefresh={onRefresh}
-        />
-      ) : (
-        <ScriptFreeView
-          scenes={scenes}
-          elementsByScene={elementsByScene}
-          sceneFilter={sceneFilter}
-          onSaveFreeText={handleSaveFreeText}
-          freeTextByScene={freeTextByScene}
-          onFreeTextChange={handleFreeTextChange}
-          isSaving={isSaving}
-        />
-      )}
+        {/* Content */}
+        {scenes.length === 0 ? (
+          <div className="rounded-xl bg-[#151d28] border border-white/5 py-12 text-center">
+            <FileText className="w-12 h-12 mx-auto mb-4 text-slate-500" />
+            <p className="text-slate-400">Aucune scene dans ce projet.</p>
+            <p className="text-sm mt-1 text-slate-500">
+              Cliquez sur "Nouvelle scene" pour commencer.
+            </p>
+          </div>
+        ) : viewMode === 'structured' ? (
+          <ScriptStructuredView
+            projectId={projectId}
+            scenes={scenes}
+            elementsByScene={elementsByScene}
+            sceneFilter={sceneFilter}
+            onAddElement={handleAddElement}
+            onUpdateElement={handleUpdateElement}
+            onDeleteElement={handleDeleteElement}
+            onReorderElement={handleReorderElement}
+            onRefresh={onRefresh}
+          />
+        ) : (
+          <ScriptFreeView
+            scenes={scenes}
+            elementsByScene={elementsByScene}
+            sceneFilter={sceneFilter}
+            onSaveFreeText={handleSaveFreeText}
+            freeTextByScene={freeTextByScene}
+            onFreeTextChange={handleFreeTextChange}
+            isSaving={isSaving}
+          />
+        )}
+      </TabsContent>
+
+      {/* Dépouillement Tab */}
+      <TabsContent value="breakdown" className="mt-0">
+        <ScriptBreakdownView projectId={projectId} />
+      </TabsContent>
 
       {/* Exporter modal */}
       <ScriptExporter
@@ -428,6 +456,6 @@ export function ScriptEditor({
         isComplete={generationComplete}
         error={generationError}
       />
-    </div>
+    </Tabs>
   );
 }
