@@ -135,8 +135,8 @@ export function BibleAssetCard({
   }
 
   const handleCardClick = () => {
-    if (!isInProject && onImport) {
-      onImport();
+    if (onEdit) {
+      onEdit();
     }
   };
 
@@ -146,7 +146,7 @@ export function BibleAssetCard({
         'relative rounded-lg border bg-white/5 overflow-hidden transition-all',
         'hover:bg-white/10',
         isHovered && 'ring-1 ring-white/20',
-        !isInProject && onImport && 'cursor-pointer'
+        onEdit && 'cursor-pointer'
       )}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -203,6 +203,26 @@ export function BibleAssetCard({
               </TooltipTrigger>
               <TooltipContent side="bottom" className="bg-[#1a2433] border-white/10">
                 <p className="text-xs">Retirer du projet</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+        {/* Import button (check icon) for library items when project is selected */}
+        {!isInProject && onImport && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={(e) => { e.stopPropagation(); onImport(); }}
+                  className="h-7 w-7 text-slate-400 hover:text-green-400 hover:bg-green-500/10"
+                >
+                  <Plus className="w-4 h-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="bg-[#1a2433] border-white/10">
+                <p className="text-xs">Ajouter au projet</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>

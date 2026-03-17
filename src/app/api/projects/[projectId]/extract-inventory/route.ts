@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import Anthropic from '@anthropic-ai/sdk';
+import { logClaudeUsage } from '@/lib/ai/log-api-usage';
 
 interface RouteParams {
   params: Promise<{ projectId: string }>;
@@ -180,6 +181,15 @@ Important:
         },
       ],
     });
+
+    // Log API usage
+    logClaudeUsage({
+      operation: 'extract-inventory',
+      model: 'claude-sonnet-4-20250514',
+      inputTokens: message.usage?.input_tokens || 0,
+      outputTokens: message.usage?.output_tokens || 0,
+      projectId,
+    }).catch(console.error);
 
     const content = message.content[0];
     if (content.type !== 'text') {

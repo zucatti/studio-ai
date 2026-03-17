@@ -12,7 +12,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { StorageImg } from '@/components/ui/storage-image';
+import { StorageImg, StorageBackgroundDiv } from '@/components/ui/storage-image';
 import {
   Select,
   SelectContent,
@@ -126,9 +126,12 @@ export function CharacterFormDialog({
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>(
     (character?.data as CharacterData)?.reference_images_metadata || []
   );
+  const [pendingFiles, setPendingFiles] = useState<Map<CharacterImageType, File>>(new Map());
   const [uploadingType, setUploadingType] = useState<CharacterImageType | null>(null);
+  const [uploadingImageType, setUploadingImageType] = useState<CharacterImageType | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generatingView, setGeneratingView] = useState<CharacterImageType | null>(null);
+  const [savedCharacterId, setSavedCharacterId] = useState<string | null>(null);
 
   // Looks state
   const [looks, setLooks] = useState<LookVariation[]>(
@@ -137,6 +140,7 @@ export function CharacterFormDialog({
   const [newLookName, setNewLookName] = useState('');
   const [newLookDescription, setNewLookDescription] = useState('');
   const [uploadingLook, setUploadingLook] = useState(false);
+  const [generatingLook, setGeneratingLook] = useState(false);
 
   // Audio state
   const [voiceId, setVoiceId] = useState((character?.data as CharacterData)?.voice_id || '');
@@ -179,6 +183,8 @@ export function CharacterFormDialog({
     }
     setStyle('photorealistic');
     setActiveTab('references');
+    setSavedCharacterId(null);
+    setPendingFiles(new Map());
   }, [character]);
 
   // Reset form when dialog opens or character changes
@@ -216,38 +222,54 @@ export function CharacterFormDialog({
     const file = event.target.files?.[0];
     if (!file || !uploadingType) return;
 
-    if (!character) {
-      const url = URL.createObjectURL(file);
-      const newImage: ReferenceImage = {
-        url,
-        type: uploadingType,
-        label: IMAGE_TYPES.find((t) => t.value === uploadingType)?.description || '',
-      };
+    const currentCharacterId = character?.id || savedCharacterId;
+    const currentUploadingType = uploadingType;
 
-      setReferenceImages((prev) => {
-        const filtered = prev.filter((img) => img.type !== uploadingType);
-        return [...filtered, newImage];
-      });
-    } else {
-      const url = await uploadCharacterImage(character.id, file, uploadingType);
-      if (url) {
+    setUploadingImageType(currentUploadingType);
+
+    try {
+      if (!currentCharacterId) {
+        // During creation: store blob URL for preview and keep the file for later upload
+        const url = URL.createObjectURL(file);
+        const newImage: ReferenceImage = {
+          url,
+          type: currentUploadingType,
+          label: IMAGE_TYPES.find((t) => t.value === currentUploadingType)?.description || '',
+        };
+
         setReferenceImages((prev) => {
-          const filtered = prev.filter((img) => img.type !== uploadingType);
-          return [
-            ...filtered,
-            {
-              url,
-              type: uploadingType,
-              label: IMAGE_TYPES.find((t) => t.value === uploadingType)?.description || '',
-            },
-          ];
+          const filtered = prev.filter((img) => img.type !== currentUploadingType);
+          return [...filtered, newImage];
         });
-      }
-    }
 
-    setUploadingType(null);
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
+        // Store the file for later upload when we save
+        setPendingFiles((prev) => {
+          const newMap = new Map(prev);
+          newMap.set(currentUploadingType, file);
+          return newMap;
+        });
+      } else {
+        const url = await uploadCharacterImage(currentCharacterId, file, currentUploadingType);
+        if (url) {
+          setReferenceImages((prev) => {
+            const filtered = prev.filter((img) => img.type !== currentUploadingType);
+            return [
+              ...filtered,
+              {
+                url,
+                type: currentUploadingType,
+                label: IMAGE_TYPES.find((t) => t.value === currentUploadingType)?.description || '',
+              },
+            ];
+          });
+        }
+      }
+    } finally {
+      setUploadingImageType(null);
+      setUploadingType(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -263,13 +285,14 @@ export function CharacterFormDialog({
     }
 
     const hasFrontImage = referenceImages.some((img) => img.type === 'front');
-    const canAutoGenerate = isEditing && hasFrontImage && visualDescription.trim().length > 10;
+    // Can auto-generate if we have a front image (will auto-save if needed)
+    const canAutoGenerate = hasFrontImage && imageType !== 'front';
 
-    if (canAutoGenerate && imageType !== 'front') {
+    if (canAutoGenerate) {
       // Auto-generate this view
       await handleGenerateSingle(imageType);
     } else {
-      // No face image or can't generate - open file picker
+      // No face image or clicking on front slot - open file picker
       setUploadingType(imageType);
       fileInputRef.current?.click();
     }
@@ -288,21 +311,96 @@ export function CharacterFormDialog({
 
   // Generate single view
   const handleGenerateSingle = async (viewType: CharacterImageType) => {
-    if (!character) return;
+    let characterId = character?.id || savedCharacterId;
 
-    setGeneratingView(viewType);
-    try {
-      const result = await generateCharacterImages(character.id, {
-        mode: 'generate_single',
-        viewType,
-        style,
-      });
-
-      if (result) {
-        setReferenceImages(result);
+    // If no character exists, create one first
+    if (!characterId) {
+      if (!name.trim()) {
+        console.error('Character name is required');
+        return;
       }
-    } finally {
-      setGeneratingView(null);
+
+      setGeneratingView(viewType);
+
+      try {
+        // Create the character first
+        const characterData: CharacterData = {
+          description,
+          visual_description: visualDescription,
+          age: age || undefined,
+          gender: gender || undefined,
+          reference_images_metadata: [],
+        };
+
+        const tagArray = tags
+          .split(',')
+          .map((t) => t.trim())
+          .filter(Boolean);
+
+        const newCharacter = await createCharacter({
+          name,
+          data: characterData,
+          tags: tagArray,
+          reference_images: [],
+        });
+
+        if (!newCharacter) {
+          console.error('Failed to create character');
+          setGeneratingView(null);
+          return;
+        }
+
+        characterId = newCharacter.id;
+        setSavedCharacterId(characterId);
+
+        // Upload any pending files
+        const uploadedImages: ReferenceImage[] = [];
+        for (const [imageType, file] of pendingFiles) {
+          const url = await uploadCharacterImage(characterId, file, imageType);
+          if (url) {
+            uploadedImages.push({
+              url,
+              type: imageType,
+              label: IMAGE_TYPES.find((t) => t.value === imageType)?.description || '',
+            });
+          }
+        }
+
+        // Clear pending files and update reference images with real URLs
+        setPendingFiles(new Map());
+        if (uploadedImages.length > 0) {
+          setReferenceImages(uploadedImages);
+        }
+
+        // Now generate the requested view
+        const result = await generateCharacterImages(characterId, {
+          mode: 'generate_single',
+          viewType,
+          style,
+        });
+
+        if (result) {
+          setReferenceImages(result);
+        }
+      } finally {
+        setGeneratingView(null);
+      }
+    } else {
+      // Character already exists
+      setGeneratingView(viewType);
+      try {
+        const result = await generateCharacterImages(characterId, {
+          mode: 'generate_single',
+          viewType,
+          style,
+        });
+
+        if (result) {
+          setReferenceImages(result);
+        }
+      } finally {
+        setGeneratingView(null);
+      }
     }
   };
 
@@ -348,6 +446,41 @@ export function CharacterFormDialog({
   // Remove a look
   const removeLook = (lookId: string) => {
     setLooks((prev) => prev.filter((l) => l.id !== lookId));
+  };
+
+  // Generate look with AI
+  const handleGenerateLook = async () => {
+    if (!character || !newLookDescription.trim()) return;
+
+    setGeneratingLook(true);
+    try {
+      const res = await fetch(`/api/global-assets/${character.id}/generate-images`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'generate_look',
+          lookName: newLookName.trim() || 'Look généré',
+          lookDescription: newLookDescription.trim(),
+          style,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data.look) {
+          setLooks((prev) => [...prev, data.look]);
+          setNewLookName('');
+          setNewLookDescription('');
+        }
+      } else {
+        const error = await res.json();
+        console.error('Error generating look:', error);
+      }
+    } catch (error) {
+      console.error('Error generating look:', error);
+    } finally {
+      setGeneratingLook(false);
+    }
   };
 
   // Play voice preview
@@ -427,15 +560,18 @@ export function CharacterFormDialog({
 
     try {
       let result: GlobalAsset | null = null;
+      const existingCharacterId = character?.id || savedCharacterId;
 
-      if (isEditing && character) {
-        result = await updateCharacter(character.id, {
+      if (existingCharacterId) {
+        // Update existing character (either editing or auto-saved during creation)
+        result = await updateCharacter(existingCharacterId, {
           name,
           data: characterData,
           tags: tagArray,
           reference_images: referenceImages.map((img) => img.url),
         });
       } else {
+        // Create new character
         result = await createCharacter({
           name,
           data: characterData,
@@ -456,7 +592,8 @@ export function CharacterFormDialog({
 
   // Check if we have enough info to generate
   const hasFrontImage = referenceImages.some((img) => img.type === 'front');
-  const canGenerate = isEditing && (visualDescription.trim().length > 10 || hasFrontImage);
+  // Allow generation if we have a front image (even during creation - will auto-save first)
+  const canGenerate = hasFrontImage;
 
   // Filter voices based on search
   const filteredVoices = voiceSearch
@@ -689,30 +826,35 @@ export function CharacterFormDialog({
                       const existingImage = referenceImages.find((img) => img.type === imageType.value);
                       const isGeneratingThis = generatingView === imageType.value;
 
+                      const isUploadingThis = uploadingImageType === imageType.value;
+
                       return (
                         <div
                           key={imageType.value}
                           className={cn(
-                            'relative aspect-[3/4] rounded-xl border-2 border-dashed overflow-hidden group transition-all cursor-pointer',
+                            'relative aspect-[3/4] rounded-xl border-2 border-dashed group transition-all cursor-pointer',
                             existingImage
                               ? 'border-green-500/50 bg-green-500/5'
                               : 'border-white/10 bg-white/5 hover:border-blue-500/50 hover:bg-blue-500/5'
                           )}
-                          onClick={() => !isGeneratingThis && handleImageSlotClick(imageType.value)}
+                          style={{ clipPath: 'inset(0 round 12px)' }}
+                          onClick={() => !isGeneratingThis && !isUploadingThis && handleImageSlotClick(imageType.value)}
                         >
-                          {isGeneratingThis ? (
+                          {isGeneratingThis || isUploadingThis ? (
                             <div className="w-full h-full flex flex-col items-center justify-center gap-3">
                               <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-                              <span className="text-sm text-slate-400">Génération...</span>
+                              <span className="text-sm text-slate-400">
+                                {isUploadingThis ? 'Upload...' : 'Génération...'}
+                              </span>
                             </div>
                           ) : existingImage ? (
                             <>
                               <StorageImg
                                 src={existingImage.url}
                                 alt={imageType.label}
-                                className="w-full h-full object-cover"
+                                className="absolute inset-0 w-full h-full object-contain rounded-xl"
                               />
-                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3">
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 rounded-xl">
                                 <div className="flex items-center gap-2">
                                   <Button
                                     variant="ghost"
@@ -725,7 +867,7 @@ export function CharacterFormDialog({
                                   >
                                     <RefreshCw className="w-5 h-5" />
                                   </Button>
-                                  {isEditing && canGenerate && (
+                                  {canGenerate && (
                                     <Button
                                       variant="ghost"
                                       size="icon"
@@ -752,8 +894,10 @@ export function CharacterFormDialog({
                                   </Button>
                                 </div>
                               </div>
-                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
-                                <span className="text-sm text-white font-medium">{imageType.label}</span>
+                              <div className="absolute bottom-2 left-2">
+                                <span className="text-sm text-white font-medium px-2 py-1 rounded-md bg-black/70 backdrop-blur-sm">
+                                  {imageType.label}
+                                </span>
                               </div>
                               <div className="absolute top-3 right-3 p-1 rounded-full bg-green-500/90">
                                 <Check className="w-3 h-3 text-white" />
@@ -775,7 +919,7 @@ export function CharacterFormDialog({
                                   <Upload className="w-4 h-4 mr-1.5" />
                                   Upload
                                 </Button>
-                                {isEditing && canGenerate && (
+                                {canGenerate && (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -804,30 +948,35 @@ export function CharacterFormDialog({
                     {IMAGE_TYPES.slice(3).map((imageType) => {
                       const existingImage = referenceImages.find((img) => img.type === imageType.value);
                       const isGeneratingThis = generatingView === imageType.value;
+                      const isUploadingThis = uploadingImageType === imageType.value;
 
                       return (
                         <div
                           key={imageType.value}
                           className={cn(
-                            'relative aspect-[4/3] rounded-xl border-2 border-dashed overflow-hidden group transition-all cursor-pointer',
+                            'relative aspect-[4/3] rounded-xl border-2 border-dashed group transition-all cursor-pointer',
                             existingImage
                               ? 'border-green-500/50 bg-green-500/5'
                               : 'border-white/10 bg-white/5 hover:border-blue-500/50 hover:bg-blue-500/5'
                           )}
-                          onClick={() => !isGeneratingThis && handleImageSlotClick(imageType.value)}
+                          style={{ clipPath: 'inset(0 round 12px)' }}
+                          onClick={() => !isGeneratingThis && !isUploadingThis && handleImageSlotClick(imageType.value)}
                         >
-                          {isGeneratingThis ? (
-                            <div className="w-full h-full flex items-center justify-center">
+                          {isGeneratingThis || isUploadingThis ? (
+                            <div className="w-full h-full flex flex-col items-center justify-center gap-2">
                               <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+                              <span className="text-xs text-slate-400">
+                                {isUploadingThis ? 'Upload...' : 'Génération...'}
+                              </span>
                             </div>
                           ) : existingImage ? (
                             <>
                               <StorageImg
                                 src={existingImage.url}
                                 alt={imageType.label}
-                                className="w-full h-full object-cover"
+                                className="absolute inset-0 w-full h-full object-contain rounded-xl"
                               />
-                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 rounded-xl">
                                 <Button
                                   variant="ghost"
                                   size="icon"
@@ -851,8 +1000,10 @@ export function CharacterFormDialog({
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
                               </div>
-                              <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent px-3 py-2">
-                                <span className="text-xs text-white font-medium">{imageType.label}</span>
+                              <div className="absolute bottom-2 left-2">
+                                <span className="text-xs text-white font-medium px-2 py-1 rounded-md bg-black/70 backdrop-blur-sm">
+                                  {imageType.label}
+                                </span>
                               </div>
                             </>
                           ) : (
@@ -871,7 +1022,7 @@ export function CharacterFormDialog({
                                   <Upload className="w-3.5 h-3.5 mr-1" />
                                   Upload
                                 </Button>
-                                {isEditing && canGenerate && (
+                                {canGenerate && (
                                   <Button
                                     variant="outline"
                                     size="sm"
@@ -919,7 +1070,7 @@ export function CharacterFormDialog({
 
                   {/* Add new look form */}
                   <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                    <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div className="space-y-4">
                       <div>
                         <Label className="text-slate-300 text-sm">Nom du look</Label>
                         <Input
@@ -930,27 +1081,49 @@ export function CharacterFormDialog({
                         />
                       </div>
                       <div>
-                        <Label className="text-slate-300 text-sm">Description (optionnel)</Label>
-                        <Input
+                        <Label className="text-slate-300 text-sm">
+                          Description du look <span className="text-slate-500 font-normal">(tenue, accessoires, contexte...)</span>
+                        </Label>
+                        <Textarea
                           value={newLookDescription}
                           onChange={(e) => setNewLookDescription(e.target.value)}
-                          placeholder="Ex: Robe noire, talons hauts"
-                          className="mt-1 bg-white/5 border-white/10 text-white"
+                          placeholder="Ex: Robe noire élégante, talons hauts, collier de perles, maquillage sophistiqué, tenue de gala..."
+                          className="mt-1 bg-white/5 border-white/10 text-white min-h-[80px] resize-none"
                         />
+                        <p className="text-xs text-slate-500 mt-1">
+                          L'IA utilisera automatiquement les caractéristiques physiques du personnage (âge, morphologie...).
+                        </p>
+                      </div>
+                      <div className="flex gap-3">
+                        <Button
+                          onClick={() => lookFileInputRef.current?.click()}
+                          disabled={!newLookName.trim() || uploadingLook || generatingLook}
+                          variant="outline"
+                          className="flex-1 border-white/20 text-slate-300 hover:bg-white/10 hover:border-white/30"
+                        >
+                          {uploadingLook ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Upload className="w-4 h-4 mr-2" />
+                          )}
+                          Uploader une image
+                        </Button>
+                        {isEditing && (
+                          <Button
+                            onClick={handleGenerateLook}
+                            disabled={!newLookDescription.trim() || uploadingLook || generatingLook}
+                            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                          >
+                            {generatingLook ? (
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            ) : (
+                              <Wand2 className="w-4 h-4 mr-2" />
+                            )}
+                            Générer avec l'IA
+                          </Button>
+                        )}
                       </div>
                     </div>
-                    <Button
-                      onClick={() => lookFileInputRef.current?.click()}
-                      disabled={!newLookName.trim() || uploadingLook}
-                      className="w-full bg-white/5 border border-dashed border-white/20 hover:bg-white/10 hover:border-white/30 text-slate-300"
-                    >
-                      {uploadingLook ? (
-                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      ) : (
-                        <Plus className="w-4 h-4 mr-2" />
-                      )}
-                      Ajouter une image pour ce look
-                    </Button>
                   </div>
 
                   {/* Looks grid */}

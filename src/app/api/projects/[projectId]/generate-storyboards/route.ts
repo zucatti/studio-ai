@@ -5,6 +5,7 @@ import { uploadFile, getSignedFileUrl, STORAGE_BUCKET } from '@/lib/storage';
 import { fal } from '@fal-ai/client';
 import Anthropic from '@anthropic-ai/sdk';
 import { generateReferenceName } from '@/lib/reference-name';
+import { logFalUsage, logClaudeUsage } from '@/lib/ai/log-api-usage';
 
 // Configure fal.ai client
 fal.config({
@@ -308,6 +309,14 @@ Return ONLY the optimized English prompt, nothing else.`,
     ],
   });
 
+  // Log Claude usage
+  logClaudeUsage({
+    operation: 'optimize-storyboard-prompt',
+    model: 'claude-sonnet-4-20250514',
+    inputTokens: message.usage?.input_tokens || 0,
+    outputTokens: message.usage?.output_tokens || 0,
+  }).catch(console.error);
+
   const content = message.content[0];
   if (content.type === 'text') {
     console.log('Optimized prompt:', content.text);
@@ -509,6 +518,15 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (images && images.length > 0) {
       imageUrl = images[0].url;
     }
+
+    // Log fal.ai usage for storyboard generation
+    const falModel = referenceImages.length > 0 ? 'fal-ai/ideogram/v2' : 'fal-ai/nano-banana-2';
+    logFalUsage({
+      operation: 'generate-storyboard',
+      model: falModel,
+      imagesCount: 1,
+      projectId,
+    }).catch(console.error);
 
     if (!imageUrl) {
       await supabase

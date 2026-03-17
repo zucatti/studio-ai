@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import Anthropic from '@anthropic-ai/sdk';
+import { logClaudeUsage } from '@/lib/ai/log-api-usage';
 
 interface RouteParams {
   params: Promise<{ projectId: string }>;
@@ -122,6 +123,15 @@ Reponds UNIQUEMENT avec un JSON valide:
         },
       ],
     });
+
+    // Log API usage
+    logClaudeUsage({
+      operation: 'generate-decoupage',
+      model: 'claude-sonnet-4-20250514',
+      inputTokens: response.usage?.input_tokens || 0,
+      outputTokens: response.usage?.output_tokens || 0,
+      projectId,
+    }).catch(console.error);
 
     // Extract JSON from response
     const textContent = response.content.find((c) => c.type === 'text');

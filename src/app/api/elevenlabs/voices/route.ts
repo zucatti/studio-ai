@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { logElevenLabsUsage } from '@/lib/ai/log-api-usage';
 
 const ELEVENLABS_API_KEY = process.env.AI_ELEVEN_LABS;
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
@@ -99,6 +100,13 @@ export async function POST(request: Request) {
     // Return audio as base64
     const audioBuffer = await response.arrayBuffer();
     const base64Audio = Buffer.from(audioBuffer).toString('base64');
+
+    // Log ElevenLabs usage
+    logElevenLabsUsage({
+      operation: 'text-to-speech-preview',
+      model: 'eleven_multilingual_v2',
+      characters: text.length,
+    }).catch(console.error);
 
     return NextResponse.json({
       audio: `data:audio/mpeg;base64,${base64Audio}`

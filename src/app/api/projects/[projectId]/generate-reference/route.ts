@@ -3,6 +3,7 @@ import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { uploadFile, getSignedFileUrl, parseStorageUrl, STORAGE_BUCKET } from '@/lib/storage';
 import Anthropic from '@anthropic-ai/sdk';
+import { logClaudeUsage, logFalUsage } from '@/lib/ai/log-api-usage';
 
 interface RouteParams {
   params: Promise<{ projectId: string }>;
@@ -109,6 +110,14 @@ Return ONLY the optimized English prompt, nothing else.`,
       },
     ],
   });
+
+  // Log API usage
+  logClaudeUsage({
+    operation: 'optimize-prompt-reference',
+    model: 'claude-sonnet-4-20250514',
+    inputTokens: message.usage?.input_tokens || 0,
+    outputTokens: message.usage?.output_tokens || 0,
+  }).catch(console.error);
 
   const content = message.content[0];
   if (content.type === 'text') {
@@ -546,6 +555,14 @@ export async function POST(request: Request, { params }: RouteParams) {
         .eq('id', entityId);
 
       console.log(`Generated ${uploadedUrls.length} reference image(s) for ${entityType}: ${entity.name}`);
+
+      // Log fal.ai usage (consolidated for all image generations in this request)
+      logFalUsage({
+        operation: `generate-reference-${entityType}`,
+        model: useMultiView ? 'ideogram/character+perspective' : 'flux-pro/v1.1',
+        imagesCount: uploadedUrls.length,
+        projectId,
+      }).catch(console.error);
 
       return NextResponse.json({
         success: true,

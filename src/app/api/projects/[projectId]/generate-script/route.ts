@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import Anthropic from '@anthropic-ai/sdk';
+import { createClaudeWrapper, parseJsonResponse, isCreditError, formatCreditError } from '@/lib/ai';
 
 interface RouteParams {
   params: Promise<{ projectId: string }>;
@@ -15,7 +15,7 @@ const VALID_CAMERA_ANGLES = ['eye_level', 'low_angle', 'high_angle', 'dutch_angl
 const VALID_CAMERA_MOVEMENTS = ['static', 'pan_left', 'pan_right', 'tilt_up', 'tilt_down', 'dolly_in', 'dolly_out', 'tracking', 'crane', 'handheld'] as const;
 
 // Validation helpers
-function validateIntExt(value: string): typeof VALID_INT_EXT[number] {
+function validateIntExt(value: string | undefined): typeof VALID_INT_EXT[number] {
   const upper = value?.toUpperCase?.() || 'INT';
   if (VALID_INT_EXT.includes(upper as typeof VALID_INT_EXT[number])) {
     return upper as typeof VALID_INT_EXT[number];
@@ -23,7 +23,7 @@ function validateIntExt(value: string): typeof VALID_INT_EXT[number] {
   return 'INT';
 }
 
-function validateTimeOfDay(value: string): typeof VALID_TIME_OF_DAY[number] {
+function validateTimeOfDay(value: string | undefined): typeof VALID_TIME_OF_DAY[number] {
   const upper = value?.toUpperCase?.() || 'JOUR';
   if (VALID_TIME_OF_DAY.includes(upper as typeof VALID_TIME_OF_DAY[number])) {
     return upper as typeof VALID_TIME_OF_DAY[number];
@@ -31,7 +31,7 @@ function validateTimeOfDay(value: string): typeof VALID_TIME_OF_DAY[number] {
   return 'JOUR';
 }
 
-function validateShotType(value: string): typeof VALID_SHOT_TYPES[number] | null {
+function validateShotType(value: string | undefined): typeof VALID_SHOT_TYPES[number] | null {
   const lower = value?.toLowerCase?.() || '';
   if (VALID_SHOT_TYPES.includes(lower as typeof VALID_SHOT_TYPES[number])) {
     return lower as typeof VALID_SHOT_TYPES[number];
@@ -39,7 +39,7 @@ function validateShotType(value: string): typeof VALID_SHOT_TYPES[number] | null
   return 'medium';
 }
 
-function validateCameraAngle(value: string): typeof VALID_CAMERA_ANGLES[number] | null {
+function validateCameraAngle(value: string | undefined): typeof VALID_CAMERA_ANGLES[number] | null {
   const lower = value?.toLowerCase?.() || '';
   if (VALID_CAMERA_ANGLES.includes(lower as typeof VALID_CAMERA_ANGLES[number])) {
     return lower as typeof VALID_CAMERA_ANGLES[number];
@@ -47,7 +47,7 @@ function validateCameraAngle(value: string): typeof VALID_CAMERA_ANGLES[number] 
   return 'eye_level';
 }
 
-function validateCameraMovement(value: string): typeof VALID_CAMERA_MOVEMENTS[number] {
+function validateCameraMovement(value: string | undefined): typeof VALID_CAMERA_MOVEMENTS[number] {
   const lower = value?.toLowerCase?.() || '';
   if (VALID_CAMERA_MOVEMENTS.includes(lower as typeof VALID_CAMERA_MOVEMENTS[number])) {
     return lower as typeof VALID_CAMERA_MOVEMENTS[number];
@@ -197,46 +197,78 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    // Initialize Anthropic client
-    const anthropic = new Anthropic({
-      apiKey: process.env.AI_CLAUDE_KEY,
+    // Initialize Claude wrapper with credit management
+    const claude = createClaudeWrapper({
+      userId: session.user.sub,
+      projectId,
+      supabase,
+      operation: 'generate-script',
     });
 
-    // Generate script with Claude
-    const message = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 8192,
-      messages: [
-        {
-          role: 'user',
-          content: SCRIPT_GENERATION_PROMPT + brainstorming.content,
-        },
-      ],
-    });
-
-    // Extract the text response
-    const responseText = message.content[0].type === 'text' ? message.content[0].text : '';
-
-    // Parse JSON from response (handle markdown code blocks)
-    let scriptData;
+    // Generate script with Claude (with automatic credit check and logging)
+    let result;
     try {
-      // Try to extract JSON from markdown code block first
-      const jsonMatch = responseText.match(/```(?:json)?\s*([\s\S]*?)```/);
-      let jsonString = jsonMatch ? jsonMatch[1].trim() : responseText.trim();
-
-      // If still not valid JSON, try to find JSON object
-      if (!jsonString.startsWith('{')) {
-        const jsonStart = jsonString.indexOf('{');
-        const jsonEnd = jsonString.lastIndexOf('}');
-        if (jsonStart !== -1 && jsonEnd !== -1) {
-          jsonString = jsonString.substring(jsonStart, jsonEnd + 1);
-        }
+      result = await claude.createMessage({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 8192,
+        messages: [
+          {
+            role: 'user',
+            content: SCRIPT_GENERATION_PROMPT + brainstorming.content,
+          },
+        ],
+      });
+    } catch (error) {
+      // Handle credit-related errors
+      if (isCreditError(error)) {
+        return NextResponse.json(
+          { error: formatCreditError(error), code: error.code },
+          { status: 402 } // Payment Required
+        );
       }
+      throw error;
+    }
 
-      scriptData = JSON.parse(jsonString);
+    // Define type for parsed script data
+    interface ScriptDialogue {
+      character_name?: string;
+      content?: string;
+      parenthetical?: string;
+    }
+
+    interface ScriptAction {
+      content?: string;
+    }
+
+    interface ScriptShot {
+      shot_number?: number;
+      description?: string;
+      shot_type?: string;
+      camera_angle?: string;
+      camera_movement?: string;
+      dialogues?: ScriptDialogue[];
+      actions?: ScriptAction[];
+    }
+
+    interface ScriptScene {
+      scene_number?: number;
+      int_ext?: string;
+      location?: string;
+      time_of_day?: string;
+      description?: string;
+      shots?: ScriptShot[];
+    }
+
+    interface ScriptData {
+      scenes: ScriptScene[];
+    }
+
+    // Parse JSON from response (with helper that handles markdown code blocks)
+    let scriptData: ScriptData;
+    try {
+      scriptData = parseJsonResponse<ScriptData>(result.message);
     } catch (parseError) {
       console.error('Failed to parse script JSON:', parseError);
-      console.error('Response text:', responseText.substring(0, 500));
       return NextResponse.json(
         { error: 'Erreur lors du parsing du script généré. Veuillez réessayer.' },
         { status: 500 }
@@ -378,9 +410,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       message: 'Script généré avec succès',
       scenes_count: scriptData.scenes.length,
       shots_count: totalShots,
+      cost: result.cost,
     });
   } catch (error) {
     console.error('Error generating script:', error);
+    // Handle credit errors that might occur elsewhere
+    if (isCreditError(error)) {
+      return NextResponse.json(
+        { error: formatCreditError(error), code: error.code },
+        { status: 402 }
+      );
+    }
     return NextResponse.json(
       { error: 'Erreur lors de la génération du script' },
       { status: 500 }

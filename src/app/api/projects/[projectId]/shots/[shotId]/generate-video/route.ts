@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { logFalUsage } from '@/lib/ai/log-api-usage';
 
 interface RouteParams {
   params: Promise<{ projectId: string; shotId: string }>;
@@ -172,6 +173,17 @@ export async function POST(request: Request, { params }: RouteParams) {
         video_generation_progress: JSON.stringify({ status: 'completed', progress: 100 }),
       })
       .eq('id', shotId);
+
+    // Log fal.ai usage for video generation
+    const falModel = isLipSyncShot
+      ? KLING_AVATAR_MODEL
+      : `fal-ai/kling-video/v3/${provider === 'kling' || provider === 'veo' ? 'pro' : 'standard'}/image-to-video`;
+    logFalUsage({
+      operation: 'generate-video',
+      model: falModel,
+      videoDuration: videoDuration,
+      projectId,
+    }).catch(console.error);
 
     return NextResponse.json({
       success: true,

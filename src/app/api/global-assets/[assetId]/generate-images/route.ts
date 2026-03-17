@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { uploadFile, getSignedFileUrl, parseStorageUrl, STORAGE_BUCKET } from '@/lib/storage';
-import Anthropic from '@anthropic-ai/sdk';
+import { createClaudeWrapper, extractTextContent, isCreditError, formatCreditError } from '@/lib/ai';
+import { createCreditService, ensureCredit, calculateFalCost } from '@/lib/credits';
 
 interface RouteParams {
   params: Promise<{ assetId: string }>;
@@ -71,17 +72,17 @@ const CHARACTER_VIEWS: { name: CharacterImageType; label: string; promptSuffix: 
 
 type PerspectiveTarget = 'front' | 'left_side' | 'right_side' | 'back' | 'top_down' | 'bottom_up' | 'birds_eye' | 'three_quarter_left' | 'three_quarter_right';
 
-// Translate and optimize prompt using Claude
-async function optimizePrompt(frenchDescription: string, style: string): Promise<string> {
+// Translate and optimize prompt using Claude (with credit management)
+async function optimizePrompt(
+  frenchDescription: string,
+  style: string,
+  claudeWrapper: ReturnType<typeof createClaudeWrapper>
+): Promise<string> {
   if (!process.env.AI_CLAUDE_KEY) {
     return frenchDescription;
   }
 
-  const anthropic = new Anthropic({
-    apiKey: process.env.AI_CLAUDE_KEY,
-  });
-
-  const message = await anthropic.messages.create({
+  const result = await claudeWrapper.createMessage({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 300,
     messages: [
@@ -109,12 +110,59 @@ Return ONLY the optimized English prompt, nothing else.`,
     ],
   });
 
-  const content = message.content[0];
-  if (content.type === 'text') {
-    return content.text.trim();
+  return extractTextContent(result.message).trim() || frenchDescription;
+}
+
+// Build a look prompt using character morphology and look description (with credit management)
+async function buildLookPrompt(
+  characterData: Record<string, unknown>,
+  lookDescription: string,
+  style: string,
+  claudeWrapper: ReturnType<typeof createClaudeWrapper>
+): Promise<string> {
+  if (!process.env.AI_CLAUDE_KEY) {
+    return lookDescription;
   }
 
-  return frenchDescription;
+  // Extract character morphology data
+  const age = (characterData.age as string) || '';
+  const gender = (characterData.gender as string) || '';
+  const visualDescription = (characterData.visual_description as string) || '';
+
+  const result = await claudeWrapper.createMessage({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 400,
+    messages: [
+      {
+        role: 'user',
+        content: `Create an optimized English prompt for generating a character image with a specific look/outfit.
+
+CHARACTER MORPHOLOGY:
+- Age: ${age || 'not specified'}
+- Gender: ${gender || 'not specified'}
+- Visual description: ${visualDescription || 'not specified'}
+
+LOOK/OUTFIT DESCRIPTION (French):
+"${lookDescription}"
+
+IMAGE STYLE: ${style}
+
+Rules:
+1. Combine the character's physical traits with the outfit/look description
+2. Translate everything to English
+3. Be very specific about clothing, accessories, colors, materials
+4. Include the character's physical features (face, hair, body type) from the morphology
+5. Keep it concise (max 80 words)
+6. Focus on visual elements only - no personality or story
+7. Do NOT include style keywords (they will be added separately)
+8. The character should be shown full body or portrait, naturally posed
+
+Return ONLY the optimized English prompt, nothing else.`,
+      },
+    ],
+  });
+
+  return extractTextContent(result.message).trim() || lookDescription;
 }
 
 export async function POST(request: Request, { params }: RouteParams) {
@@ -127,10 +175,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     const { assetId } = await params;
     const body = await request.json();
     const {
-      mode, // 'generate_all' | 'generate_variations' | 'generate_single'
+      mode, // 'generate_all' | 'generate_variations' | 'generate_single' | 'generate_look'
       sourceImageUrl, // Used when generating variations from an uploaded image
       style = 'photorealistic',
       viewType, // For single view generation: 'front' | 'profile' | 'back'
+      lookDescription, // For look generation
+      lookName, // Name of the look being generated
     } = body;
 
     if (!mode) {
@@ -178,6 +228,41 @@ export async function POST(request: Request, { params }: RouteParams) {
     fal.config({
       credentials: process.env.AI_FAL_KEY,
     });
+
+    // Initialize Claude wrapper and credit service for credit management
+    const claudeWrapper = createClaudeWrapper({
+      userId: session.user.sub,
+      supabase,
+      operation: 'optimize-character-prompt',
+    });
+
+    const creditService = createCreditService(supabase);
+
+    // Helper to log fal.ai usage
+    const logFalUsage = async (endpoint: string, success: boolean, error?: string) => {
+      const cost = calculateFalCost(endpoint, 1);
+      await creditService.logUsage(session.user.sub, {
+        provider: 'fal',
+        endpoint,
+        operation: `generate-character-image-${mode}`,
+        estimated_cost: success ? cost : 0,
+        status: success ? 'success' : 'failed',
+        error_message: error,
+      });
+    };
+
+    // Helper to check fal.ai budget before calls
+    const checkFalBudget = async (endpoint: string) => {
+      const estimatedCost = calculateFalCost(endpoint, 1);
+      try {
+        await ensureCredit(creditService, session.user.sub, 'fal', estimatedCost);
+      } catch (error) {
+        if (isCreditError(error)) {
+          throw error; // Re-throw to be caught by outer handler
+        }
+        throw error;
+      }
+    };
 
     // Helper to upload image to fal.ai storage
     const uploadToFalStorage = async (imageUrl: string): Promise<string> => {
@@ -233,8 +318,11 @@ export async function POST(request: Request, { params }: RouteParams) {
         // Generate all 3 views (front, profile, back) from text description
         console.log(`=== Generating all views for character: ${asset.name} ===`);
 
+        // Check budget for fal.ai calls (estimate 4-5 calls for all views)
+        await checkFalBudget('fal-ai/flux-pro/v1.1');
+
         // Optimize prompt
-        const optimizedDescription = await optimizePrompt(visualDescription, style);
+        const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper);
         console.log(`Optimized description: ${optimizedDescription}`);
 
         // Step 1: Generate front view with Flux Pro (highest quality)
@@ -251,6 +339,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         });
 
         const frontImageUrl = (frontResult.data as any)?.images?.[0]?.url;
+        await logFalUsage('fal-ai/flux-pro/v1.1', !!frontImageUrl, frontImageUrl ? undefined : 'No image generated');
+
         if (!frontImageUrl) {
           throw new Error('Failed to generate front view');
         }
@@ -364,7 +454,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             // Try with Ideogram if we have a visual description
             if (visualDescription) {
               console.log(`Trying Ideogram fallback for ${view.name}...`);
-              const optimizedDescription = await optimizePrompt(visualDescription, style);
+              const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper);
               const viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${view.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
 
               const fallbackResult = await fal.subscribe('fal-ai/ideogram/character', {
@@ -387,6 +477,11 @@ export async function POST(request: Request, { params }: RouteParams) {
               }
             }
           }
+        }
+
+        // Log fal.ai usage for variations (one log per generated image)
+        for (const _ of generatedImages.filter(img => img.type !== 'front')) {
+          await logFalUsage('fal-ai/image-apps-v2/perspective', true);
         }
 
       } else if (mode === 'generate_single') {
@@ -449,7 +544,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             // Build prompt - use visual description if available, otherwise use a generic prompt
             let viewPrompt: string;
             if (visualDescription) {
-              const optimizedDescription = await optimizePrompt(visualDescription, style);
+              const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper);
               viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
             } else {
               // Generic prompt when no description - rely on reference image
@@ -476,7 +571,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             return NextResponse.json({ error: 'Visual description required to generate front view from scratch' }, { status: 400 });
           }
 
-          const optimizedDescription = await optimizePrompt(visualDescription, style);
+          const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper);
           const viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
 
           const result = await fal.subscribe('fal-ai/flux-pro/v1.1', {
@@ -495,9 +590,95 @@ export async function POST(request: Request, { params }: RouteParams) {
           throw new Error(`Failed to generate ${viewType} view`);
         }
 
+        // Log fal.ai usage for single view generation
+        await logFalUsage('fal-ai/ideogram/character', true);
+
         const publicUrl = await uploadToB2(imageUrl, viewType);
         generatedImages.push({ url: publicUrl, type: viewType as CharacterImageType, label: viewConfig.label });
         console.log(`${viewType} view uploaded:`, publicUrl);
+
+      } else if (mode === 'generate_look') {
+        // Generate a look/outfit variation
+        if (!lookDescription) {
+          return NextResponse.json({ error: 'lookDescription required for generate_look mode' }, { status: 400 });
+        }
+
+        console.log(`=== Generating look for character: ${asset.name} ===`);
+        console.log(`Look description: ${lookDescription}`);
+
+        // Build optimized prompt using character morphology + look description
+        const optimizedPrompt = await buildLookPrompt(characterData, lookDescription, style, claudeWrapper);
+        console.log(`Optimized look prompt: ${optimizedPrompt}`);
+
+        const fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, full body portrait, standing pose, fashion photography${styleConfig.promptSuffix}`;
+
+        // Check if we have a front reference image to use
+        const existingFront = existingReferenceImages.find(img => img.type === 'front');
+
+        let lookImageUrl: string;
+
+        if (existingFront) {
+          // Use reference image for character consistency
+          const falFrontUrl = await uploadToFalStorage(existingFront.url);
+
+          const result = await fal.subscribe('fal-ai/ideogram/character', {
+            input: {
+              prompt: fullPrompt,
+              reference_image_urls: [falFrontUrl],
+              rendering_speed: styleConfig.renderingSpeed,
+              style: styleConfig.ideogramStyle,
+              image_size: 'portrait_4_3',
+              num_images: 1,
+            } as any,
+            logs: true,
+          });
+
+          lookImageUrl = (result.data as any)?.images?.[0]?.url;
+        } else {
+          // Generate without reference
+          const result = await fal.subscribe('fal-ai/flux-pro/v1.1', {
+            input: {
+              prompt: fullPrompt,
+              image_size: 'portrait_4_3',
+              num_images: 1,
+            },
+            logs: true,
+          });
+
+          lookImageUrl = (result.data as any)?.images?.[0]?.url;
+        }
+
+        if (!lookImageUrl) {
+          throw new Error('Failed to generate look image');
+        }
+
+        // Upload to B2 with look-specific naming
+        const lookId = crypto.randomUUID();
+        const sanitizedUserId = session.user.sub.replace(/[|]/g, '_');
+        const storageKey = `characters/${sanitizedUserId}/${assetId}/look_${lookId}_${Date.now()}.webp`;
+
+        const imageResponse = await fetch(lookImageUrl);
+        const imageBlob = await imageResponse.blob();
+        const imageBuffer = Buffer.from(await imageBlob.arrayBuffer());
+
+        await uploadFile(storageKey, imageBuffer, 'image/webp');
+        const publicUrl = `b2://${STORAGE_BUCKET}/${storageKey}`;
+
+        console.log(`Look image uploaded:`, publicUrl);
+
+        // Log fal.ai usage for look generation
+        await logFalUsage('fal-ai/ideogram/character', true);
+
+        // Return the look data (the caller will add it to the looks array)
+        return NextResponse.json({
+          success: true,
+          look: {
+            id: lookId,
+            name: lookName || 'Look généré',
+            description: lookDescription,
+            imageUrl: publicUrl,
+          },
+        });
       }
 
       // Merge with existing images (replace same types)
@@ -537,11 +718,25 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     } catch (genError) {
       console.error('Generation error:', genError);
+      // Handle credit errors
+      if (isCreditError(genError)) {
+        return NextResponse.json(
+          { error: formatCreditError(genError), code: genError.code },
+          { status: 402 }
+        );
+      }
       return NextResponse.json({ error: 'Generation failed: ' + String(genError) }, { status: 500 });
     }
 
   } catch (error) {
     console.error('Error generating character images:', error);
+    // Handle credit errors at top level
+    if (isCreditError(error)) {
+      return NextResponse.json(
+        { error: formatCreditError(error), code: error.code },
+        { status: 402 }
+      );
+    }
     return NextResponse.json(
       { error: 'Failed to generate images: ' + String(error) },
       { status: 500 }

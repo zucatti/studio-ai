@@ -6,6 +6,7 @@ import { existsSync } from 'fs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
+import { logFalUsage } from '@/lib/ai/log-api-usage';
 
 const execAsync = promisify(exec);
 
@@ -119,6 +120,13 @@ export async function POST(request: Request) {
           throw new Error('Failed to generate reference image');
         }
         console.log('Reference image generated:', firstFrameUrl);
+
+        // Log fal.ai usage for Flux Pro
+        logFalUsage({
+          operation: 'camera-movement-reference',
+          model: 'flux-pro/v1.1',
+          imagesCount: 1,
+        }).catch(console.error);
       } catch (fluxError) {
         console.error('Flux error:', fluxError);
         throw new Error(`Flux generation failed: ${fluxError}`);
@@ -174,6 +182,13 @@ export async function POST(request: Request) {
       throw new Error('Failed to generate video');
     }
     console.log('Video generated:', videoUrl);
+
+    // Log fal.ai usage for Kling v3 Pro
+    logFalUsage({
+      operation: 'camera-movement-video',
+      model: 'kling-video/v3/pro',
+      videoDuration: 5,
+    }).catch(console.error);
 
     // Step 3: Download video, trim start, and save to public folder
     console.log('Downloading video...');

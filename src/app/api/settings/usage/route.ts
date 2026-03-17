@@ -1,6 +1,15 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 
+// Simple in-memory cache to avoid hitting rate limits
+// Cache Claude admin API results for 5 minutes
+interface CachedClaudeUsage {
+  data: ClaudeUsageData;
+  timestamp: number;
+}
+let claudeUsageCache: CachedClaudeUsage | null = null;
+const CLAUDE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
 interface ReplicateAccount {
   type: string;
   username: string;
@@ -32,6 +41,13 @@ interface FalUsageData {
   byEndpoint: Record<string, { requests: number; cost: number }>;
 }
 
+interface ElevenLabsUsageData {
+  characterCount: number;
+  characterLimit: number;
+  nextResetUnix: number;
+  estimatedCost: number;
+}
+
 interface UsageData {
   claude: {
     status: 'connected' | 'error' | 'not_configured';
@@ -58,6 +74,21 @@ interface UsageData {
     };
     error?: string;
   };
+  elevenlabs: {
+    status: 'connected' | 'error' | 'not_configured';
+    usage?: ElevenLabsUsageData;
+    error?: string;
+  };
+  piapi: {
+    status: 'connected' | 'error' | 'not_configured';
+    balance?: number;
+    plan?: string;
+    error?: string;
+  };
+  creatomate: {
+    status: 'connected' | 'error' | 'not_configured';
+    error?: string;
+  };
 }
 
 // Claude model pricing (per 1M tokens)
@@ -80,113 +111,162 @@ const REPLICATE_PRICES: Record<string, number> = {
   'sdxl': 0.002,
 };
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
     const session = await auth0.getSession();
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Check for force refresh parameter
+    const url = new URL(request.url);
+    const forceRefresh = url.searchParams.get('refresh') === 'true';
+    if (forceRefresh) {
+      claudeUsageCache = null;
+      console.log('Force refresh: cleared Claude cache');
+    }
+
     const usage: UsageData = {
       claude: { status: 'not_configured', hasAdminKey: false },
       fal: { status: 'not_configured' },
       replicate: { status: 'not_configured' },
+      elevenlabs: { status: 'not_configured' },
+      piapi: { status: 'not_configured' },
+      creatomate: { status: 'not_configured' },
     };
 
     // ========== CLAUDE ==========
     if (process.env.AI_CLAUDE_KEY) {
       try {
-        // Test API key
-        const res = await fetch('https://api.anthropic.com/v1/messages', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'x-api-key': process.env.AI_CLAUDE_KEY,
-            'anthropic-version': '2023-06-01',
-          },
-          body: JSON.stringify({
-            model: 'claude-3-haiku-20240307',
-            max_tokens: 1,
-            messages: [{ role: 'user', content: 'Hi' }],
-          }),
-        });
+        // Don't test the API key with a real call - just check if admin key exists
+        // and try to fetch usage data. This avoids wasting tokens and rate limits.
+        usage.claude = {
+          status: 'connected',
+          hasAdminKey: !!process.env.AI_CLAUDE_ADMIN_KEY,
+        };
 
-        if (res.ok || res.status === 400) {
-          usage.claude = {
-            status: 'connected',
-            hasAdminKey: !!process.env.AI_CLAUDE_ADMIN_KEY,
-          };
-
-          // If admin key available, fetch usage data
-          if (process.env.AI_CLAUDE_ADMIN_KEY) {
+        // If admin key available, fetch usage data
+        if (process.env.AI_CLAUDE_ADMIN_KEY) {
+            // Check cache first to avoid rate limiting
+            if (claudeUsageCache && Date.now() - claudeUsageCache.timestamp < CLAUDE_CACHE_TTL) {
+              console.log('Using cached Claude usage data');
+              usage.claude.usage = claudeUsageCache.data;
+            } else {
             try {
-              const usageRes = await fetch(
-                'https://api.anthropic.com/v1/organizations/usage_report/messages?' +
-                new URLSearchParams({
-                  start_date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-                  end_date: new Date().toISOString().split('T')[0],
-                  group_by: 'model',
-                }),
-                {
+              // Use the correct Anthropic usage API endpoint with proper parameters
+              // Note: group_by must be sent as array parameter (group_by[]=model)
+              const startingAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+              const endingAt = new Date().toISOString();
+
+              let totalInputTokens = 0;
+              let totalOutputTokens = 0;
+              let totalCost = 0;
+              const byModel: Record<string, { input: number; output: number; cost: number }> = {};
+
+              // Fetch all pages of usage data
+              let nextPage: string | null = null;
+              let pageCount = 0;
+              const maxPages = 10; // Safety limit
+
+              while (pageCount < maxPages) {
+                const url = new URL('https://api.anthropic.com/v1/organizations/usage_report/messages');
+                url.searchParams.set('starting_at', startingAt);
+                url.searchParams.set('ending_at', endingAt);
+                url.searchParams.append('group_by[]', 'model');
+                url.searchParams.set('bucket_width', '1d');
+                if (nextPage) {
+                  url.searchParams.set('page', nextPage);
+                }
+
+                const usageRes: Response = await fetch(url.toString(), {
                   headers: {
-                    'x-api-key': process.env.AI_CLAUDE_ADMIN_KEY,
+                    'x-api-key': process.env.AI_CLAUDE_ADMIN_KEY!,
                     'anthropic-version': '2023-06-01',
                   },
-                }
-              );
+                });
 
-              if (usageRes.ok) {
-                const data = await usageRes.json();
-                let totalInputTokens = 0;
-                let totalOutputTokens = 0;
-                let totalCost = 0;
-                const byModel: Record<string, { input: number; output: number; cost: number }> = {};
-
-                for (const item of data.data || []) {
-                  const model = item.model || 'unknown';
-                  const inputTokens = item.input_tokens || 0;
-                  const outputTokens = item.output_tokens || 0;
-
-                  totalInputTokens += inputTokens;
-                  totalOutputTokens += outputTokens;
-
-                  // Calculate cost
-                  const prices = CLAUDE_PRICES[model] || { input: 3, output: 15 };
-                  const cost = (inputTokens * prices.input + outputTokens * prices.output) / 1000000;
-                  totalCost += cost;
-
-                  if (!byModel[model]) {
-                    byModel[model] = { input: 0, output: 0, cost: 0 };
+                if (!usageRes.ok) {
+                  const errorText = await usageRes.text();
+                  console.error('Claude admin API error:', usageRes.status, errorText);
+                  // Set error message for rate limiting or other API errors
+                  if (usageRes.status === 429) {
+                    usage.claude.error = 'API rate limitée';
+                  } else {
+                    usage.claude.error = `Erreur API: ${usageRes.status}`;
                   }
-                  byModel[model].input += inputTokens;
-                  byModel[model].output += outputTokens;
-                  byModel[model].cost += cost;
+                  break;
                 }
 
-                usage.claude.usage = {
-                  totalInputTokens,
-                  totalOutputTokens,
-                  totalCost: Math.round(totalCost * 100) / 100,
-                  byModel,
+                const data: {
+                  data?: Array<{
+                    results?: Array<{
+                      model?: string;
+                      uncached_input_tokens?: number;
+                      cache_read_input_tokens?: number;
+                      output_tokens?: number;
+                    }>
+                  }>;
+                  has_more?: boolean;
+                  next_page?: string;
+                } = await usageRes.json();
+
+                // Parse the response - data is array of daily buckets with results
+                const buckets = data.data || [];
+                for (const bucket of buckets) {
+                  const results = bucket.results || [];
+                  for (const item of results) {
+                    const model = item.model || 'unknown';
+                    // API returns uncached_input_tokens + cache_read_input_tokens, not input_tokens
+                    const inputTokens = (item.uncached_input_tokens || 0) + (item.cache_read_input_tokens || 0);
+                    const outputTokens = item.output_tokens || 0;
+
+                    totalInputTokens += inputTokens;
+                    totalOutputTokens += outputTokens;
+
+                    // Calculate cost
+                    const prices = CLAUDE_PRICES[model] || { input: 3, output: 15 };
+                    const cost = (inputTokens * prices.input + outputTokens * prices.output) / 1000000;
+                    totalCost += cost;
+
+                    if (!byModel[model]) {
+                      byModel[model] = { input: 0, output: 0, cost: 0 };
+                    }
+                    byModel[model].input += inputTokens;
+                    byModel[model].output += outputTokens;
+                    byModel[model].cost += cost;
+                  }
+                }
+
+                if (!data.has_more) break;
+                nextPage = data.next_page || null;
+                pageCount++;
+              }
+
+              console.log('Claude usage totals:', { totalInputTokens, totalOutputTokens, totalCost, byModel });
+
+              const usageData = {
+                totalInputTokens,
+                totalOutputTokens,
+                totalCost: Math.round(totalCost * 100) / 100,
+                byModel,
+              };
+              usage.claude.usage = usageData;
+
+              // Only cache if we have actual data (don't cache empty results)
+              if (totalInputTokens > 0 || totalOutputTokens > 0) {
+                claudeUsageCache = {
+                  data: usageData,
+                  timestamp: Date.now(),
                 };
               }
             } catch (e) {
               console.error('Error fetching Claude usage:', e);
+              usage.claude.error = 'Erreur lors de la récupération des données';
             }
+            } // end of cache else block
+          } else {
+            console.log('No AI_CLAUDE_ADMIN_KEY configured');
           }
-        } else if (res.status === 401) {
-          usage.claude = {
-            status: 'error',
-            hasAdminKey: false,
-            error: 'Invalid API key',
-          };
-        } else {
-          usage.claude = {
-            status: 'error',
-            hasAdminKey: false,
-            error: `API error: ${res.status}`,
-          };
-        }
       } catch (e) {
         usage.claude = {
           status: 'error',
@@ -197,112 +277,66 @@ export async function GET() {
     }
 
     // ========== FAL.AI ==========
-    if (process.env.AI_FAL_KEY) {
+    if (process.env.AI_FAL_KEY || process.env.AI_FAL_ADMIN_KEY) {
       try {
-        // Fetch usage from fal.ai API (last 30 days)
+        // Use admin key for usage API if available, otherwise try regular key
+        const adminKey = process.env.AI_FAL_ADMIN_KEY || process.env.AI_FAL_KEY;
+
+        // Fetch usage from fal.ai API (last 30 days) - requires ADMIN key
         const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const endDate = new Date().toISOString();
 
-        // Build URL with array-style expand parameter
         const url = new URL('https://api.fal.ai/v1/models/usage');
         url.searchParams.set('start', startDate);
         url.searchParams.set('end', endDate);
         url.searchParams.append('expand', 'summary');
-        url.searchParams.append('expand', 'time_series');
 
         const usageRes = await fetch(url.toString(), {
           headers: {
-            Authorization: `Key ${process.env.AI_FAL_KEY}`,
+            Authorization: `Key ${adminKey}`,
           },
         });
 
         if (usageRes.ok) {
           const data = await usageRes.json();
-          console.log('fal.ai usage response:', JSON.stringify(data, null, 2));
 
           let totalCost = 0;
           let totalRequests = 0;
           const byEndpoint: Record<string, { requests: number; cost: number }> = {};
 
-          // Parse summary data (array of aggregated records)
           const summaryData = data.summary || [];
           for (const item of summaryData) {
-            const endpointId = item.endpoint_id || 'unknown';
             const cost = parseFloat(item.cost) || 0;
             const quantity = parseInt(item.quantity) || 1;
-
             totalCost += cost;
             totalRequests += quantity;
-
-            // Extract readable endpoint name
-            let displayName = endpointId;
-            if (endpointId.includes('/')) {
-              const parts = endpointId.split('/');
-              displayName = parts.slice(1).join('-').replace(/image-to-video|text-to-video/g, '').replace(/--+/g, '-').replace(/-$/, '');
-            }
-
-            if (!byEndpoint[displayName]) {
-              byEndpoint[displayName] = { requests: 0, cost: 0 };
-            }
-            byEndpoint[displayName].requests += quantity;
-            byEndpoint[displayName].cost += cost;
           }
 
-          // Also parse time_series if summary is empty
-          if (summaryData.length === 0 && data.time_series) {
-            for (const item of data.time_series) {
-              const endpointId = item.endpoint_id || 'unknown';
-              const cost = parseFloat(item.cost) || 0;
-              const quantity = parseInt(item.quantity) || 1;
-
-              totalCost += cost;
-              totalRequests += quantity;
-
-              let displayName = endpointId;
-              if (endpointId.includes('/')) {
-                const parts = endpointId.split('/');
-                displayName = parts.slice(1).join('-').replace(/image-to-video|text-to-video/g, '').replace(/--+/g, '-').replace(/-$/, '');
-              }
-
-              if (!byEndpoint[displayName]) {
-                byEndpoint[displayName] = { requests: 0, cost: 0 };
-              }
-              byEndpoint[displayName].requests += quantity;
-              byEndpoint[displayName].cost += cost;
-            }
-          }
-
-          // Only set usage if we have data
-          if (totalRequests > 0 || totalCost > 0) {
-            usage.fal = {
-              status: 'connected',
-              usage: {
-                totalCost: Math.round(totalCost * 100) / 100,
-                totalRequests,
-                byEndpoint,
-              },
-            };
-          } else {
-            // Connected but no usage data
-            usage.fal = {
-              status: 'connected',
-            };
-          }
-        } else if (usageRes.status === 401 || usageRes.status === 403) {
-          // Key is valid but might not have admin permissions, show as connected without usage
+          usage.fal = {
+            status: 'connected',
+            usage: totalRequests > 0 ? {
+              totalCost: Math.round(totalCost * 100) / 100,
+              totalRequests,
+              byEndpoint,
+            } : undefined,
+          };
+        } else if (usageRes.status === 403) {
+          // Key works but no admin permissions for usage API
+          usage.fal = {
+            status: 'connected',
+            error: 'Clé non-admin: créez une clé ADMIN sur fal.ai/dashboard/keys',
+          };
+        } else if (usageRes.status === 401) {
+          usage.fal = {
+            status: 'error',
+            error: 'Clé API invalide',
+          };
+        } else {
           usage.fal = {
             status: 'connected',
           };
-        } else {
-          const errorText = await usageRes.text();
-          console.error('fal.ai usage error:', usageRes.status, errorText);
-          usage.fal = {
-            status: 'error',
-            error: `API error: ${usageRes.status} - ${errorText}`,
-          };
         }
       } catch (e) {
-        console.error('fal.ai usage exception:', e);
         usage.fal = {
           status: 'error',
           error: String(e),
@@ -392,6 +426,134 @@ export async function GET() {
         }
       } catch (e) {
         usage.replicate = {
+          status: 'error',
+          error: String(e),
+        };
+      }
+    }
+
+    // ========== ELEVENLABS ==========
+    if (process.env.AI_ELEVEN_LABS) {
+      try {
+        // Get subscription info which includes character usage
+        const subRes = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
+          headers: {
+            'xi-api-key': process.env.AI_ELEVEN_LABS,
+          },
+        });
+
+        if (subRes.ok) {
+          const data = await subRes.json();
+
+          const characterCount = data.character_count || 0;
+          const characterLimit = data.character_limit || 0;
+          // Estimate cost: ~$0.30 per 1000 characters for multilingual_v2
+          const estimatedCost = Math.round((characterCount * 0.0003) * 100) / 100;
+
+          usage.elevenlabs = {
+            status: 'connected',
+            usage: {
+              characterCount,
+              characterLimit,
+              nextResetUnix: data.next_character_count_reset_unix || 0,
+              estimatedCost,
+            },
+          };
+        } else if (subRes.status === 401) {
+          // Check if key works for TTS but not for user info
+          const errorData = await subRes.json().catch(() => ({}));
+          if (errorData?.detail?.status === 'missing_permissions') {
+            usage.elevenlabs = {
+              status: 'connected',
+              error: 'Clé sans permission user_read - régénérez avec toutes les permissions',
+            };
+          } else {
+            usage.elevenlabs = {
+              status: 'error',
+              error: 'Clé API invalide',
+            };
+          }
+        } else {
+          usage.elevenlabs = {
+            status: 'connected',
+          };
+        }
+      } catch (e) {
+        usage.elevenlabs = {
+          status: 'error',
+          error: String(e),
+        };
+      }
+    }
+
+    // ========== PIAPI ==========
+    if (process.env.AI_PIAPI_KEY) {
+      try {
+        // Get account info including balance
+        const accountRes = await fetch('https://api.piapi.ai/account/info', {
+          headers: {
+            'X-API-Key': process.env.AI_PIAPI_KEY,
+          },
+        });
+
+        if (accountRes.ok) {
+          const data = await accountRes.json();
+          if (data.code === 200 && data.data) {
+            const balance = data.data.equivalent_in_usd || 0;
+            usage.piapi = {
+              status: 'connected',
+              balance,
+              plan: data.data.plan,
+            };
+          } else {
+            usage.piapi = {
+              status: 'connected',
+            };
+          }
+        } else if (accountRes.status === 401) {
+          usage.piapi = {
+            status: 'error',
+            error: 'Clé API invalide',
+          };
+        } else {
+          usage.piapi = {
+            status: 'connected',
+          };
+        }
+      } catch (e) {
+        usage.piapi = {
+          status: 'error',
+          error: String(e),
+        };
+      }
+    }
+
+    // ========== CREATOMATE ==========
+    if (process.env.AI_CREATOMATE_API) {
+      try {
+        // Test the key by listing templates
+        const testRes = await fetch('https://api.creatomate.com/v1/templates?page_size=1', {
+          headers: {
+            'Authorization': `Bearer ${process.env.AI_CREATOMATE_API}`,
+          },
+        });
+
+        if (testRes.ok) {
+          usage.creatomate = {
+            status: 'connected',
+          };
+        } else if (testRes.status === 401 || testRes.status === 403) {
+          usage.creatomate = {
+            status: 'error',
+            error: 'Invalid API key',
+          };
+        } else {
+          usage.creatomate = {
+            status: 'connected', // Assume connected if we get other errors
+          };
+        }
+      } catch (e) {
+        usage.creatomate = {
           status: 'error',
           error: String(e),
         };

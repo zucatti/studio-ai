@@ -70,18 +70,13 @@ export function ProjectCard({ project, onDelete, onEdit }: ProjectCardProps) {
           {/* Overlay gradient */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
 
-          {/* Title with outlined effect */}
-          <div className="absolute bottom-0 left-0 right-0 p-4">
-            <h3
-              className="text-xl font-bold uppercase tracking-wide"
-              style={{
-                color: 'transparent',
-                WebkitTextStroke: '1px rgba(255,255,255,0.9)',
-                textShadow: '0 2px 10px rgba(0,0,0,0.5)',
-              }}
-            >
-              {project.name}
-            </h3>
+          {/* Title */}
+          <div className="absolute bottom-3 left-3 right-3">
+            <div className="inline-block px-3 py-1.5 rounded-lg bg-black/60 backdrop-blur-sm">
+              <h3 className="text-sm font-medium text-white truncate">
+                {project.name}
+              </h3>
+            </div>
           </div>
 
           {/* Hover overlay */}

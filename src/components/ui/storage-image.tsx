@@ -120,14 +120,95 @@ export function StorageImg({
     return null;
   }
 
+  // Destructure style to merge it properly (avoid double application)
+  const { style, ...restProps } = props;
+
   return (
     <img
       src={signedUrl}
       alt={alt || ''}
       className={className}
       onError={() => setImageError(true)}
-      {...props}
+      style={style}
+      {...restProps}
     />
+  );
+}
+
+/**
+ * Div with background-image that handles B2 storage URLs
+ * Use this when you need guaranteed clipping within rounded containers
+ */
+export function StorageBackgroundDiv({
+  src,
+  fallback,
+  showLoader = true,
+  className,
+  children,
+  ...props
+}: Omit<React.HTMLAttributes<HTMLDivElement>, 'children'> & {
+  src: string | null | undefined;
+  fallback?: React.ReactNode;
+  showLoader?: boolean;
+  children?: React.ReactNode;
+}) {
+  const { signedUrl, isLoading, error } = useSignedUrl(src);
+  const [imageError, setImageError] = useState(false);
+
+  // Preload image to detect errors
+  useState(() => {
+    if (signedUrl) {
+      const img = new window.Image();
+      img.onerror = () => setImageError(true);
+      img.src = signedUrl;
+    }
+  });
+
+  // Show loading state for B2 URLs
+  if (isLoading && isB2Url(src) && showLoader) {
+    return (
+      <div
+        className={cn(
+          'animate-pulse bg-slate-700/50',
+          className
+        )}
+        {...props}
+      />
+    );
+  }
+
+  // Show fallback on error
+  if (error || imageError || !signedUrl) {
+    if (fallback) {
+      return <>{fallback}</>;
+    }
+    return (
+      <div
+        className={cn('bg-slate-800', className)}
+        {...props}
+      >
+        {children}
+      </div>
+    );
+  }
+
+  // Destructure style from props to merge it properly
+  const { style: propStyle, ...restProps } = props;
+
+  return (
+    <div
+      className={className}
+      style={{
+        ...propStyle,
+        backgroundImage: `url(${signedUrl})`,
+        backgroundSize: 'cover',
+        backgroundPosition: 'center',
+        borderRadius: 'inherit',
+      }}
+      {...restProps}
+    >
+      {children}
+    </div>
   );
 }
 

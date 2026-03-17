@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Settings,
   Key,
@@ -22,8 +23,11 @@ import {
   TrendingUp,
   Camera,
   ChevronRight,
+  CreditCard,
+  History,
 } from 'lucide-react';
 import Link from 'next/link';
+import { CreditDashboard, UsageHistory } from '@/components/settings';
 
 interface ClaudeUsageData {
   totalInputTokens: number;
@@ -125,11 +129,15 @@ function formatNumber(num: number): string {
 }
 
 export default function SettingsPage() {
-  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('credits');
   const [usage, setUsage] = useState<UsageData | null>(null);
+  const [apiLoading, setApiLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  // Fetch usage data only when API tab is active
   const fetchUsage = async () => {
+    if (usage) return; // Already loaded
+    setApiLoading(true);
     try {
       const res = await fetch('/api/settings/usage');
       const data = await res.json();
@@ -137,51 +145,79 @@ export default function SettingsPage() {
     } catch (error) {
       console.error('Error fetching usage:', error);
     } finally {
-      setLoading(false);
+      setApiLoading(false);
       setRefreshing(false);
     }
   };
 
   useEffect(() => {
-    fetchUsage();
-  }, []);
+    // Only fetch when API tab becomes active
+    if (activeTab === 'api' && !usage) {
+      fetchUsage();
+    }
+  }, [activeTab]);
 
   const handleRefresh = () => {
     setRefreshing(true);
+    setUsage(null); // Force refetch
     fetchUsage();
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-8 h-8 animate-spin text-slate-400" />
-      </div>
-    );
-  }
-
   return (
-    <div className="space-y-8 max-w-4xl">
+    <div className="space-y-6 w-full">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Settings className="w-5 h-5 text-slate-400" />
           <h1 className="text-xl font-semibold text-white">Configuration & Usage</h1>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="border-white/10"
-        >
-          {refreshing ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <RefreshCw className="w-4 h-4" />
-          )}
-          <span className="ml-2">Actualiser</span>
-        </Button>
       </div>
+
+      {/* Tabs */}
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="bg-slate-800/50 border border-white/10 w-full justify-start">
+          <TabsTrigger value="credits" className="flex items-center gap-2 data-[state=active]:bg-slate-700">
+            <CreditCard className="w-4 h-4" />
+            Crédits & Budgets
+          </TabsTrigger>
+          <TabsTrigger value="usage" className="flex items-center gap-2 data-[state=active]:bg-slate-700">
+            <History className="w-4 h-4" />
+            Historique
+          </TabsTrigger>
+          <TabsTrigger value="api" className="flex items-center gap-2 data-[state=active]:bg-slate-700">
+            <Key className="w-4 h-4" />
+            APIs
+          </TabsTrigger>
+        </TabsList>
+
+        {/* Credits Tab */}
+        <TabsContent value="credits" className="mt-6">
+          <CreditDashboard isActive={activeTab === 'credits'} />
+        </TabsContent>
+
+        {/* Usage History Tab */}
+        <TabsContent value="usage" className="mt-6">
+          <UsageHistory />
+        </TabsContent>
+
+        {/* API Configuration Tab */}
+        <TabsContent value="api" className="mt-6 space-y-8">
+          <div className="flex items-center justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="border-white/10"
+            >
+              {refreshing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <RefreshCw className="w-4 h-4" />
+              )}
+              <span className="ml-2">Actualiser</span>
+            </Button>
+          </div>
 
       {/* ========== CLAUDE ========== */}
       <Card className="bg-slate-800/50 border-white/10">
@@ -553,9 +589,25 @@ export default function SettingsPage() {
                 AI_FAL_KEY=xxxxx
               </div>
             </div>
+
+            <div>
+              <div className="text-slate-400 mb-1"># ElevenLabs (text-to-speech)</div>
+              <div className="bg-slate-900/50 p-2 rounded text-pink-400">
+                AI_ELEVEN_LABS=xxxxx
+              </div>
+            </div>
+
+            <div>
+              <div className="text-slate-400 mb-1"># xAI/Grok (génération images Aurora)</div>
+              <div className="bg-slate-900/50 p-2 rounded text-cyan-400">
+                AI_XAI_KEY=xxxxx
+              </div>
+            </div>
           </div>
         </CardContent>
       </Card>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

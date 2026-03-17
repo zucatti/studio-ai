@@ -68,22 +68,14 @@ function GenericCharacterCard({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const handleCardClick = () => {
-    if (!isInProject && onImport) {
-      onImport();
-    }
-  };
-
   return (
     <div
       className={cn(
         'relative p-3 rounded-lg border transition-all hover:bg-white/5',
         isInProject
           ? 'bg-purple-500/5 border-purple-500/30'
-          : 'bg-white/5 border-white/10',
-        !isInProject && onImport && 'cursor-pointer'
+          : 'bg-white/5 border-white/10'
       )}
-      onClick={handleCardClick}
     >
       {/* Header */}
       <div className="flex items-center gap-2 mb-2">
@@ -105,6 +97,24 @@ function GenericCharacterCard({
               </TooltipTrigger>
               <TooltipContent side="bottom" className="bg-[#1a2433] border-white/10">
                 <p className="text-xs">Retirer du projet</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        )}
+        {/* Plus icon for import */}
+        {!isInProject && onImport && (
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={(e) => { e.stopPropagation(); onImport(); }}
+                  className="p-1 rounded text-slate-400 hover:text-green-400 hover:bg-green-500/10 transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="bg-[#1a2433] border-white/10">
+                <p className="text-xs">Ajouter au projet</p>
               </TooltipContent>
             </Tooltip>
           </TooltipProvider>
@@ -306,6 +316,7 @@ export function BibleCharacters({ projectId, onInsertReference, showGlobalOnly =
                   showProjectBadge={false}
                   onRemove={!isUsed && character.projectAssetId ? () => handleRemove(character.projectAssetId!) : undefined}
                   onEdit={() => handleEdit(globalAsset)}
+                  onDelete={() => setDeletingCharacter(globalAsset)}
                   onInsertReference={onInsertReference}
                   onGenerate={(viewType) => handleGenerateView(character.id, viewType)}
                   isGenerating={isGeneratingThis}
@@ -379,6 +390,7 @@ export function BibleCharacters({ projectId, onInsertReference, showGlobalOnly =
                         isInProject={false}
                         onImport={projectId ? () => handleImport(character.id) : undefined}
                         onEdit={() => handleEdit(character)}
+                        onDelete={() => setDeletingCharacter(character)}
                         onInsertReference={onInsertReference}
                         onGenerate={(viewType) => handleGenerateView(character.id, viewType)}
                         isGenerating={isGeneratingThis}

@@ -571,3 +571,131 @@ export type ShotWithDetails = Shot & {
 export type ProjectWithScenes = Project & {
   scenes: SceneWithShots[];
 };
+
+// ============================================================================
+// Credit Management Types
+// ============================================================================
+
+// Enums for credit management
+export type BudgetPeriod = 'daily' | 'weekly' | 'monthly';
+// Note: 'claude' is used internally but not shown in dashboard
+export type ApiProvider = 'claude' | 'replicate' | 'fal' | 'piapi' | 'elevenlabs' | 'creatomate' | 'global';
+export type ApiCallStatus = 'success' | 'failed' | 'blocked';
+
+// Credit allocation types
+export type CreditAllocation = {
+  id: string;
+  user_id: string;
+  provider: ApiProvider;
+  budget_amount: number;
+  budget_period: BudgetPeriod;
+  alert_threshold_50: boolean;
+  alert_threshold_80: boolean;
+  alert_threshold_100: boolean;
+  block_on_limit: boolean;
+  current_period_spent: number;
+  period_start_date: string;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CreditAllocationInsert = {
+  id?: string;
+  user_id: string;
+  provider: ApiProvider;
+  budget_amount?: number;
+  budget_period?: BudgetPeriod;
+  alert_threshold_50?: boolean;
+  alert_threshold_80?: boolean;
+  alert_threshold_100?: boolean;
+  block_on_limit?: boolean;
+  current_period_spent?: number;
+  period_start_date?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type CreditAllocationUpdate = Partial<CreditAllocationInsert>;
+
+// API usage log types
+export type ApiUsageLog = {
+  id: string;
+  user_id: string;
+  project_id: string | null;
+  provider: ApiProvider;
+  model: string | null;
+  endpoint: string | null;
+  input_tokens: number;
+  output_tokens: number;
+  characters: number;
+  images_count: number;
+  video_duration: number;
+  estimated_cost: number;
+  operation: string;
+  status: ApiCallStatus;
+  error_message: string | null;
+  metadata: Json;
+  created_at: string;
+};
+
+export type ApiUsageLogInsert = {
+  id?: string;
+  user_id: string;
+  project_id?: string | null;
+  provider: ApiProvider;
+  model?: string | null;
+  endpoint?: string | null;
+  input_tokens?: number;
+  output_tokens?: number;
+  characters?: number;
+  images_count?: number;
+  video_duration?: number;
+  estimated_cost: number;
+  operation: string;
+  status?: ApiCallStatus;
+  error_message?: string | null;
+  metadata?: Json;
+  created_at?: string;
+};
+
+// Credit alert types
+export type CreditAlert = {
+  id: string;
+  user_id: string;
+  provider: ApiProvider;
+  threshold_percent: number;
+  budget_amount: number;
+  spent_amount: number;
+  acknowledged: boolean;
+  acknowledged_at: string | null;
+  created_at: string;
+};
+
+export type CreditAlertUpdate = {
+  acknowledged?: boolean;
+  acknowledged_at?: string | null;
+};
+
+// Warning level for credit checks
+export type CreditWarningLevel = 'none' | 'warning_50' | 'warning_80' | 'critical_100';
+
+// Credit check result
+export type CreditCheckResult = {
+  allowed: boolean;
+  remainingBudget: number;
+  warningLevel: CreditWarningLevel;
+  spentPercent: number;
+  budgetAmount: number;
+  currentSpent: number;
+  message?: string;
+};
+
+// Provider spending summary
+export type ProviderSpending = {
+  provider: ApiProvider;
+  spent: number;
+  budget: number;
+  period: BudgetPeriod;
+  spentPercent: number;
+  periodStartDate: string;
+};

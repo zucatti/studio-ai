@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { uploadFile, getSignedFileUrl, parseStorageUrl, STORAGE_BUCKET } from '@/lib/storage';
 import Anthropic from '@anthropic-ai/sdk';
 import { hasReference, generateReferenceName, replaceReferencesWithDescriptions } from '@/lib/reference-name';
+import { logFalUsage, logClaudeUsage } from '@/lib/ai/log-api-usage';
 
 interface RouteParams {
   params: Promise<{ projectId: string; shotId: string }>;
@@ -920,6 +921,16 @@ export async function POST(request: Request, { params }: RouteParams) {
       .update(updates)
       .eq('id', shotId);
 
+    // Log fal.ai usage for frame generation
+    const framesGenerated = (frameType === 'both' ? 2 : 1);
+    const falModel = actualProvider.includes('kling') ? 'fal-ai/kling-image/o1' : 'fal-ai/nano-banana-2';
+    logFalUsage({
+      operation: 'generate-frames',
+      model: falModel,
+      imagesCount: framesGenerated,
+      projectId,
+    }).catch(console.error);
+
     return NextResponse.json({
       success: true,
       provider: actualProvider,
@@ -1058,6 +1069,14 @@ Return ONLY a JSON object with this format:
     ],
     system: systemPrompt,
   });
+
+  // Log Claude usage
+  logClaudeUsage({
+    operation: 'generate-frame-prompts',
+    model: 'claude-sonnet-4-20250514',
+    inputTokens: message.usage?.input_tokens || 0,
+    outputTokens: message.usage?.output_tokens || 0,
+  }).catch(console.error);
 
   const content = message.content[0];
   if (content.type !== 'text') {
