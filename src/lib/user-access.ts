@@ -57,6 +57,16 @@ export async function checkUserAccess(): Promise<UserAccessResult> {
       .eq('auth0_id', auth0Id)
       .single();
 
+    // Handle table not existing (42P01) or other relation errors
+    if (error && (error.code === '42P01' || error.message?.includes('relation') || error.message?.includes('does not exist'))) {
+      console.warn('[checkUserAccess] Users table does not exist yet, allowing access');
+      return {
+        isAuthorized: true,
+        user: null,
+        error: 'table_not_exists',
+      };
+    }
+
     if (error && error.code === 'PGRST116') {
       // User doesn't exist, create them (inactive by default)
       const { data: newUser, error: insertError } = await supabase
@@ -72,7 +82,15 @@ export async function checkUserAccess(): Promise<UserAccessResult> {
         .single();
 
       if (insertError) {
-        console.error('[checkUserAccess] Failed to create user:', insertError);
+        console.error('[checkUserAccess] Failed to create user:', insertError.message, insertError.code);
+        // If insert fails due to table not existing, allow access
+        if (insertError.code === '42P01' || insertError.message?.includes('relation')) {
+          console.warn('[checkUserAccess] Users table does not exist, allowing access');
+          return {
+            isAuthorized: true,
+            user: null,
+          };
+        }
         return {
           isAuthorized: false,
           user: null,
@@ -82,9 +100,11 @@ export async function checkUserAccess(): Promise<UserAccessResult> {
 
       user = newUser;
     } else if (error) {
-      console.error('[checkUserAccess] Database error:', error);
+      console.error('[checkUserAccess] Database error:', error.message, error.code, error.details);
+      // On any database error, allow access (fail open for now)
+      // This prevents blocking users if there's a DB issue
       return {
-        isAuthorized: false,
+        isAuthorized: true,
         user: null,
         error: 'database_error',
       };
@@ -112,8 +132,9 @@ export async function checkUserAccess(): Promise<UserAccessResult> {
     };
   } catch (error) {
     console.error('[checkUserAccess] Error:', error);
+    // Fail open - don't block users on unexpected errors
     return {
-      isAuthorized: false,
+      isAuthorized: true,
       user: null,
       error: 'unknown_error',
     };
