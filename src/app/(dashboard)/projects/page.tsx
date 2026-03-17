@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { ProjectCard } from '@/components/projects/project-card';
 import { CreateProjectDialog } from '@/components/projects/create-project-dialog';
 import { useProjects } from '@/hooks/use-projects';
-import type { Project } from '@/types/database';
+import type { Project, AspectRatio } from '@/types/database';
 
 export default function ProjectsPage() {
   const { projects, isLoading, createProject, updateProject, deleteProject } = useProjects();
@@ -39,11 +39,16 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleCreateOrUpdate = async (name: string, description?: string, thumbnailUrl?: string) => {
+  const handleCreateOrUpdate = async (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio) => {
     if (editingProject) {
-      await updateProject(editingProject.id, { name, description, thumbnail_url: thumbnailUrl || null });
+      await updateProject(editingProject.id, {
+        name,
+        description,
+        thumbnail_url: thumbnailUrl || null,
+        aspect_ratio: aspectRatio || '16:9',
+      });
     } else {
-      await createProject(name, description, thumbnailUrl);
+      await createProject(name, description, thumbnailUrl, aspectRatio);
     }
     setDialogOpen(false);
     setEditingProject(null);

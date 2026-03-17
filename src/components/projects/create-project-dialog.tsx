@@ -14,14 +14,63 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { StorageImg } from '@/components/ui/storage-image';
-import type { Project } from '@/types/database';
+import type { Project, AspectRatio } from '@/types/database';
 import { Sparkles, Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
+
+// Aspect ratio configuration with SVG icons
+const ASPECT_RATIOS: {
+  value: AspectRatio;
+  label: string;
+  description: string;
+  icon: React.FC<{ className?: string }>;
+}[] = [
+  {
+    value: '16:9',
+    label: '16:9',
+    description: 'Paysage (YouTube, TV)',
+    icon: ({ className }) => (
+      <svg className={className} viewBox="0 0 32 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="30" height="16" rx="2" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
+      </svg>
+    ),
+  },
+  {
+    value: '9:16',
+    label: '9:16',
+    description: 'Portrait (TikTok, Reels)',
+    icon: ({ className }) => (
+      <svg className={className} viewBox="0 0 18 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="16" height="30" rx="2" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
+      </svg>
+    ),
+  },
+  {
+    value: '1:1',
+    label: '1:1',
+    description: 'Carré (Instagram)',
+    icon: ({ className }) => (
+      <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="22" height="22" rx="2" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
+      </svg>
+    ),
+  },
+  {
+    value: '21:9',
+    label: '21:9',
+    description: 'Cinémascope',
+    icon: ({ className }) => (
+      <svg className={className} viewBox="0 0 42 18" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="40" height="16" rx="2" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
+      </svg>
+    ),
+  },
+];
 
 interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editProject?: Project | null;
-  onSubmit: (name: string, description?: string, thumbnailUrl?: string) => Promise<void>;
+  onSubmit: (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio) => Promise<void>;
 }
 
 export function CreateProjectDialog({
@@ -32,6 +81,7 @@ export function CreateProjectDialog({
 }: CreateProjectDialogProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
   const [existingThumbnailUrl, setExistingThumbnailUrl] = useState<string | null>(null);
@@ -46,12 +96,14 @@ export function CreateProjectDialog({
     if (open && editProject) {
       setName(editProject.name);
       setDescription(editProject.description || '');
+      setAspectRatio(editProject.aspect_ratio || '16:9');
       setExistingThumbnailUrl(editProject.thumbnail_url || null);
       setThumbnailPreview(editProject.thumbnail_url || null);
       setThumbnailFile(null);
     } else if (!open) {
       setName('');
       setDescription('');
+      setAspectRatio('16:9');
       setThumbnailPreview(null);
       setThumbnailFile(null);
       setExistingThumbnailUrl(null);
@@ -200,9 +252,10 @@ export function CreateProjectDialog({
         thumbnailUrl = undefined;
       }
 
-      await onSubmit(name.trim(), description.trim() || undefined, thumbnailUrl);
+      await onSubmit(name.trim(), description.trim() || undefined, thumbnailUrl, aspectRatio);
       setName('');
       setDescription('');
+      setAspectRatio('16:9');
       setThumbnailPreview(null);
       setThumbnailFile(null);
       setExistingThumbnailUrl(null);
@@ -339,6 +392,53 @@ export function CreateProjectDialog({
                 required
                 className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 focus:border-blue-500/50 focus:bg-white/10"
               />
+            </div>
+
+            {/* Aspect Ratio */}
+            <div className="grid gap-2">
+              <Label className="text-slate-300">Format vidéo</Label>
+              <div className="grid grid-cols-4 gap-2">
+                {ASPECT_RATIOS.map((ratio) => {
+                  const isSelected = aspectRatio === ratio.value;
+                  const IconComponent = ratio.icon;
+                  return (
+                    <button
+                      key={ratio.value}
+                      type="button"
+                      onClick={() => setAspectRatio(ratio.value)}
+                      className={`
+                        group relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200
+                        ${isSelected
+                          ? 'border-blue-500 bg-blue-500/10'
+                          : 'border-white/10 hover:border-white/20 hover:bg-white/5'
+                        }
+                      `}
+                    >
+                      <div className={`
+                        flex items-center justify-center h-8
+                        ${isSelected ? 'text-blue-400' : 'text-slate-400 group-hover:text-slate-300'}
+                      `}>
+                        <IconComponent className="h-full w-auto" />
+                      </div>
+                      <div className="text-center">
+                        <div className={`text-sm font-medium ${isSelected ? 'text-white' : 'text-slate-300'}`}>
+                          {ratio.label}
+                        </div>
+                        <div className="text-[10px] text-slate-500 leading-tight mt-0.5">
+                          {ratio.description}
+                        </div>
+                      </div>
+                      {isSelected && (
+                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
+                          <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none">
+                            <path d="M2 6l3 3 5-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
             {/* Description */}

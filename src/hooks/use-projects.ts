@@ -1,14 +1,14 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Project } from '@/types/database';
+import type { Project, AspectRatio } from '@/types/database';
 
 interface UseProjectsReturn {
   projects: Project[];
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
-  createProject: (name: string, description?: string, thumbnailUrl?: string) => Promise<Project | null>;
+  createProject: (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio) => Promise<Project | null>;
   updateProject: (id: string, data: Partial<Project>) => Promise<Project | null>;
   deleteProject: (id: string) => Promise<boolean>;
 }
@@ -37,12 +37,17 @@ export function useProjects(): UseProjectsReturn {
     fetchProjects();
   }, [fetchProjects]);
 
-  const createProject = async (name: string, description?: string, thumbnailUrl?: string): Promise<Project | null> => {
+  const createProject = async (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio): Promise<Project | null> => {
     try {
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, description, thumbnail_url: thumbnailUrl }),
+        body: JSON.stringify({
+          name,
+          description,
+          thumbnail_url: thumbnailUrl,
+          aspect_ratio: aspectRatio || '16:9',
+        }),
       });
       if (!res.ok) throw new Error('Failed to create project');
       const data = await res.json();

@@ -13,6 +13,7 @@ export type Json =
 // Enums
 export type ProjectStatus = 'draft' | 'in_progress' | 'completed';
 export type PipelineStep = 'brainstorming' | 'script' | 'decoupage' | 'storyboard' | 'preprod' | 'production';
+export type AspectRatio = '16:9' | '9:16' | '1:1' | '21:9';
 export type ScriptElementType = 'action' | 'dialogue' | 'transition' | 'note';
 export type DialogueExtension = 'V.O.' | 'O.S.' | "CONT'D" | 'FILTERED' | 'PRE-LAP';
 export type GlobalAssetType = 'character' | 'location' | 'prop' | 'audio';
@@ -93,6 +94,7 @@ export interface Database {
           name: string;
           description: string | null;
           thumbnail_url: string | null;
+          aspect_ratio: AspectRatio;
           status: ProjectStatus;
           current_step: PipelineStep;
           created_at: string;
@@ -104,6 +106,7 @@ export interface Database {
           name: string;
           description?: string | null;
           thumbnail_url?: string | null;
+          aspect_ratio?: AspectRatio;
           status?: ProjectStatus;
           current_step?: PipelineStep;
           created_at?: string;
@@ -115,6 +118,7 @@ export interface Database {
           name?: string;
           description?: string | null;
           thumbnail_url?: string | null;
+          aspect_ratio?: AspectRatio;
           status?: ProjectStatus;
           current_step?: PipelineStep;
           created_at?: string;
