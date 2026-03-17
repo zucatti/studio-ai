@@ -756,9 +756,29 @@ export function CharacterFormDialog({
                       placeholder="Décrivez l'apparence physique: cheveux, yeux, morphologie, vêtements typiques, style vestimentaire..."
                       className="bg-white/5 border-white/10 text-white min-h-[140px] resize-none"
                     />
-                    <p className="text-xs text-slate-500">
-                      Cette description sera utilisée pour générer les images de référence avec l'IA.
-                    </p>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-slate-500">
+                        Cette description sera utilisée pour générer les images de référence avec l'IA.
+                      </p>
+                      <Button
+                        type="button"
+                        onClick={() => handleGenerateSingle('front')}
+                        disabled={!visualDescription.trim() || !name.trim() || generatingView === 'front' || isGenerating}
+                        className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg shadow-purple-500/25"
+                      >
+                        {generatingView === 'front' ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Génération...
+                          </>
+                        ) : (
+                          <>
+                            <Wand2 className="w-4 h-4 mr-2" />
+                            Générer le visage IA
+                          </>
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
