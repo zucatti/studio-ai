@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Book, User, Users, MapPin, Package, Music, Plus, Loader2, AlertCircle, AtSign, Check, Trash2 } from 'lucide-react';
+import { Book, User, Users, MapPin, Package, Music, Plus, Loader2, AlertCircle, AtSign, Hash, Check, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StorageImg } from '@/components/ui/storage-image';
 import {
@@ -180,7 +180,8 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
                       <AssetCard
                         key={loc.id}
                         name={loc.name}
-                        reference={generateReferenceName(loc.name)}
+                        reference={generateReferenceName(loc.name, '#')}
+                        prefix="#"
                         onRemove={() => handleRemoveAsset(loc.project_asset_id)}
                       />
                     ))}
@@ -196,7 +197,8 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
                       <AssetCard
                         key={prop.id}
                         name={prop.name}
-                        reference={generateReferenceName(prop.name)}
+                        reference={generateReferenceName(prop.name, '#')}
+                        prefix="#"
                         onRemove={() => handleRemoveAsset(prop.project_asset_id)}
                       />
                     ))}
@@ -252,12 +254,14 @@ function AssetCard({
   reference,
   image,
   isUsed,
+  prefix = '@',
   onRemove,
 }: {
   name: string;
   reference: string;
   image?: string;
   isUsed?: boolean;
+  prefix?: '@' | '#';
   onRemove?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -268,11 +272,14 @@ function AssetCard({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const PrefixIcon = prefix === '@' ? AtSign : Hash;
+  const colorClass = prefix === '@' ? 'text-blue-400 hover:text-blue-300' : 'text-green-400 hover:text-green-300';
+
   return (
     <div className="p-3 rounded-lg bg-white/5 border border-white/10">
       <div className="flex items-start gap-3">
         {image ? (
-          <StorageImg src={image} alt={name} className="w-14 h-14 rounded-lg object-cover flex-shrink-0" />
+          <StorageImg src={image} alt={name} className="w-14 h-14 rounded-lg object-cover object-top flex-shrink-0" />
         ) : (
           <div className="w-14 h-14 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
             <User className="w-6 h-6 text-slate-400" />
@@ -282,9 +289,9 @@ function AssetCard({
           <p className="text-sm font-medium text-white truncate">{name}</p>
           <button
             onClick={handleCopy}
-            className="flex items-center gap-1 mt-0.5 text-xs text-blue-400 hover:text-blue-300"
+            className={cn('flex items-center gap-1 mt-0.5 text-xs', colorClass)}
           >
-            <AtSign className="w-3 h-3" />
+            <PrefixIcon className="w-3 h-3" />
             <span className="font-mono">{reference.slice(1)}</span>
             {copied && <Check className="w-3 h-3 text-green-400" />}
           </button>

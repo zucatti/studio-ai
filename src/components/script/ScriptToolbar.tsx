@@ -88,7 +88,7 @@ export function ScriptToolbar({
       </div>
 
       {/* Right side - Actions */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 pr-4">
         {/* Organize button (free mode only) */}
         {viewMode === 'free' && canOrganize && onOrganize && (
           <Button

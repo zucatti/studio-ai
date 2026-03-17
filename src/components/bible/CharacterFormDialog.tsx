@@ -84,6 +84,13 @@ const STYLE_OPTIONS = [
   { value: 'watercolor', label: 'Aquarelle' },
 ];
 
+const MODEL_OPTIONS = [
+  { value: 'fal-ai/nano-banana-2', label: 'Nano Banana 2' },
+  { value: 'fal-ai/flux-pro/v1.1', label: 'Flux Pro' },
+] as const;
+
+type ModelType = typeof MODEL_OPTIONS[number]['value'];
+
 const TABS: { value: TabType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { value: 'references', label: 'Références', icon: Camera },
   { value: 'looks', label: 'Looks', icon: Shirt },
@@ -118,6 +125,7 @@ export function CharacterFormDialog({
   const [gender, setGender] = useState((character?.data as CharacterData)?.gender || '');
   const [tags, setTags] = useState((character?.tags || []).join(', '));
   const [style, setStyle] = useState('photorealistic');
+  const [selectedModel, setSelectedModel] = useState<ModelType>('fal-ai/nano-banana-2');
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabType>('references');
@@ -377,10 +385,23 @@ export function CharacterFormDialog({
           mode: 'generate_single',
           viewType,
           style,
+          model: selectedModel,
         });
 
         if (result) {
-          setReferenceImages(result);
+          // Merge with local state to preserve any images not yet synced
+          setReferenceImages(prev => {
+            const merged = [...prev];
+            for (const newImg of result) {
+              const idx = merged.findIndex(img => img.type === newImg.type);
+              if (idx >= 0) {
+                merged[idx] = newImg;
+              } else {
+                merged.push(newImg);
+              }
+            }
+            return merged;
+          });
         }
       } finally {
         setGeneratingView(null);
@@ -389,14 +410,59 @@ export function CharacterFormDialog({
       // Character already exists
       setGeneratingView(viewType);
       try {
+        // Upload any pending files first (images with blob URLs)
+        if (pendingFiles.size > 0) {
+          const uploadedImages: ReferenceImage[] = [];
+          for (const [imageType, file] of pendingFiles) {
+            const url = await uploadCharacterImage(characterId, file, imageType);
+            if (url) {
+              uploadedImages.push({
+                url,
+                type: imageType,
+                label: IMAGE_TYPES.find((t) => t.value === imageType)?.description || '',
+              });
+            }
+          }
+
+          // Clear pending files and update reference images with real URLs
+          setPendingFiles(new Map());
+          if (uploadedImages.length > 0) {
+            setReferenceImages(prev => {
+              const merged = [...prev];
+              for (const newImg of uploadedImages) {
+                const idx = merged.findIndex(img => img.type === newImg.type);
+                if (idx >= 0) {
+                  merged[idx] = newImg;
+                } else {
+                  merged.push(newImg);
+                }
+              }
+              return merged;
+            });
+          }
+        }
+
         const result = await generateCharacterImages(characterId, {
           mode: 'generate_single',
           viewType,
           style,
+          model: selectedModel,
         });
 
         if (result) {
-          setReferenceImages(result);
+          // Merge with local state to preserve any images not yet synced
+          setReferenceImages(prev => {
+            const merged = [...prev];
+            for (const newImg of result) {
+              const idx = merged.findIndex(img => img.type === newImg.type);
+              if (idx >= 0) {
+                merged[idx] = newImg;
+              } else {
+                merged.push(newImg);
+              }
+            }
+            return merged;
+          });
         }
       } finally {
         setGeneratingView(null);
@@ -462,6 +528,7 @@ export function CharacterFormDialog({
           lookName: newLookName.trim() || 'Look généré',
           lookDescription: newLookDescription.trim(),
           style,
+          model: selectedModel,
         }),
       });
 
@@ -816,9 +883,26 @@ export function CharacterFormDialog({
                 );
               })}
 
-              {/* Style selector - only for references tab */}
-              {activeTab === 'references' && isEditing && (
-                <div className="ml-auto">
+              {/* Model + Style selectors - always visible on references tab */}
+              {activeTab === 'references' && (
+                <div className="ml-auto flex items-center gap-3">
+                  {/* Model toggle */}
+                  <div className="inline-flex rounded-md bg-white/5 p-0.5 border border-white/10">
+                    {MODEL_OPTIONS.map((model) => (
+                      <button
+                        key={model.value}
+                        onClick={() => setSelectedModel(model.value)}
+                        className={cn(
+                          'px-3 py-1.5 text-xs font-medium rounded transition-all',
+                          selectedModel === model.value
+                            ? 'bg-purple-500 text-white'
+                            : 'text-slate-400 hover:text-white'
+                        )}
+                      >
+                        {model.label}
+                      </button>
+                    ))}
+                  </div>
                   <Select value={style} onValueChange={setStyle}>
                     <SelectTrigger className="w-44 h-9 bg-white/5 border-white/10 text-white text-sm">
                       <SelectValue />
@@ -840,39 +924,37 @@ export function CharacterFormDialog({
               {/* References Tab */}
               {activeTab === 'references' && (
                 <div className="space-y-6">
-                  {/* Main 3 views grid */}
-                  <div className="grid grid-cols-3 gap-4">
-                    {IMAGE_TYPES.slice(0, 3).map((imageType) => {
+                  {/* Masonry grid - Pinterest style */}
+                  <div className="columns-3 gap-4 space-y-4">
+                    {IMAGE_TYPES.map((imageType) => {
                       const existingImage = referenceImages.find((img) => img.type === imageType.value);
                       const isGeneratingThis = generatingView === imageType.value;
-
                       const isUploadingThis = uploadingImageType === imageType.value;
 
                       return (
                         <div
                           key={imageType.value}
                           className={cn(
-                            'relative aspect-[3/4] rounded-xl border-2 border-dashed group transition-all cursor-pointer',
+                            'relative rounded-xl group transition-all cursor-pointer break-inside-avoid mb-4 overflow-hidden',
                             existingImage
-                              ? 'border-green-500/50 bg-green-500/5'
-                              : 'border-white/10 bg-white/5 hover:border-blue-500/50 hover:bg-blue-500/5'
+                              ? 'ring-1 ring-white/20'
+                              : 'border-2 border-dashed border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
                           )}
-                          style={{ clipPath: 'inset(0 round 12px)' }}
                           onClick={() => !isGeneratingThis && !isUploadingThis && handleImageSlotClick(imageType.value)}
                         >
                           {isGeneratingThis || isUploadingThis ? (
-                            <div className="w-full h-full flex flex-col items-center justify-center gap-3">
+                            <div className="aspect-[3/4] flex flex-col items-center justify-center gap-3">
                               <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
                               <span className="text-sm text-slate-400">
                                 {isUploadingThis ? 'Upload...' : 'Génération...'}
                               </span>
                             </div>
                           ) : existingImage ? (
-                            <>
+                            <div className="relative">
                               <StorageImg
                                 src={existingImage.url}
                                 alt={imageType.label}
-                                className="absolute inset-0 w-full h-full object-contain rounded-xl"
+                                className="w-full h-auto rounded-xl"
                               />
                               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 rounded-xl">
                                 <div className="flex items-center gap-2">
@@ -919,12 +1001,9 @@ export function CharacterFormDialog({
                                   {imageType.label}
                                 </span>
                               </div>
-                              <div className="absolute top-3 right-3 p-1 rounded-full bg-green-500/90">
-                                <Check className="w-3 h-3 text-white" />
-                              </div>
-                            </>
+                            </div>
                           ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center gap-4 p-4">
+                            <div className="aspect-[3/4] flex flex-col items-center justify-center gap-4 p-4">
                               <span className="text-sm font-medium text-white">{imageType.label}</span>
                               <div className="flex items-center gap-2">
                                 <Button
@@ -956,108 +1035,6 @@ export function CharacterFormDialog({
                                 )}
                               </div>
                               <span className="text-xs text-slate-500">{imageType.description}</span>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Additional views (3/4 and custom) */}
-                  <div className="grid grid-cols-2 gap-4">
-                    {IMAGE_TYPES.slice(3).map((imageType) => {
-                      const existingImage = referenceImages.find((img) => img.type === imageType.value);
-                      const isGeneratingThis = generatingView === imageType.value;
-                      const isUploadingThis = uploadingImageType === imageType.value;
-
-                      return (
-                        <div
-                          key={imageType.value}
-                          className={cn(
-                            'relative aspect-[4/3] rounded-xl border-2 border-dashed group transition-all cursor-pointer',
-                            existingImage
-                              ? 'border-green-500/50 bg-green-500/5'
-                              : 'border-white/10 bg-white/5 hover:border-blue-500/50 hover:bg-blue-500/5'
-                          )}
-                          style={{ clipPath: 'inset(0 round 12px)' }}
-                          onClick={() => !isGeneratingThis && !isUploadingThis && handleImageSlotClick(imageType.value)}
-                        >
-                          {isGeneratingThis || isUploadingThis ? (
-                            <div className="w-full h-full flex flex-col items-center justify-center gap-2">
-                              <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
-                              <span className="text-xs text-slate-400">
-                                {isUploadingThis ? 'Upload...' : 'Génération...'}
-                              </span>
-                            </div>
-                          ) : existingImage ? (
-                            <>
-                              <StorageImg
-                                src={existingImage.url}
-                                alt={imageType.label}
-                                className="absolute inset-0 w-full h-full object-contain rounded-xl"
-                              />
-                              <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 rounded-xl">
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-9 w-9 text-white hover:bg-white/20 rounded-lg"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    triggerUpload(imageType.value);
-                                  }}
-                                >
-                                  <RefreshCw className="w-4 h-4" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-9 w-9 text-red-400 hover:bg-red-500/20 rounded-lg"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    removeImage(imageType.value);
-                                  }}
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </Button>
-                              </div>
-                              <div className="absolute bottom-2 left-2">
-                                <span className="text-xs text-white font-medium px-2 py-1 rounded-md bg-black/70 backdrop-blur-sm">
-                                  {imageType.label}
-                                </span>
-                              </div>
-                            </>
-                          ) : (
-                            <div className="w-full h-full flex flex-col items-center justify-center gap-3 p-3">
-                              <span className="text-sm font-medium text-white">{imageType.label}</span>
-                              <div className="flex items-center gap-2">
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  className="border-white/20 text-slate-300 hover:bg-white/10 hover:text-white h-8 text-xs"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    triggerUpload(imageType.value);
-                                  }}
-                                >
-                                  <Upload className="w-3.5 h-3.5 mr-1" />
-                                  Upload
-                                </Button>
-                                {canGenerate && (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10 h-8 text-xs"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleGenerateSingle(imageType.value);
-                                    }}
-                                    disabled={isGenerating}
-                                  >
-                                    <Wand2 className="w-3.5 h-3.5 mr-1" />
-                                    IA
-                                  </Button>
-                                )}
-                              </div>
                             </div>
                           )}
                         </div>
@@ -1157,7 +1134,7 @@ export function CharacterFormDialog({
                           <StorageImg
                             src={look.imageUrl}
                             alt={look.name}
-                            className="w-full h-full object-cover"
+                            className="w-full h-full object-cover object-top"
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
                             <div className="absolute bottom-0 left-0 right-0 p-3">

@@ -26,6 +26,7 @@ import {
 import { GENERIC_CHARACTERS, type GenericCharacter } from '@/lib/generic-characters';
 import { generateReferenceName } from '@/lib/reference-name';
 import { cn } from '@/lib/utils';
+import { useSignedUrlContext } from '@/contexts/signed-url-context';
 
 // Icons for generic characters
 const GENERIC_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -197,6 +198,20 @@ export function BibleCharacters({ projectId, onInsertReference, showGlobalOnly =
 
   const globalCharacters = getAssetsByType('character');
   const projectCharacters = projectId ? getProjectAssetsByType('character') : [];
+
+  // Preload image URLs for all characters
+  const { preloadUrls } = useSignedUrlContext();
+  useEffect(() => {
+    const allUrls: string[] = [];
+    for (const character of [...globalCharacters, ...projectCharacters]) {
+      if (character.reference_images) {
+        allUrls.push(...character.reference_images.slice(0, 3)); // Only preload first 3 thumbnails
+      }
+    }
+    if (allUrls.length > 0) {
+      preloadUrls(allUrls);
+    }
+  }, [globalCharacters, projectCharacters, preloadUrls]);
 
   // Characters in project (custom)
   const inProjectCharacters = projectCharacters.map((pa) => ({

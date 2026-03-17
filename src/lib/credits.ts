@@ -52,7 +52,7 @@ export const PROVIDERS: Record<DashboardProvider, ProviderConfig> = {
     displayName: 'fal.ai',
     color: '#8B5CF6',
     dashboardUrl: 'https://fal.ai/dashboard/usage-billing/credits',
-    description: 'Images & vidéos (Kling, Flux)',
+    description: 'Images (Nano Banana 2, Ideogram) & vidéos (Kling)',
   },
   piapi: {
     name: 'piapi',
@@ -110,11 +110,22 @@ export const REPLICATE_PRICES: Record<string, number> = {
  * fal.ai pricing per request (in USD)
  */
 export const FAL_PRICES: Record<string, number> = {
-  // Image generation
+  // Image generation - Nano Banana 2 (Google Gemini 3.1 Flash)
+  'fal-ai/nano-banana-2': 0.08, // Base price at 1K resolution
+  'fal-ai/nano-banana-2/0.5K': 0.06, // 0.75x rate
+  'fal-ai/nano-banana-2/1K': 0.08, // Standard rate
+  'fal-ai/nano-banana-2/2K': 0.12, // 1.5x rate
+  'fal-ai/nano-banana-2/4K': 0.16, // 2x rate
+  // Image generation - Flux
   'fal-ai/flux/schnell': 0.003,
   'fal-ai/flux/dev': 0.025,
   'fal-ai/flux-pro': 0.05,
   'fal-ai/flux-pro/v1.1': 0.04,
+  // Image generation - Ideogram (character consistency)
+  'fal-ai/ideogram/character': 0.08,
+  'fal-ai/ideogram/v2': 0.08,
+  // Image utilities
+  'fal-ai/image-apps-v2/perspective': 0.02,
   // Video generation
   'fal-ai/kling-video/v1/standard/image-to-video': 0.10,
   'fal-ai/kling-video/v1/pro/image-to-video': 0.35,

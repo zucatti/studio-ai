@@ -18,48 +18,85 @@ export interface ReferenceImage {
   label: string;
 }
 
+// Default model for text-to-image generation
+const DEFAULT_TEXT_TO_IMAGE_MODEL = 'fal-ai/nano-banana-2';
+
+// Model configurations
+const MODEL_CONFIG: Record<string, {
+  name: string;
+  description: string;
+  supportsReference: boolean;
+  aspectRatioParam: string; // How aspect ratio is passed to the API
+}> = {
+  'fal-ai/nano-banana-2': {
+    name: 'Nano Banana 2',
+    description: 'Google Gemini 3.1 Flash - Rapide et haute qualité, 4K',
+    supportsReference: false,
+    aspectRatioParam: 'aspect_ratio', // supports: auto, 21:9, 16:9, 3:2, 4:3, 5:4, 1:1, 4:5, 3:4, 2:3, 9:16
+  },
+  'fal-ai/flux-pro/v1.1': {
+    name: 'Flux Pro 1.1',
+    description: 'Black Forest Labs - Très haute qualité',
+    supportsReference: false,
+    aspectRatioParam: 'image_size',
+  },
+  'fal-ai/ideogram/character': {
+    name: 'Ideogram Character',
+    description: 'Consistance de personnage avec référence',
+    supportsReference: true,
+    aspectRatioParam: 'image_size',
+  },
+};
+
 // Style configurations for fal.ai
 const STYLE_CONFIG: Record<string, {
   promptPrefix: string;
   promptSuffix: string;
   renderingSpeed: 'TURBO' | 'BALANCED' | 'QUALITY';
   ideogramStyle: 'AUTO' | 'REALISTIC' | 'FICTION';
+  resolution: '1K' | '2K' | '4K'; // For Nano Banana 2
 }> = {
   photorealistic: {
     promptPrefix: 'photorealistic, cinematic still, professional photography, 8k uhd, ',
     promptSuffix: ', highly detailed, sharp focus, cinematic lighting',
     renderingSpeed: 'QUALITY',
     ideogramStyle: 'REALISTIC',
+    resolution: '4K', // High quality for photorealistic
   },
   cartoon: {
     promptPrefix: 'pixar style, disney animation, 3d cartoon character, vibrant colors, ',
     promptSuffix: ', stylized, expressive, professional animation quality',
     renderingSpeed: 'BALANCED',
     ideogramStyle: 'FICTION',
+    resolution: '2K',
   },
   anime: {
     promptPrefix: 'anime style, japanese animation, studio ghibli inspired, ',
     promptSuffix: ', detailed anime artwork, cel shaded, vibrant',
     renderingSpeed: 'BALANCED',
     ideogramStyle: 'FICTION',
+    resolution: '2K',
   },
   cyberpunk: {
     promptPrefix: 'cyberpunk style, neon lights, futuristic, blade runner aesthetic, ',
     promptSuffix: ', high tech, dystopian, cinematic',
     renderingSpeed: 'QUALITY',
     ideogramStyle: 'REALISTIC',
+    resolution: '4K',
   },
   noir: {
     promptPrefix: 'film noir style, black and white, high contrast, dramatic shadows, ',
     promptSuffix: ', 1940s aesthetic, moody, atmospheric, cinematic',
     renderingSpeed: 'QUALITY',
     ideogramStyle: 'REALISTIC',
+    resolution: '2K',
   },
   watercolor: {
     promptPrefix: 'watercolor painting, artistic, soft edges, flowing colors, ',
     promptSuffix: ', traditional art, painterly, delicate brushstrokes',
     renderingSpeed: 'BALANCED',
     ideogramStyle: 'FICTION',
+    resolution: '2K',
   },
 };
 
@@ -76,19 +113,56 @@ type PerspectiveTarget = 'front' | 'left_side' | 'right_side' | 'back' | 'top_do
 async function optimizePrompt(
   frenchDescription: string,
   style: string,
-  claudeWrapper: ReturnType<typeof createClaudeWrapper>
+  claudeWrapper: ReturnType<typeof createClaudeWrapper>,
+  assetType: 'character' | 'location' | 'prop' = 'character'
 ): Promise<string> {
   if (!process.env.AI_CLAUDE_KEY) {
     return frenchDescription;
   }
 
-  const result = await claudeWrapper.createMessage({
-    model: 'claude-sonnet-4-20250514',
-    max_tokens: 300,
-    messages: [
-      {
-        role: 'user',
-        content: `Convert this French description into an optimized English prompt for character image generation.
+  // Different prompts based on asset type
+  let systemPrompt: string;
+
+  if (assetType === 'location') {
+    systemPrompt = `Convert this French description into an optimized English prompt for location/environment image generation.
+
+Style: ${style}
+Focus on the PLACE: architecture, lighting, atmosphere, colors, textures, spatial composition.
+DO NOT include any people or characters in the scene - this is an EMPTY location.
+
+French description:
+"${frenchDescription}"
+
+Rules:
+- Translate to English
+- Keep it concise (max 60 words)
+- Focus on architectural and environmental details
+- Describe lighting, mood, atmosphere
+- Include specific details about materials, colors, textures
+- DO NOT mention any people, characters, or human figures
+- This should be an empty scene showing only the location
+
+Return ONLY the optimized English prompt, nothing else.`;
+  } else if (assetType === 'prop') {
+    systemPrompt = `Convert this French description into an optimized English prompt for object/prop image generation.
+
+Style: ${style}
+Focus on the OBJECT: shape, materials, textures, details, lighting.
+
+French description:
+"${frenchDescription}"
+
+Rules:
+- Translate to English
+- Keep it concise (max 40 words)
+- Focus on the object itself
+- Describe materials, textures, colors
+- Include specific details about shape and features
+- Product photography style, clean background
+
+Return ONLY the optimized English prompt, nothing else.`;
+  } else {
+    systemPrompt = `Convert this French description into an optimized English prompt for character image generation.
 
 Style: ${style}
 Focus on the person: face, body type, clothing, pose. Use portrait or full body framing.
@@ -105,7 +179,16 @@ Rules:
 - Be VERY specific about visual details, especially for faces
 - Include specific details about face shape, eye color, hair style/color, skin tone, age appearance
 
-Return ONLY the optimized English prompt, nothing else.`,
+Return ONLY the optimized English prompt, nothing else.`;
+  }
+
+  const result = await claudeWrapper.createMessage({
+    model: 'claude-sonnet-4-20250514',
+    max_tokens: 300,
+    messages: [
+      {
+        role: 'user',
+        content: systemPrompt,
       },
     ],
   });
@@ -115,7 +198,7 @@ Return ONLY the optimized English prompt, nothing else.`,
 
 // Build a look prompt using character morphology and look description (with credit management)
 async function buildLookPrompt(
-  characterData: Record<string, unknown>,
+  assetData: Record<string, unknown>,
   lookDescription: string,
   style: string,
   claudeWrapper: ReturnType<typeof createClaudeWrapper>
@@ -125,9 +208,9 @@ async function buildLookPrompt(
   }
 
   // Extract character morphology data
-  const age = (characterData.age as string) || '';
-  const gender = (characterData.gender as string) || '';
-  const visualDescription = (characterData.visual_description as string) || '';
+  const age = (assetData.age as string) || '';
+  const gender = (assetData.gender as string) || '';
+  const visualDescription = (assetData.visual_description as string) || '';
 
   const result = await claudeWrapper.createMessage({
     model: 'claude-sonnet-4-20250514',
@@ -181,7 +264,11 @@ export async function POST(request: Request, { params }: RouteParams) {
       viewType, // For single view generation: 'front' | 'profile' | 'back'
       lookDescription, // For look generation
       lookName, // Name of the look being generated
+      model, // Optional: 'fal-ai/nano-banana-2' | 'fal-ai/flux-pro/v1.1'
     } = body;
+
+    // Determine which model to use (default to Nano Banana 2)
+    const textToImageModel = model && MODEL_CONFIG[model] ? model : DEFAULT_TEXT_TO_IMAGE_MODEL;
 
     if (!mode) {
       return NextResponse.json({ error: 'Missing mode parameter' }, { status: 400 });
@@ -201,19 +288,26 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
     }
 
-    if (asset.asset_type !== 'character') {
-      return NextResponse.json({ error: 'Asset is not a character' }, { status: 400 });
+    // Support characters, locations, and props
+    const supportedTypes = ['character', 'location', 'prop'];
+    if (!supportedTypes.includes(asset.asset_type)) {
+      return NextResponse.json({ error: `Asset type '${asset.asset_type}' is not supported for image generation` }, { status: 400 });
     }
 
-    const characterData = asset.data as Record<string, unknown>;
-    const visualDescription = (characterData.visual_description as string) || (characterData.description as string) || '';
+    const assetData = asset.data as Record<string, unknown>;
+    const visualDescription = (assetData.visual_description as string) || (assetData.description as string) || '';
     const existingReferenceImages: ReferenceImage[] =
-      (characterData.reference_images_metadata as ReferenceImage[] | undefined) || [];
+      (assetData.reference_images_metadata as ReferenceImage[] | undefined) || [];
     const hasFrontImage = existingReferenceImages.some(img => img.type === 'front');
+
+    // For non-character assets, only 'generate_single' mode is supported
+    if (asset.asset_type !== 'character' && mode !== 'generate_single') {
+      return NextResponse.json({ error: `Mode '${mode}' is only supported for characters. Use 'generate_single' for locations/props.` }, { status: 400 });
+    }
 
     // Allow generation if we have a description OR if we have a front image to use as reference
     if (!visualDescription && mode !== 'generate_variations' && !(mode === 'generate_single' && hasFrontImage)) {
-      return NextResponse.json({ error: 'No visual description provided for this character' }, { status: 400 });
+      return NextResponse.json({ error: 'No visual description provided for this asset' }, { status: 400 });
     }
 
     // Check API key
@@ -238,12 +332,17 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const creditService = createCreditService(supabase);
 
-    // Helper to log fal.ai usage
-    const logFalUsage = async (endpoint: string, success: boolean, error?: string) => {
-      const cost = calculateFalCost(endpoint, 1);
+    // Helper to log fal.ai usage with resolution-aware pricing
+    const logFalUsage = async (endpoint: string, success: boolean, error?: string, resolution?: string) => {
+      // For Nano Banana 2, use resolution-specific pricing
+      let costEndpoint = endpoint;
+      if (endpoint === DEFAULT_TEXT_TO_IMAGE_MODEL && resolution) {
+        costEndpoint = `${endpoint}/${resolution}`;
+      }
+      const cost = calculateFalCost(costEndpoint, 1);
       await creditService.logUsage(session.user.sub, {
         provider: 'fal',
-        endpoint,
+        endpoint: costEndpoint,
         operation: `generate-character-image-${mode}`,
         estimated_cost: success ? cost : 0,
         status: success ? 'success' : 'failed',
@@ -268,6 +367,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     const uploadToFalStorage = async (imageUrl: string): Promise<string> => {
       if (imageUrl.includes('fal.media') || imageUrl.includes('fal-cdn')) {
         return imageUrl;
+      }
+
+      // Blob URLs are client-side only and cannot be fetched from the server
+      if (imageUrl.startsWith('blob:')) {
+        throw new Error('Cannot use blob URL on server. Please save the image first before generating new views.');
       }
 
       // Convert b2:// URLs to signed URLs first
@@ -310,6 +414,28 @@ export async function POST(request: Request, { params }: RouteParams) {
       return `b2://${STORAGE_BUCKET}/${storageKey}`;
     };
 
+    // Helper to build text-to-image input based on model
+    const buildTextToImageInput = (prompt: string) => {
+      const modelConfig = MODEL_CONFIG[textToImageModel];
+
+      if (textToImageModel === 'fal-ai/flux-pro/v1.1') {
+        // Flux Pro uses image_size parameter
+        return {
+          prompt,
+          image_size: 'portrait_4_3', // Flux Pro format
+          num_images: 1,
+        };
+      } else {
+        // Nano Banana 2 uses aspect_ratio and image_resolution
+        return {
+          prompt,
+          aspect_ratio: '3:4', // Portrait format
+          image_resolution: styleConfig.resolution,
+          num_images: 1,
+        };
+      }
+    };
+
     const generatedImages: ReferenceImage[] = [];
     const existingImages = (asset.reference_images || []) as string[];
 
@@ -319,27 +445,23 @@ export async function POST(request: Request, { params }: RouteParams) {
         console.log(`=== Generating all views for character: ${asset.name} ===`);
 
         // Check budget for fal.ai calls (estimate 4-5 calls for all views)
-        await checkFalBudget('fal-ai/flux-pro/v1.1');
+        await checkFalBudget(textToImageModel);
 
-        // Optimize prompt
-        const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper);
+        // Optimize prompt with asset type for appropriate context
+        const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
         console.log(`Optimized description: ${optimizedDescription}`);
 
-        // Step 1: Generate front view with Flux Pro (highest quality)
-        console.log('Step 1: Generating front view...');
+        // Step 1: Generate front view
+        console.log(`Step 1: Generating front view with ${MODEL_CONFIG[textToImageModel]?.name || textToImageModel}...`);
         const frontPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, front view, facing camera, full body portrait, standing pose${styleConfig.promptSuffix}`;
 
-        const frontResult = await fal.subscribe('fal-ai/flux-pro/v1.1', {
-          input: {
-            prompt: frontPrompt,
-            image_size: 'portrait_4_3',
-            num_images: 1,
-          },
+        const frontResult = await fal.subscribe(textToImageModel, {
+          input: buildTextToImageInput(frontPrompt),
           logs: true,
         });
 
         const frontImageUrl = (frontResult.data as any)?.images?.[0]?.url;
-        await logFalUsage('fal-ai/flux-pro/v1.1', !!frontImageUrl, frontImageUrl ? undefined : 'No image generated');
+        await logFalUsage(textToImageModel, !!frontImageUrl, frontImageUrl ? undefined : 'No image generated', styleConfig.resolution);
 
         if (!frontImageUrl) {
           throw new Error('Failed to generate front view');
@@ -454,7 +576,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             // Try with Ideogram if we have a visual description
             if (visualDescription) {
               console.log(`Trying Ideogram fallback for ${view.name}...`);
-              const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper);
+              const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
               const viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${view.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
 
               const fallbackResult = await fal.subscribe('fal-ai/ideogram/character', {
@@ -544,7 +666,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             // Build prompt - use visual description if available, otherwise use a generic prompt
             let viewPrompt: string;
             if (visualDescription) {
-              const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper);
+              const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
               viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
             } else {
               // Generic prompt when no description - rely on reference image
@@ -571,15 +693,12 @@ export async function POST(request: Request, { params }: RouteParams) {
             return NextResponse.json({ error: 'Visual description required to generate front view from scratch' }, { status: 400 });
           }
 
-          const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper);
+          const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
           const viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
 
-          const result = await fal.subscribe('fal-ai/flux-pro/v1.1', {
-            input: {
-              prompt: viewPrompt,
-              image_size: 'portrait_4_3',
-              num_images: 1,
-            },
+          // Use selected model for text-to-image generation
+          const result = await fal.subscribe(textToImageModel, {
+            input: buildTextToImageInput(viewPrompt),
             logs: true,
           });
 
@@ -591,7 +710,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
 
         // Log fal.ai usage for single view generation
-        await logFalUsage('fal-ai/ideogram/character', true);
+        await logFalUsage(textToImageModel, true);
 
         const publicUrl = await uploadToB2(imageUrl, viewType);
         generatedImages.push({ url: publicUrl, type: viewType as CharacterImageType, label: viewConfig.label });
@@ -607,7 +726,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         console.log(`Look description: ${lookDescription}`);
 
         // Build optimized prompt using character morphology + look description
-        const optimizedPrompt = await buildLookPrompt(characterData, lookDescription, style, claudeWrapper);
+        const optimizedPrompt = await buildLookPrompt(assetData, lookDescription, style, claudeWrapper);
         console.log(`Optimized look prompt: ${optimizedPrompt}`);
 
         const fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, full body portrait, standing pose, fashion photography${styleConfig.promptSuffix}`;
@@ -635,13 +754,9 @@ export async function POST(request: Request, { params }: RouteParams) {
 
           lookImageUrl = (result.data as any)?.images?.[0]?.url;
         } else {
-          // Generate without reference
-          const result = await fal.subscribe('fal-ai/flux-pro/v1.1', {
-            input: {
-              prompt: fullPrompt,
-              image_size: 'portrait_4_3',
-              num_images: 1,
-            },
+          // Generate without reference - use selected model
+          const result = await fal.subscribe(textToImageModel, {
+            input: buildTextToImageInput(fullPrompt),
             logs: true,
           });
 
@@ -695,7 +810,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       // Update global asset with new images
       const imageUrls = allReferenceImages.map(img => img.url);
       const updatedData = {
-        ...characterData,
+        ...assetData,
         reference_images_metadata: allReferenceImages,
       };
 
@@ -766,8 +881,8 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
     }
 
-    const characterData = asset.data as Record<string, unknown>;
-    const referenceImages = (characterData.reference_images_metadata as ReferenceImage[]) || [];
+    const assetData = asset.data as Record<string, unknown>;
+    const referenceImages = (assetData.reference_images_metadata as ReferenceImage[]) || [];
 
     return NextResponse.json({
       assetId: asset.id,

@@ -7,6 +7,7 @@ import type { ScriptElement, ScriptElementType } from '@/types/script';
 import type { ProjectAssetFlat } from '@/types/database';
 import { GENERIC_CHARACTERS, getGenericCharacter, isGenericCharacter } from '@/lib/generic-characters';
 import { cn } from '@/lib/utils';
+import { MentionInput } from './MentionInput';
 
 // Icons for generic characters
 const GENERIC_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -292,6 +293,7 @@ function CharacterTag({
 // Single element block
 function ElementBlock({
   element,
+  allAssets,
   characters,
   importedGenericIds,
   isLoading,
@@ -299,6 +301,7 @@ function ElementBlock({
   onDelete,
 }: {
   element: ScriptElement;
+  allAssets: ProjectAssetFlat[];
   characters: ProjectAssetFlat[];
   importedGenericIds: Set<string>;
   isLoading?: boolean;
@@ -359,13 +362,15 @@ function ElementBlock({
               </div>
             )}
 
-            {/* Dialogue text */}
-            <InlineEdit
+            {/* Dialogue text - with @ for characters, # for locations/props */}
+            <MentionInput
               value={element.content}
               onChange={(v) => onUpdate({ content: v })}
               placeholder={config.placeholder}
               multiline
               className="text-white leading-relaxed"
+              assets={allAssets}
+              importedGenericIds={importedGenericIds}
             />
           </div>
         ) : element.type === 'transition' ? (
@@ -388,12 +393,15 @@ function ElementBlock({
             />
           </div>
         ) : (
-          <InlineEdit
+          /* Action - with @ for characters, # for locations/props */
+          <MentionInput
             value={element.content}
             onChange={(v) => onUpdate({ content: v })}
             placeholder={config.placeholder}
             multiline
             className="text-slate-300 leading-relaxed"
+            assets={allAssets}
+            importedGenericIds={importedGenericIds}
           />
         )}
       </div>
@@ -489,6 +497,8 @@ export function NotionScriptEditor({
     fetchProjectGenericAssets(projectId);
   }, [projectId, fetchProjectAssets, fetchProjectGenericAssets]);
 
+  // All assets for mentions (characters use @, locations/props use #)
+  const allAssets = projectAssets;
   const characters = projectAssets.filter(a => a.asset_type === 'character');
   const importedGenericIds = new Set(projectGenericAssets.map(pa => pa.id));
 
@@ -507,6 +517,7 @@ export function NotionScriptEditor({
             <div key={element.id}>
               <ElementBlock
                 element={element}
+                allAssets={allAssets}
                 characters={characters}
                 importedGenericIds={importedGenericIds}
                 isLoading={isLoading}

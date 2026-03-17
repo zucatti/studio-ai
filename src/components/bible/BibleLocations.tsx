@@ -1,9 +1,12 @@
 'use client';
 
+import { useState } from 'react';
 import { useBibleStore } from '@/store/bible-store';
-import { BibleAssetCard } from './BibleAssetCard';
+import { LocationCard } from './LocationCard';
+import { LocationFormDialog } from './LocationFormDialog';
 import { MapPin, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import type { GlobalAsset } from '@/types/database';
 
 interface BibleLocationsProps {
   projectId?: string;
@@ -12,12 +15,17 @@ interface BibleLocationsProps {
 }
 
 export function BibleLocations({ projectId, onInsertReference, showGlobalOnly = false }: BibleLocationsProps) {
+  const [showForm, setShowForm] = useState(false);
+  const [editingLocation, setEditingLocation] = useState<GlobalAsset | null>(null);
+
   const {
+    globalAssets,
     getAssetsByType,
     getProjectAssetsByType,
     isAssetInProject,
     importGlobalAsset,
     removeProjectAsset,
+    fetchGlobalAssets,
   } = useBibleStore();
 
   const globalLocations = getAssetsByType('location');
@@ -35,6 +43,20 @@ export function BibleLocations({ projectId, onInsertReference, showGlobalOnly = 
     }
   };
 
+  const handleCreate = () => {
+    setEditingLocation(null);
+    setShowForm(true);
+  };
+
+  const handleEdit = (location: GlobalAsset) => {
+    setEditingLocation(location);
+    setShowForm(true);
+  };
+
+  const handleFormSuccess = () => {
+    fetchGlobalAssets('');
+  };
+
   const displayLocations = showGlobalOnly
     ? globalLocations
     : projectId
@@ -46,41 +68,74 @@ export function BibleLocations({ projectId, onInsertReference, showGlobalOnly = 
 
   if (displayLocations.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-8 text-center">
-        <MapPin className="w-12 h-12 text-slate-500 mb-3" />
-        <p className="text-slate-400 text-sm">Aucun lieu</p>
-        <p className="text-slate-500 text-xs mt-1">
-          Creez des lieux dans votre bibliotheque globale
-        </p>
-        <Button
-          variant="outline"
-          size="sm"
-          className="mt-4 border-white/10 text-slate-300 hover:bg-white/5"
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Creer un lieu
-        </Button>
-      </div>
+      <>
+        <div className="flex flex-col items-center justify-center py-8 text-center">
+          <MapPin className="w-12 h-12 text-slate-500 mb-3" />
+          <p className="text-slate-400 text-sm">Aucun lieu</p>
+          <p className="text-slate-500 text-xs mt-1">
+            Créez des lieux dans votre bibliothèque globale
+          </p>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleCreate}
+            className="mt-4 border-green-500/30 text-green-400 hover:bg-green-500/10"
+          >
+            <Plus className="w-4 h-4 mr-2" />
+            Créer un lieu
+          </Button>
+        </div>
+        <LocationFormDialog
+          open={showForm}
+          onOpenChange={setShowForm}
+          location={editingLocation}
+          onSuccess={handleFormSuccess}
+        />
+      </>
     );
   }
 
   return (
-    <div className="space-y-3">
-      {displayLocations.map((location) => {
-        const isInProject = 'isInProject' in location ? Boolean(location.isInProject) : isAssetInProject(location.id);
-        const projectAssetId = 'projectAssetId' in location ? String(location.projectAssetId) : undefined;
+    <>
+      {/* Create button */}
+      <div className="mb-4">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleCreate}
+          className="border-green-500/30 text-green-400 hover:bg-green-500/10"
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          Nouveau lieu
+        </Button>
+      </div>
 
-        return (
-          <BibleAssetCard
-            key={location.id}
-            asset={location}
-            isInProject={isInProject}
-            onImport={projectId && !isInProject ? () => handleImport(location.id) : undefined}
-            onRemove={projectAssetId ? () => handleRemove(projectAssetId) : undefined}
-            onInsertReference={onInsertReference}
-          />
-        );
-      })}
-    </div>
+      {/* Grid of location cards */}
+      <div className="grid grid-cols-3 gap-3">
+        {displayLocations.map((location) => {
+          const isInProject = 'isInProject' in location ? Boolean(location.isInProject) : isAssetInProject(location.id);
+          const projectAssetId = 'projectAssetId' in location ? String(location.projectAssetId) : undefined;
+          const globalLocation = globalAssets.find((a) => a.id === location.id);
+
+          return (
+            <LocationCard
+              key={location.id}
+              location={location as GlobalAsset}
+              isInProject={isInProject}
+              onImport={projectId && !isInProject ? () => handleImport(location.id) : undefined}
+              onRemove={projectAssetId ? () => handleRemove(projectAssetId) : undefined}
+              onEdit={globalLocation ? () => handleEdit(globalLocation) : undefined}
+            />
+          );
+        })}
+      </div>
+
+      <LocationFormDialog
+        open={showForm}
+        onOpenChange={setShowForm}
+        location={editingLocation}
+        onSuccess={handleFormSuccess}
+      />
+    </>
   );
 }

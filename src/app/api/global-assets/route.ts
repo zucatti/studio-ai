@@ -1,22 +1,38 @@
-import { NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 
 // GET /api/global-assets - List all global assets for the current user
-export async function GET() {
+// Query params: ?search=... &type=character|location|prop
+export async function GET(request: NextRequest) {
   try {
     const session = await auth0.getSession();
     if (!session?.user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    const searchParams = request.nextUrl.searchParams;
+    const search = searchParams.get('search');
+    const assetType = searchParams.get('type');
+
     const supabase = createServerSupabaseClient();
 
-    const { data: assets, error } = await supabase
+    let query = supabase
       .from('global_assets')
       .select('*')
-      .eq('user_id', session.user.sub)
-      .order('created_at', { ascending: false });
+      .eq('user_id', session.user.sub);
+
+    // Filter by type if specified
+    if (assetType) {
+      query = query.eq('asset_type', assetType);
+    }
+
+    // Filter by search term (case-insensitive)
+    if (search) {
+      query = query.ilike('name', `%${search}%`);
+    }
+
+    const { data: assets, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching global assets:', error);

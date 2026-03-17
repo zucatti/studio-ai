@@ -219,7 +219,7 @@ export function ScriptStructuredView({
 
       {/* Edit Scene Dialog */}
       <Dialog open={!!editingScene} onOpenChange={() => setEditingScene(null)}>
-        <DialogContent className="bg-[#1a2433] border-white/10 max-w-lg">
+        <DialogContent className="bg-[#1a2433] border-white/10 max-w-2xl">
           <DialogHeader>
             <DialogTitle className="text-white">Modifier la scene</DialogTitle>
             <DialogDescription className="text-slate-400">
@@ -254,12 +254,12 @@ export function ScriptStructuredView({
             </div>
 
             <div className="space-y-2">
-              <Label className="text-slate-300">Description (optionnel)</Label>
+              <Label className="text-slate-300">Description visuelle (pour la génération IA)</Label>
               <Textarea
                 value={formData.description}
                 onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Description de la scene..."
-                className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 min-h-[80px] resize-none"
+                placeholder="Décrivez l'ambiance, l'éclairage, l'atmosphère de la scène... Ex: Lumière tamisée, tons chauds, ambiance intimiste avec des ombres projetées sur les murs."
+                className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 min-h-[100px] resize-none"
               />
             </div>
           </div>

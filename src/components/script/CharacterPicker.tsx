@@ -172,7 +172,7 @@ export function CharacterPicker({
                     <StorageImg
                       src={character.data.reference_images[0]}
                       alt={character.name}
-                      className="w-8 h-8 rounded-full object-cover pointer-events-none"
+                      className="w-8 h-8 rounded-full object-cover object-top pointer-events-none"
                     />
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center pointer-events-none">

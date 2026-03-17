@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Image, { ImageProps } from 'next/image';
 import { useSignedUrl, isB2Url } from '@/hooks/use-signed-url';
+import { useSignedUrlContext } from '@/contexts/signed-url-context';
 import { cn } from '@/lib/utils';
 
 interface StorageImageProps extends Omit<ImageProps, 'src'> {
@@ -83,6 +84,7 @@ export function StorageImage({
 /**
  * Simple img element that handles B2 storage URLs
  * Use this when you don't need Next.js Image optimization
+ * Now with lazy loading and batched URL signing for better performance
  */
 export function StorageImg({
   src,
@@ -90,19 +92,107 @@ export function StorageImg({
   showLoader = true,
   alt,
   className,
+  lazy = true,
   ...props
 }: Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src'> & {
   src: string | null | undefined;
   fallback?: React.ReactNode;
   showLoader?: boolean;
+  lazy?: boolean;
 }) {
-  const { signedUrl, isLoading, error } = useSignedUrl(src);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(!lazy);
+  const [signedUrl, setSignedUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
   const [imageError, setImageError] = useState(false);
 
-  // Show loading state for B2 URLs
-  if (isLoading && isB2Url(src) && showLoader) {
+  // Try to use context, fall back to standalone hook if not available
+  let contextValue: ReturnType<typeof useSignedUrlContext> | null = null;
+  try {
+    contextValue = useSignedUrlContext();
+  } catch {
+    // Context not available, will use standalone hook
+  }
+
+  // Intersection observer for lazy loading
+  useEffect(() => {
+    if (!lazy || isVisible) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setIsVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '100px' } // Load images 100px before they enter viewport
+    );
+
+    if (containerRef.current) {
+      observer.observe(containerRef.current);
+    }
+
+    return () => observer.disconnect();
+  }, [lazy, isVisible]);
+
+  // Sign URL when visible
+  useEffect(() => {
+    if (!isVisible || !src) {
+      setSignedUrl(null);
+      return;
+    }
+
+    // Non-B2 URLs can be used directly
+    if (!isB2Url(src)) {
+      setSignedUrl(src);
+      return;
+    }
+
+    // Use context for batched signing if available
+    if (contextValue) {
+      setIsLoading(true);
+      contextValue.getSignedUrl(src)
+        .then(url => {
+          setSignedUrl(url);
+          setError(null);
+        })
+        .catch(err => {
+          setError(err);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+    }
+  }, [isVisible, src, contextValue]);
+
+  // Fallback to standalone hook if context is not available
+  const standaloneHook = useSignedUrl(contextValue ? null : (isVisible ? src : null));
+
+  // Use standalone hook values if context is not available
+  const finalSignedUrl = contextValue ? signedUrl : standaloneHook.signedUrl;
+  const finalIsLoading = contextValue ? isLoading : standaloneHook.isLoading;
+  const finalError = contextValue ? error : standaloneHook.error;
+
+  // Show placeholder when not visible yet (lazy loading)
+  if (!isVisible) {
     return (
       <div
+        ref={containerRef}
+        className={cn(
+          'bg-slate-800/50 rounded',
+          className
+        )}
+        style={{ width: props.width, height: props.height }}
+      />
+    );
+  }
+
+  // Show loading state for B2 URLs
+  if (finalIsLoading && isB2Url(src) && showLoader) {
+    return (
+      <div
+        ref={containerRef}
         className={cn(
           'animate-pulse bg-slate-700/50 rounded',
           className
@@ -113,7 +203,7 @@ export function StorageImg({
   }
 
   // Show fallback on error
-  if (error || imageError || !signedUrl) {
+  if (finalError || imageError || !finalSignedUrl) {
     if (fallback) {
       return <>{fallback}</>;
     }
@@ -125,11 +215,12 @@ export function StorageImg({
 
   return (
     <img
-      src={signedUrl}
+      src={finalSignedUrl}
       alt={alt || ''}
       className={className}
       onError={() => setImageError(true)}
       style={style}
+      loading={lazy ? 'lazy' : undefined}
       {...restProps}
     />
   );

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { User, MapPin, Package, Music, MoreVertical, Trash2, Edit, Plus, Check, AtSign, Copy, Wand2, Upload, Loader2 } from 'lucide-react';
+import { User, MapPin, Package, Music, MoreVertical, Trash2, Edit, Plus, Check, AtSign, Hash, Copy, Wand2, Upload, Loader2 } from 'lucide-react';
 import { StorageImg } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import {
@@ -22,7 +22,7 @@ import {
 } from '@/components/ui/tooltip';
 import type { GlobalAssetType } from '@/types/database';
 import { cn } from '@/lib/utils';
-import { generateReferenceName } from '@/lib/reference-name';
+import { generateReferenceName, getReferencePrefix } from '@/lib/reference-name';
 import type { CharacterImageType } from '@/store/bible-store';
 
 // Minimal asset interface - works with both GlobalAsset and ProjectAssetFlat
@@ -99,8 +99,9 @@ export function BibleAssetCard({
 
   const description = (data.description as string) || (data.visual_description as string) || '';
 
-  // Generate the @reference name
-  const referenceName = generateReferenceName(asset.name);
+  // Generate the reference name with correct prefix (@ for characters, # for others)
+  const prefix = getReferencePrefix(asset.asset_type);
+  const referenceName = generateReferenceName(asset.name, prefix);
 
   const handleInsertReference = () => {
     if (onInsertReference) {
@@ -127,7 +128,10 @@ export function BibleAssetCard({
         <Icon className="w-4 h-4 flex-shrink-0" />
         <div className="flex-1 min-w-0">
           <span className="text-sm font-medium truncate block">{asset.name}</span>
-          <span className="text-[10px] text-blue-400/70 font-mono">{referenceName}</span>
+          <span className={cn(
+            'text-[10px] font-mono',
+            prefix === '@' ? 'text-blue-400/70' : 'text-green-400/70'
+          )}>{referenceName}</span>
         </div>
         {isInProject && <Check className="w-3 h-3 text-green-400" />}
       </button>
@@ -165,9 +169,12 @@ export function BibleAssetCard({
               <TooltipTrigger asChild>
                 <button
                   onClick={(e) => { e.stopPropagation(); handleCopyReference(); }}
-                  className="flex items-center gap-1 mt-0.5 text-xs text-blue-400 hover:text-blue-300 transition-colors group"
+                  className={cn(
+                    'flex items-center gap-1 mt-0.5 text-xs transition-colors group',
+                    prefix === '@' ? 'text-blue-400 hover:text-blue-300' : 'text-green-400 hover:text-green-300'
+                  )}
                 >
-                  <AtSign className="w-3 h-3" />
+                  {prefix === '@' ? <AtSign className="w-3 h-3" /> : <Hash className="w-3 h-3" />}
                   <span className="font-mono">{referenceName.slice(1)}</span>
                   {copied ? (
                     <Check className="w-3 h-3 text-green-400" />
@@ -178,7 +185,7 @@ export function BibleAssetCard({
               </TooltipTrigger>
               <TooltipContent side="bottom" className="bg-[#1a2433] border-white/10">
                 <p className="text-xs">
-                  {copied ? 'Copie !' : 'Cliquez pour copier la reference'}
+                  {copied ? 'Copié !' : 'Cliquez pour copier la référence'}
                 </p>
               </TooltipContent>
             </Tooltip>
@@ -311,7 +318,7 @@ export function BibleAssetCard({
                 key={idx}
                 src={img}
                 alt={`${asset.name} reference ${idx + 1}`}
-                className="w-12 h-12 rounded object-cover flex-shrink-0"
+                className="w-12 h-12 rounded object-cover object-top flex-shrink-0"
               />
             ))}
             {asset.reference_images.length > 3 && (

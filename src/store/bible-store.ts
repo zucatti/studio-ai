@@ -50,6 +50,7 @@ export interface GenerateImagesInput {
   sourceImageUrl?: string;
   style?: string;
   viewType?: CharacterImageType;
+  model?: string;
 }
 
 interface BibleStore {

@@ -126,10 +126,10 @@ export function LocationPicker({
   };
 
   return (
-    <div className={cn('flex gap-2', className)}>
+    <div className={cn('flex flex-wrap gap-2', className)}>
       {/* INT/EXT selector */}
       <Select value={intExt || 'INT'} onValueChange={handleIntExtChange} disabled={!selectedLocation}>
-        <SelectTrigger className="w-28 bg-white/5 border-white/10 text-white">
+        <SelectTrigger className="w-20 bg-white/5 border-white/10 text-white">
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="bg-[#1a2433] border-white/10">
@@ -149,12 +149,12 @@ export function LocationPicker({
             role="combobox"
             aria-expanded={open}
             className={cn(
-              'flex-1 justify-between bg-white/5 border-white/10 text-white hover:bg-white/10',
+              'flex-1 min-w-[180px] justify-between bg-white/5 border-white/10 text-white hover:bg-white/10',
               !selectedLocation && 'text-slate-500'
             )}
           >
             <div className="flex items-center gap-2 truncate">
-              <MapPin className="w-4 h-4 flex-shrink-0 text-slate-400" />
+              <MapPin className="w-4 h-4 flex-shrink-0 text-green-400" />
               <span className="truncate uppercase">
                 {selectedLocation?.name || locationName || 'Selectionner un lieu'}
               </span>
@@ -243,7 +243,7 @@ export function LocationPicker({
 
       {/* Time of day selector */}
       <Select value={timeOfDay || 'JOUR'} onValueChange={handleTimeChange} disabled={!selectedLocation}>
-        <SelectTrigger className="w-36 bg-white/5 border-white/10 text-white">
+        <SelectTrigger className="w-32 bg-white/5 border-white/10 text-white">
           <SelectValue />
         </SelectTrigger>
         <SelectContent className="bg-[#1a2433] border-white/10">

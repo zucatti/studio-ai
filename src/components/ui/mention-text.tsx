@@ -170,7 +170,7 @@ function MentionBadge({
                     key={idx}
                     src={img}
                     alt={`${entity.name} ref ${idx + 1}`}
-                    className="w-10 h-10 rounded object-cover"
+                    className="w-10 h-10 rounded object-cover object-top"
                   />
                 ))}
               </div>

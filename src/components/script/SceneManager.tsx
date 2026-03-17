@@ -178,7 +178,7 @@ export function SceneManager({ projectId, scenes, onRefresh }: SceneManagerProps
   return (
     <>
       {/* Action buttons */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 pr-4">
         <ProjectBibleButton projectId={projectId} />
         <Button
           onClick={handleOpenCreate}
