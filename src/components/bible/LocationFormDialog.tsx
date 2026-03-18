@@ -43,12 +43,13 @@ const INT_EXT_OPTIONS = [
   { value: 'INT/EXT', label: 'Int/Ext' },
 ];
 
-const MODEL_OPTIONS = [
-  { value: 'fal-ai/nano-banana-2', label: 'Nano Banana 2', description: 'Rapide, haute qualité' },
-  { value: 'fal-ai/flux-pro/v1.1', label: 'Flux Pro', description: 'Très haute qualité' },
+const RESOLUTION_OPTIONS = [
+  { value: '1K', label: '720p', description: 'Rapide' },
+  { value: '2K', label: '1080p', description: 'Équilibré' },
+  { value: '4K', label: '4K', description: 'Haute qualité' },
 ] as const;
 
-type ModelType = typeof MODEL_OPTIONS[number]['value'];
+type ResolutionType = typeof RESOLUTION_OPTIONS[number]['value'];
 
 export function LocationFormDialog({
   open,
@@ -64,12 +65,13 @@ export function LocationFormDialog({
   const [visualDescription, setVisualDescription] = useState('');
   const [intExt, setIntExt] = useState<'INT' | 'EXT' | 'INT/EXT'>('INT');
   const [referenceImage, setReferenceImage] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<ModelType>('fal-ai/nano-banana-2');
+  const [selectedResolution, setSelectedResolution] = useState<ResolutionType>('2K');
 
   // Loading states
   const [isSaving, setIsSaving] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [createdLocationId, setCreatedLocationId] = useState<string | null>(null);
 
   // Initialize form when location changes
   useEffect(() => {
@@ -79,11 +81,13 @@ export function LocationFormDialog({
       setVisualDescription(data?.visual_description || '');
       setIntExt(data?.int_ext || 'INT');
       setReferenceImage(location.reference_images?.[0] || null);
+      setCreatedLocationId(null);
     } else {
       setName('');
       setVisualDescription('');
       setIntExt('INT');
       setReferenceImage(null);
+      setCreatedLocationId(null);
     }
   }, [location, open]);
 
@@ -105,8 +109,10 @@ export function LocationFormDialog({
         reference_images: referenceImage ? [referenceImage] : [],
       };
 
-      const url = isEditing ? `/api/global-assets/${location.id}` : '/api/global-assets';
-      const method = isEditing ? 'PATCH' : 'POST';
+      // Use existing ID if editing or if location was auto-created during generation
+      const existingId = location?.id || createdLocationId;
+      const url = existingId ? `/api/global-assets/${existingId}` : '/api/global-assets';
+      const method = existingId ? 'PATCH' : 'POST';
 
       const res = await fetch(url, {
         method,
@@ -116,7 +122,7 @@ export function LocationFormDialog({
 
       if (res.ok) {
         const data = await res.json();
-        toast.success(isEditing ? 'Lieu mis à jour' : 'Lieu créé');
+        toast.success(existingId ? 'Lieu mis à jour' : 'Lieu créé');
         onSuccess?.(data.asset);
         onOpenChange(false);
       } else {
@@ -170,22 +176,51 @@ export function LocationFormDialog({
       return;
     }
 
-    // If not editing, save first
-    if (!isEditing) {
-      toast.error('Sauvegardez le lieu avant de générer');
+    if (!name.trim()) {
+      toast.error('Ajoutez un nom pour le lieu');
       return;
     }
 
     setIsGenerating(true);
     try {
-      const res = await fetch(`/api/global-assets/${location.id}/generate-images`, {
+      let locationId = location?.id || createdLocationId;
+
+      // If new location, create it first
+      if (!locationId) {
+        const createRes = await fetch('/api/global-assets', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: name.trim(),
+            asset_type: 'location',
+            data: {
+              visual_description: visualDescription,
+              int_ext: intExt,
+            },
+            reference_images: [],
+          }),
+        });
+
+        if (!createRes.ok) {
+          const error = await createRes.json();
+          toast.error(error.error || 'Erreur lors de la création');
+          return;
+        }
+
+        const createData = await createRes.json();
+        locationId = createData.asset.id;
+        setCreatedLocationId(locationId);
+      }
+
+      // Now generate the image
+      const res = await fetch(`/api/global-assets/${locationId}/generate-images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           mode: 'generate_single',
           style: 'photorealistic',
           viewType: 'front',
-          model: selectedModel,
+          resolution: selectedResolution,
         }),
       });
 
@@ -249,7 +284,7 @@ export function LocationFormDialog({
                 variant="outline"
                 size="sm"
                 onClick={handleGenerateImage}
-                disabled={isGenerating || !isEditing || !visualDescription.trim()}
+                disabled={isGenerating || !visualDescription.trim() || !name.trim()}
                 className="flex-1 bg-black/50 border-purple-500/30 text-purple-300 hover:bg-purple-500/20"
               >
                 {isGenerating ? (
@@ -326,20 +361,20 @@ export function LocationFormDialog({
 
           {/* Footer */}
           <div className="flex items-center justify-between pt-2">
-            {/* Model toggle - left side */}
+            {/* Resolution toggle - left side */}
             <div className="inline-flex rounded-md bg-white/5 p-0.5 border border-white/10">
-              {MODEL_OPTIONS.map((model) => (
+              {RESOLUTION_OPTIONS.map((res) => (
                 <button
-                  key={model.value}
-                  onClick={() => setSelectedModel(model.value)}
+                  key={res.value}
+                  onClick={() => setSelectedResolution(res.value)}
                   className={cn(
                     'px-3 py-1.5 text-xs font-medium rounded transition-all',
-                    selectedModel === model.value
+                    selectedResolution === res.value
                       ? 'bg-purple-500 text-white'
                       : 'text-slate-400 hover:text-white'
                   )}
                 >
-                  {model.label}
+                  {res.label}
                 </button>
               ))}
             </div>

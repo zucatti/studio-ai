@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { MapPin, Plus, Trash2, Edit, Check, ImageIcon } from 'lucide-react';
+import { MapPin, Plus, Trash2, Check, ImageIcon } from 'lucide-react';
 import { StorageImg } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import {
@@ -25,6 +25,7 @@ interface LocationCardProps {
   onImport?: () => void;
   onRemove?: () => void;
   onEdit?: () => void;
+  onDelete?: () => void;
 }
 
 export function LocationCard({
@@ -33,6 +34,7 @@ export function LocationCard({
   onImport,
   onRemove,
   onEdit,
+  onDelete,
 }: LocationCardProps) {
   const [isHovered, setIsHovered] = useState(false);
 
@@ -79,37 +81,37 @@ export function LocationCard({
           </div>
         )}
 
-        {/* Project status badge */}
-        {isInProject && (
-          <div className="absolute top-1.5 right-1.5">
+        {/* Top right: Project badge + Delete button */}
+        <div className="absolute top-1.5 right-1.5 flex items-center gap-1">
+          {isInProject && (
             <span className="text-[9px] px-1.5 py-0.5 rounded bg-green-500/80 text-white font-medium flex items-center gap-0.5">
               <Check className="w-2.5 h-2.5" />
               Projet
             </span>
-          </div>
-        )}
-
-        {/* Action buttons on hover */}
-        <div className="absolute bottom-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-          {onEdit && (
+          )}
+          {onDelete && (
             <TooltipProvider>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={(e) => { e.stopPropagation(); onEdit(); }}
-                    className="h-6 w-6 bg-black/50 text-white hover:bg-black/70"
+                    onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                    className="h-6 w-6 bg-red-500/80 text-white hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity"
                   >
-                    <Edit className="w-3 h-3" />
+                    <Trash2 className="w-3 h-3" />
                   </Button>
                 </TooltipTrigger>
                 <TooltipContent side="top" className="bg-[#1a2433] border-white/10">
-                  <p className="text-xs">Modifier</p>
+                  <p className="text-xs">Supprimer le lieu</p>
                 </TooltipContent>
               </Tooltip>
             </TooltipProvider>
           )}
+        </div>
+
+        {/* Bottom right: Import/Remove buttons */}
+        <div className="absolute bottom-1.5 right-1.5 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           {!isInProject && onImport && (
             <TooltipProvider>
               <Tooltip>
@@ -137,7 +139,7 @@ export function LocationCard({
                     variant="ghost"
                     size="icon"
                     onClick={(e) => { e.stopPropagation(); onRemove(); }}
-                    className="h-6 w-6 bg-red-500/80 text-white hover:bg-red-600"
+                    className="h-6 w-6 bg-orange-500/80 text-white hover:bg-orange-600"
                   >
                     <Trash2 className="w-3 h-3" />
                   </Button>

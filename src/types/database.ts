@@ -13,10 +13,13 @@ export type Json =
 // Enums
 export type ProjectStatus = 'draft' | 'in_progress' | 'completed';
 export type PipelineStep = 'brainstorming' | 'script' | 'decoupage' | 'storyboard' | 'preprod' | 'production';
-export type AspectRatio = '16:9' | '9:16' | '1:1' | '21:9';
+export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5' | '21:9' | '2:3';
+export type ProjectType = 'movie' | 'short' | 'music_video' | 'portfolio' | 'photo_series';
+export type ShotStatus = 'draft' | 'selected' | 'rush' | 'archived';
 export type ScriptElementType = 'action' | 'dialogue' | 'transition' | 'note';
 export type DialogueExtension = 'V.O.' | 'O.S.' | "CONT'D" | 'FILTERED' | 'PRE-LAP';
 export type GlobalAssetType = 'character' | 'location' | 'prop' | 'audio';
+export type ReferenceType = 'pose' | 'composition' | 'style';
 export type SceneIntExt = 'INT' | 'EXT' | 'INT/EXT';
 export type TimeOfDay = 'JOUR' | 'NUIT' | 'AUBE' | 'CREPUSCULE';
 export type ShotType = 'wide' | 'medium' | 'close_up' | 'extreme_close_up' | 'over_shoulder' | 'pov';
@@ -81,6 +84,22 @@ export type CameraMovement =
   | 'tracking'
   | 'crane';
 export type GenerationStatus = 'not_started' | 'pending' | 'generating' | 'completed' | 'failed';
+
+// Metadata stored with generated images
+export interface GenerationMetadata {
+  model: string;
+  original_prompt: string;
+  optimized_prompt: string;
+  resolution?: string;
+  aspect_ratio?: string;
+  references?: {
+    characters?: string[];
+    locations?: string[];
+    poses?: string[];
+    styles?: string[];
+  };
+  generated_at: string;
+}
 export type PropType = 'object' | 'vehicle' | 'furniture' | 'weapon' | 'food' | 'other';
 export type LocationType = 'interior' | 'exterior';
 
@@ -94,7 +113,9 @@ export interface Database {
           name: string;
           description: string | null;
           thumbnail_url: string | null;
+          thumbnail_focal_point: { x: number; y: number } | null;
           aspect_ratio: AspectRatio;
+          project_type: ProjectType;
           status: ProjectStatus;
           current_step: PipelineStep;
           created_at: string;
@@ -106,7 +127,9 @@ export interface Database {
           name: string;
           description?: string | null;
           thumbnail_url?: string | null;
+          thumbnail_focal_point?: { x: number; y: number } | null;
           aspect_ratio?: AspectRatio;
+          project_type?: ProjectType;
           status?: ProjectStatus;
           current_step?: PipelineStep;
           created_at?: string;
@@ -118,7 +141,9 @@ export interface Database {
           name?: string;
           description?: string | null;
           thumbnail_url?: string | null;
+          thumbnail_focal_point?: { x: number; y: number } | null;
           aspect_ratio?: AspectRatio;
+          project_type?: ProjectType;
           status?: ProjectStatus;
           current_step?: PipelineStep;
           created_at?: string;
@@ -189,7 +214,8 @@ export interface Database {
       shots: {
         Row: {
           id: string;
-          scene_id: string;
+          scene_id: string | null;
+          project_id: string | null;
           shot_number: number;
           description: string;
           shot_type: ShotType | null;
@@ -197,6 +223,8 @@ export interface Database {
           camera_movement: CameraMovement | null;
           camera_notes: string | null;
           storyboard_image_url: string | null;
+          storyboard_prompt: string | null;
+          generation_metadata: GenerationMetadata | null;
           first_frame_url: string | null;
           last_frame_url: string | null;
           first_frame_prompt: string | null;
@@ -204,13 +232,15 @@ export interface Database {
           generated_video_url: string | null;
           generation_status: GenerationStatus;
           generation_error: string | null;
+          status: ShotStatus;
           sort_order: number;
           created_at: string;
           updated_at: string;
         };
         Insert: {
           id?: string;
-          scene_id: string;
+          scene_id?: string | null;
+          project_id?: string | null;
           shot_number: number;
           description?: string;
           shot_type?: ShotType | null;
@@ -218,6 +248,8 @@ export interface Database {
           camera_movement?: CameraMovement | null;
           camera_notes?: string | null;
           storyboard_image_url?: string | null;
+          storyboard_prompt?: string | null;
+          generation_metadata?: GenerationMetadata | null;
           first_frame_url?: string | null;
           last_frame_url?: string | null;
           first_frame_prompt?: string | null;
@@ -225,13 +257,15 @@ export interface Database {
           generated_video_url?: string | null;
           generation_status?: GenerationStatus;
           generation_error?: string | null;
+          status?: ShotStatus;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
         };
         Update: {
           id?: string;
-          scene_id?: string;
+          scene_id?: string | null;
+          project_id?: string | null;
           shot_number?: number;
           description?: string;
           shot_type?: ShotType | null;
@@ -246,6 +280,7 @@ export interface Database {
           generated_video_url?: string | null;
           generation_status?: GenerationStatus;
           generation_error?: string | null;
+          status?: ShotStatus;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -510,6 +545,64 @@ export interface Database {
           created_at?: string;
         };
       };
+      global_references: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          type: ReferenceType;
+          image_url: string | null;
+          description: string | null;
+          tags: string[];
+          pose_library_id: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          name: string;
+          type: ReferenceType;
+          image_url?: string | null;
+          description?: string | null;
+          tags?: string[];
+          pose_library_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          name?: string;
+          type?: ReferenceType;
+          image_url?: string | null;
+          description?: string | null;
+          tags?: string[];
+          pose_library_id?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
+      project_reference_links: {
+        Row: {
+          id: string;
+          project_id: string;
+          global_reference_id: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          global_reference_id: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          project_id?: string;
+          global_reference_id?: string;
+          created_at?: string;
+        };
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
@@ -527,6 +620,9 @@ export interface Database {
       script_element_type: ScriptElementType;
       dialogue_extension: DialogueExtension;
       global_asset_type: GlobalAssetType;
+      project_type: ProjectType;
+      shot_status: ShotStatus;
+      reference_type: ReferenceType;
     };
   };
 }
@@ -549,6 +645,8 @@ export type Location = Tables<'locations'>;
 export type ScriptElement = Tables<'script_elements'>;
 export type GlobalAsset = Tables<'global_assets'>;
 export type ProjectAsset = Tables<'project_assets'>;
+export type GlobalReference = Tables<'global_references'>;
+export type ProjectReferenceLink = Tables<'project_reference_links'>;
 
 // Flattened project asset (from API join)
 export type ProjectAssetFlat = {

@@ -41,6 +41,7 @@ interface Scene {
 interface SceneDecoupageProps {
   scene: Scene;
   shots: Shot[];
+  projectId: string;
   characters: Character[];
   hasAudio: boolean;
   currentAudioTime: number;
@@ -57,6 +58,7 @@ interface SceneDecoupageProps {
 export function SceneDecoupage({
   scene,
   shots,
+  projectId,
   characters,
   hasAudio,
   currentAudioTime,
@@ -160,6 +162,7 @@ export function SceneDecoupage({
                   key={shot.id}
                   shot={shot}
                   sceneNumber={scene.scene_number}
+                  projectId={projectId}
                   characters={characters}
                   hasAudio={hasAudio}
                   currentAudioTime={currentAudioTime}

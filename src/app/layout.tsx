@@ -3,6 +3,7 @@ import localFont from 'next/font/local';
 import { Auth0Provider } from '@auth0/nextjs-auth0';
 import { ThemeProvider } from '@/components/providers/theme-provider';
 import { SignedUrlProvider } from '@/contexts/signed-url-context';
+import { GenerationProvider } from '@/contexts/generation-context';
 import { Toaster } from 'sonner';
 import './globals.css';
 
@@ -41,7 +42,9 @@ export default function RootLayout({
             disableTransitionOnChange
           >
             <SignedUrlProvider>
-              {children}
+              <GenerationProvider>
+                {children}
+              </GenerationProvider>
             </SignedUrlProvider>
             <Toaster theme="dark" richColors position="bottom-right" />
           </ThemeProvider>

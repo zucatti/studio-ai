@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { isSimplifiedProject } from '@/lib/project-types';
+import type { ProjectType } from '@/types/database';
 
 // GET /api/projects - Get all projects for the current user
 export async function GET() {
@@ -46,7 +48,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { name, description, thumbnail_url, aspect_ratio } = body;
+    const { name, description, thumbnail_url, thumbnail_focal_point, aspect_ratio, project_type } = body;
 
     if (!name || typeof name !== 'string') {
       return NextResponse.json(
@@ -54,6 +56,8 @@ export async function POST(request: Request) {
         { status: 400 }
       );
     }
+
+    const projectTypeValue: ProjectType = project_type || 'short';
 
     const supabase = createServerSupabaseClient();
     const { data: project, error } = await supabase
@@ -63,7 +67,9 @@ export async function POST(request: Request) {
         name: name.trim(),
         description: description?.trim() || null,
         thumbnail_url: thumbnail_url || null,
+        thumbnail_focal_point: thumbnail_focal_point || { x: 50, y: 25 },
         aspect_ratio: aspect_ratio || '16:9',
+        project_type: projectTypeValue,
       })
       .select()
       .single();
@@ -76,13 +82,15 @@ export async function POST(request: Request) {
       );
     }
 
-    // Create initial brainstorming entry
-    await supabase
-      .from('brainstorming')
-      .insert({
-        project_id: project.id,
-        content: '',
-      });
+    // Only create brainstorming entry for full pipeline projects
+    if (!isSimplifiedProject(projectTypeValue)) {
+      await supabase
+        .from('brainstorming')
+        .insert({
+          project_id: project.id,
+          content: '',
+        });
+    }
 
     return NextResponse.json({ project }, { status: 201 });
   } catch (error) {

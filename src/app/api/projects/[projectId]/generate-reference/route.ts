@@ -236,42 +236,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       credentials: process.env.AI_FAL_KEY,
     });
 
-    // Helper to upload image to fal.ai storage (handles B2, local, and public URLs)
-    const uploadToFalStorage = async (imageUrl: string): Promise<string> => {
-      // If already on fal.ai, return as-is
-      if (imageUrl.includes('fal.media') || imageUrl.includes('fal-cdn')) {
-        return imageUrl;
-      }
-
-      // Convert B2 URLs to signed URLs first
-      let fetchUrl = imageUrl;
-      if (imageUrl.startsWith('b2://')) {
-        const parsed = parseStorageUrl(imageUrl);
-        if (parsed) {
-          console.log(`Converting b2:// URL to signed URL: ${imageUrl}`);
-          fetchUrl = await getSignedFileUrl(parsed.key);
-        }
-      }
-
-      // Check if it's a local URL or B2 URL that needs uploading to fal.ai
-      const isLocalUrl = fetchUrl.includes('localhost') ||
-                         fetchUrl.includes('127.0.0.1') ||
-                         fetchUrl.includes('0.0.0.0');
-
-      // For public remote URLs (not local, not B2), return as-is
-      if (!isLocalUrl && !imageUrl.startsWith('b2://')) {
-        return imageUrl;
-      }
-
-      console.log(`Uploading to fal.ai storage: ${fetchUrl.substring(0, 100)}...`);
-      const response = await fetch(fetchUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image for fal.ai upload: ${response.status}`);
-      }
-      const blob = await response.blob();
-      const uploaded = await fal.storage.upload(blob);
-      console.log(`Uploaded to fal.ai: ${uploaded}`);
-      return uploaded;
+    // Helper to get public URL for fal.ai (no re-upload needed)
+    const { getPublicImageUrl } = await import('@/lib/fal-utils');
+    const getFalImageUrl = async (imageUrl: string): Promise<string> => {
+      const publicUrl = await getPublicImageUrl(imageUrl);
+      console.log(`Reference image URL: ${publicUrl.substring(0, 80)}...`);
+      return publicUrl;
     };
 
     // Helper to upload image to B2
@@ -316,7 +286,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           console.log('Using existing reference image for consistency:', existingRef);
 
           // Upload existing reference to fal.ai storage
-          const falExistingRef = await uploadToFalStorage(existingRef);
+          const falExistingRef = await getFalImageUrl(existingRef);
 
           const frontResult = await fal.subscribe('fal-ai/ideogram/character', {
             input: {
@@ -380,7 +350,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
           try {
             // Upload front image to fal.ai storage if needed
-            const falFrontImageUrl = await uploadToFalStorage(frontImageUrl);
+            const falFrontImageUrl = await getFalImageUrl(frontImageUrl);
 
             const perspectiveResult = await fal.subscribe('fal-ai/image-apps-v2/perspective', {
               input: {
@@ -426,7 +396,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
             // Fallback to Ideogram Character
             console.log(`Falling back to Ideogram Character for ${view.name}...`);
-            const falFrontImageUrlFallback = await uploadToFalStorage(frontImageUrl);
+            const falFrontImageUrlFallback = await getFalImageUrl(frontImageUrl);
             const fallbackResult = await fal.subscribe('fal-ai/ideogram/character', {
               input: {
                 prompt: `${styleConfig.promptPrefix}${optimizedDescription}, ${view.name} view, ${view.target === 'back' ? 'facing away from camera, back of head visible, rear view' : 'side profile view, looking to the side, 3/4 view'}, full body portrait${styleConfig.promptSuffix}`,
@@ -478,7 +448,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           console.log('Using existing reference for consistency...');
 
           // Upload to fal.ai storage first
-          const falExistingRef = await uploadToFalStorage(existingRef);
+          const falExistingRef = await getFalImageUrl(existingRef);
 
           const result = await fal.subscribe('fal-ai/ideogram/character', {
             input: {

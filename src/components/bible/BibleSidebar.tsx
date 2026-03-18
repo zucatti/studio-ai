@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { Book, User, MapPin, Package, Music, Search, X, Plus, Loader2 } from 'lucide-react';
+import { Book, User, MapPin, Package, Music, Search, X, Plus, Loader2, Image as ImageIcon } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import {
@@ -16,6 +16,7 @@ import { BibleCharacters } from './BibleCharacters';
 import { BibleLocations } from './BibleLocations';
 import { BibleProps } from './BibleProps';
 import { BibleAudio } from './BibleAudio';
+import { BibleReferences } from './BibleReferences';
 import { cn } from '@/lib/utils';
 
 const TABS: { value: BibleTab; label: string; icon: React.ComponentType<{ className?: string }>; description: string }[] = [
@@ -23,6 +24,7 @@ const TABS: { value: BibleTab; label: string; icon: React.ComponentType<{ classN
   { value: 'locations', label: 'Lieux', icon: MapPin, description: 'Créer et gérer les lieux' },
   { value: 'props', label: 'Accessoires', icon: Package, description: 'Créer et gérer les accessoires' },
   { value: 'audio', label: 'Audio', icon: Music, description: 'Gérer les fichiers audio' },
+  { value: 'references', label: 'Références', icon: ImageIcon, description: 'Poses, compositions et styles' },
 ];
 
 // Bible Générale - Global library for creating/managing all assets
@@ -83,6 +85,15 @@ export function BibleSidebar() {
         return <BibleProps projectId={projectId} showGlobalOnly={true} />;
       case 'audio':
         return <BibleAudio showGlobalOnly={true} />;
+      case 'references':
+        return projectId ? (
+          <BibleReferences projectId={projectId} />
+        ) : (
+          <div className="text-center py-12">
+            <ImageIcon className="w-10 h-10 text-slate-500 mx-auto mb-3" />
+            <p className="text-slate-400 text-sm">Ouvrez un projet pour gérer les références</p>
+          </div>
+        );
       default:
         return null;
     }

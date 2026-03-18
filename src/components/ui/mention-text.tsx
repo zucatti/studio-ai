@@ -8,14 +8,14 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import { User, MapPin, Package } from 'lucide-react';
+import { User, MapPin, Package, Image as ImageIcon } from 'lucide-react';
 import { StorageImg } from '@/components/ui/storage-image';
 
 // Entity data for tooltip display
 export interface MentionEntity {
-  reference: string; // @MorganeLeFay
+  reference: string; // @MorganeLeFay, #LaPlage, !JumpPose
   name: string; // Morgane Le Fay
-  type: 'character' | 'location' | 'prop';
+  type: 'character' | 'location' | 'prop' | 'reference';
   visual_description?: string;
   reference_images?: string[];
 }
@@ -46,10 +46,15 @@ const MENTION_COLORS: Record<string, { bg: string; text: string; border: string 
     text: 'text-orange-400',
     border: 'border-orange-500/30',
   },
-  unknown: {
+  reference: {
     bg: 'bg-purple-500/20',
     text: 'text-purple-400',
     border: 'border-purple-500/30',
+  },
+  unknown: {
+    bg: 'bg-slate-500/20',
+    text: 'text-slate-400',
+    border: 'border-slate-500/30',
   },
 };
 
@@ -57,12 +62,15 @@ const ENTITY_ICONS = {
   character: User,
   location: MapPin,
   prop: Package,
+  reference: ImageIcon,
 };
 
 // Parse text and extract mentions with positions
-function parseMentions(text: string): { text: string; isMention: boolean; reference?: string }[] {
-  const mentionRegex = /@[A-Z][a-zA-Z0-9]*/g;
-  const parts: { text: string; isMention: boolean; reference?: string }[] = [];
+// Supports @ (characters), # (locations/props), and ! (references)
+function parseMentions(text: string): { text: string; isMention: boolean; reference?: string; prefix?: '@' | '#' | '!' }[] {
+  // Match @Reference, #Reference, or !Reference (PascalCase with underscores allowed)
+  const mentionRegex = /[@#!][A-Z][a-zA-Z0-9_]*/g;
+  const parts: { text: string; isMention: boolean; reference?: string; prefix?: '@' | '#' | '!' }[] = [];
 
   let lastIndex = 0;
   let match;
@@ -77,10 +85,12 @@ function parseMentions(text: string): { text: string; isMention: boolean; refere
     }
 
     // Add mention
+    const prefix = match[0][0] as '@' | '#' | '!';
     parts.push({
       text: match[0],
       isMention: true,
       reference: match[0],
+      prefix,
     });
 
     lastIndex = match.index + match[0].length;
@@ -101,17 +111,22 @@ function parseMentions(text: string): { text: string; isMention: boolean; refere
 function MentionBadge({
   reference,
   entity,
+  prefix,
   showTooltip,
   onClick,
 }: {
   reference: string;
   entity?: MentionEntity;
+  prefix?: '@' | '#' | '!';
   showTooltip?: boolean;
   onClick?: (reference: string, entity?: MentionEntity) => void;
 }) {
-  const entityType = entity?.type || 'unknown';
-  const colors = MENTION_COLORS[entityType];
-  const Icon = entity?.type ? ENTITY_ICONS[entity.type] : null;
+  // Determine entity type from entity data or infer from prefix
+  // @ = character (blue), # = location (green), ! = reference (purple)
+  const inferredType = prefix === '@' ? 'character' : prefix === '!' ? 'reference' : 'location';
+  const entityType = entity?.type || inferredType;
+  const colors = MENTION_COLORS[entityType] || MENTION_COLORS.unknown;
+  const Icon = ENTITY_ICONS[entityType as keyof typeof ENTITY_ICONS] || null;
 
   const badge = (
     <span
@@ -230,6 +245,7 @@ export function MentionText({
             key={index}
             reference={part.reference!}
             entity={entity}
+            prefix={part.prefix}
             showTooltip={showTooltip}
             onClick={onClick}
           />
@@ -240,16 +256,40 @@ export function MentionText({
 }
 
 /**
- * Hook to extract all mentions from text
+ * Extract all mentions from text (@, #, and ! tags)
  */
 export function extractMentions(text: string): string[] {
-  const matches = text.match(/@[A-Z][a-zA-Z0-9]*/g);
+  const matches = text.match(/[@#!][A-Z][a-zA-Z0-9_]*/g);
   return [...new Set(matches || [])];
 }
 
 /**
- * Check if text contains any mentions
+ * Extract only character mentions (@tags)
+ */
+export function extractCharacterMentions(text: string): string[] {
+  const matches = text.match(/@[A-Z][a-zA-Z0-9_]*/g);
+  return [...new Set(matches || [])];
+}
+
+/**
+ * Extract only location/prop mentions (#tags)
+ */
+export function extractLocationMentions(text: string): string[] {
+  const matches = text.match(/#[A-Z][a-zA-Z0-9_]*/g);
+  return [...new Set(matches || [])];
+}
+
+/**
+ * Extract only reference mentions (!tags) - poses, compositions, styles
+ */
+export function extractReferenceMentions(text: string): string[] {
+  const matches = text.match(/![A-Z][a-zA-Z0-9_]*/g);
+  return [...new Set(matches || [])];
+}
+
+/**
+ * Check if text contains any mentions (@, #, or ! tags)
  */
 export function hasMentions(text: string): boolean {
-  return /@[A-Z][a-zA-Z0-9]*/.test(text);
+  return /[@#!][A-Z][a-zA-Z0-9_]*/.test(text);
 }

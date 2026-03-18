@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { GlobalAsset, ProjectAssetFlat, GlobalAssetType } from '@/types/database';
 import type { GenericCharacter } from '@/lib/generic-characters';
 
-export type BibleTab = 'characters' | 'locations' | 'props' | 'audio';
+export type BibleTab = 'characters' | 'locations' | 'props' | 'audio' | 'references';
 
 // Imported generic character (with project link ID)
 export interface ImportedGenericCharacter extends GenericCharacter {

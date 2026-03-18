@@ -128,7 +128,7 @@ async function optimizePrompt(
 
 Style: ${style}
 Focus on the PLACE: architecture, lighting, atmosphere, colors, textures, spatial composition.
-DO NOT include any people or characters in the scene - this is an EMPTY location.
+CRITICAL: This is an EMPTY location with ABSOLUTELY NO PEOPLE, NO HUMANS, NO FIGURES, NO SILHOUETTES.
 
 French description:
 "${frenchDescription}"
@@ -139,8 +139,9 @@ Rules:
 - Focus on architectural and environmental details
 - Describe lighting, mood, atmosphere
 - Include specific details about materials, colors, textures
-- DO NOT mention any people, characters, or human figures
-- This should be an empty scene showing only the location
+- CRITICAL: NEVER mention any people, characters, human figures, silhouettes, or crowds
+- Add "empty scene, no people, no humans, uninhabited" to ensure the scene is deserted
+- This should be a completely EMPTY location
 
 Return ONLY the optimized English prompt, nothing else.`;
   } else if (assetType === 'prop') {
@@ -265,6 +266,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       lookDescription, // For look generation
       lookName, // Name of the look being generated
       model, // Optional: 'fal-ai/nano-banana-2' | 'fal-ai/flux-pro/v1.1'
+      resolution = '2K', // Optional: '1K' | '2K' | '4K' for Nano Banana 2
     } = body;
 
     // Determine which model to use (default to Nano Banana 2)
@@ -363,40 +365,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     };
 
-    // Helper to upload image to fal.ai storage
-    const uploadToFalStorage = async (imageUrl: string): Promise<string> => {
-      if (imageUrl.includes('fal.media') || imageUrl.includes('fal-cdn')) {
-        return imageUrl;
-      }
-
+    // Helper to get public URL for fal.ai (no re-upload needed)
+    const { getPublicImageUrl } = await import('@/lib/fal-utils');
+    const getFalImageUrl = async (imageUrl: string): Promise<string> => {
       // Blob URLs are client-side only and cannot be fetched from the server
       if (imageUrl.startsWith('blob:')) {
         throw new Error('Cannot use blob URL on server. Please save the image first before generating new views.');
       }
 
-      // Convert b2:// URLs to signed URLs first
-      let fetchUrl = imageUrl;
-
-      // Only convert b2:// protocol URLs, not Supabase HTTP URLs
-      if (imageUrl.startsWith('b2://')) {
-        const parsed = parseStorageUrl(imageUrl);
-        if (parsed) {
-          console.log(`Converting b2:// URL to signed URL: ${imageUrl}`);
-          fetchUrl = await getSignedFileUrl(parsed.key);
-          console.log(`Signed URL obtained: ${fetchUrl.substring(0, 100)}...`);
-        }
-      }
-      // For Supabase or other HTTP URLs, use them directly
-
-      console.log(`Uploading to fal.ai storage from: ${fetchUrl.substring(0, 100)}...`);
-      const response = await fetch(fetchUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image for fal.ai upload: ${response.status}`);
-      }
-      const blob = await response.blob();
-      const uploaded = await fal.storage.upload(blob);
-      console.log(`Uploaded to fal.ai: ${uploaded}`);
-      return uploaded;
+      const publicUrl = await getPublicImageUrl(imageUrl);
+      console.log(`Reference image URL: ${publicUrl.substring(0, 80)}...`);
+      return publicUrl;
     };
 
     // Helper to upload image to B2
@@ -416,8 +395,6 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Helper to build text-to-image input based on model
     const buildTextToImageInput = (prompt: string) => {
-      const modelConfig = MODEL_CONFIG[textToImageModel];
-
       if (textToImageModel === 'fal-ai/flux-pro/v1.1') {
         // Flux Pro uses image_size parameter
         return {
@@ -427,10 +404,12 @@ export async function POST(request: Request, { params }: RouteParams) {
         };
       } else {
         // Nano Banana 2 uses aspect_ratio and image_resolution
+        // Use resolution from request body, fallback to style config
+        const imageResolution = resolution || styleConfig.resolution;
         return {
           prompt,
           aspect_ratio: '3:4', // Portrait format
-          image_resolution: styleConfig.resolution,
+          image_resolution: imageResolution,
           num_images: 1,
         };
       }
@@ -479,7 +458,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
           try {
             // Try perspective change first
-            const falFrontImageUrl = await uploadToFalStorage(frontImageUrl);
+            const falFrontImageUrl = await getFalImageUrl(frontImageUrl);
 
             const perspectiveResult = await fal.subscribe('fal-ai/image-apps-v2/perspective', {
               input: {
@@ -503,7 +482,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             console.log(`Perspective change failed for ${view.name}, using Ideogram fallback...`);
 
             // Fallback to Ideogram Character
-            const falFrontImageUrl = await uploadToFalStorage(frontImageUrl);
+            const falFrontImageUrl = await getFalImageUrl(frontImageUrl);
             const viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${view.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
 
             const fallbackResult = await fal.subscribe('fal-ai/ideogram/character', {
@@ -544,7 +523,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
 
         // Upload source to fal.ai storage
-        const falSourceUrl = await uploadToFalStorage(sourceImageUrl);
+        const falSourceUrl = await getFalImageUrl(sourceImageUrl);
 
         // Generate profile and back views
         const viewsToGenerate = CHARACTER_VIEWS.filter(v => v.name !== 'front');
@@ -634,7 +613,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
         if (existingFront && viewType !== 'front') {
           // Use existing front as reference - can work without visual description
-          const falFrontUrl = await uploadToFalStorage(existingFront.url);
+          const falFrontUrl = await getFalImageUrl(existingFront.url);
 
           // For perspective views (profile, back, three_quarter), try perspective change first
           const isPerspectiveView = ['profile', 'back', 'three_quarter'].includes(viewType);
@@ -694,7 +673,19 @@ export async function POST(request: Request, { params }: RouteParams) {
           }
 
           const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
-          const viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
+
+          // Build prompt based on asset type
+          let viewPrompt: string;
+          if (asset.asset_type === 'location') {
+            // Location: emphasize empty scene, no people
+            viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, empty scene, no people, no humans, uninhabited, wide angle architectural photography${styleConfig.promptSuffix}`;
+          } else if (asset.asset_type === 'prop') {
+            // Prop: product photography style
+            viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, product photography, clean background, studio lighting${styleConfig.promptSuffix}`;
+          } else {
+            // Character: portrait style
+            viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
+          }
 
           // Use selected model for text-to-image generation
           const result = await fal.subscribe(textToImageModel, {
@@ -738,7 +729,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
         if (existingFront) {
           // Use reference image for character consistency
-          const falFrontUrl = await uploadToFalStorage(existingFront.url);
+          const falFrontUrl = await getFalImageUrl(existingFront.url);
 
           const result = await fal.subscribe('fal-ai/ideogram/character', {
             input: {

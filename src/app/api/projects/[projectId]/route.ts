@@ -48,7 +48,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     const { projectId } = await params;
     const body = await request.json();
-    const { name, description, status, current_step, thumbnail_url, aspect_ratio } = body;
+    const { name, description, status, current_step, thumbnail_url, thumbnail_focal_point, aspect_ratio } = body;
 
     const supabase = createServerSupabaseClient();
 
@@ -70,6 +70,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (status !== undefined) updateData.status = status;
     if (current_step !== undefined) updateData.current_step = current_step;
     if (thumbnail_url !== undefined) updateData.thumbnail_url = thumbnail_url;
+    if (thumbnail_focal_point !== undefined) updateData.thumbnail_focal_point = thumbnail_focal_point;
     if (aspect_ratio !== undefined) updateData.aspect_ratio = aspect_ratio;
 
     const { data: project, error } = await supabase

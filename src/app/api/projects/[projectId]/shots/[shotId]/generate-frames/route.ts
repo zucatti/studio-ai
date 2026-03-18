@@ -133,47 +133,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     // Helper to wait
     const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-    // Helper to upload images to fal.ai storage (handles B2, local, and public URLs)
-    const uploadToFalStorage = async (imageUrl: string): Promise<string> => {
-      // If already on fal.ai, return as-is
-      if (imageUrl.includes('fal.media') || imageUrl.includes('fal-cdn')) {
-        return imageUrl;
-      }
-
-      const { fal } = await import('@fal-ai/client');
-      fal.config({ credentials: process.env.AI_FAL_KEY });
-
-      // Convert B2 URLs to signed URLs first
-      let fetchUrl = imageUrl;
-      if (imageUrl.startsWith('b2://')) {
-        const parsed = parseStorageUrl(imageUrl);
-        if (parsed) {
-          console.log(`Converting b2:// URL to signed URL: ${imageUrl}`);
-          fetchUrl = await getSignedFileUrl(parsed.key);
-        }
-      }
-
-      // Check if it's a local URL that needs uploading
-      const isLocalUrl = fetchUrl.includes('localhost') ||
-                         fetchUrl.includes('127.0.0.1') ||
-                         fetchUrl.includes('0.0.0.0');
-
-      // For public remote URLs (not local, not B2), return as-is
-      if (!isLocalUrl && !imageUrl.startsWith('b2://')) {
-        return imageUrl;
-      }
-
-      console.log(`Uploading image to fal.ai storage...`);
-      const response = await fetch(fetchUrl);
-      if (!response.ok) {
-        throw new Error(`Failed to fetch image: ${response.status}`);
-      }
-
-      const blob = await response.blob();
-      const uploadedUrl = await fal.storage.upload(blob);
-      console.log(`Uploaded to fal.ai: ${uploadedUrl}`);
-
-      return uploadedUrl;
+    // Helper to get public URL for fal.ai (no re-upload needed)
+    const { getPublicImageUrl } = await import('@/lib/fal-utils');
+    const getFalImageUrl = async (imageUrl: string): Promise<string> => {
+      const publicUrl = await getPublicImageUrl(imageUrl);
+      console.log(`Reference image URL: ${publicUrl.substring(0, 80)}...`);
+      return publicUrl;
     };
 
     // Helper to upload image to B2
@@ -673,7 +638,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           // Upload reference images to fal.ai storage
           const uploadedRefs: string[] = [];
           for (const refUrl of charRefImages.slice(0, 3)) { // Max 3 per element
-            const uploaded = await uploadToFalStorage(refUrl);
+            const uploaded = await getFalImageUrl(refUrl);
             uploadedRefs.push(uploaded);
           }
 

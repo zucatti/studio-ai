@@ -6,7 +6,6 @@ import {
   Film,
   FolderOpen,
   Settings,
-  Home,
   ImageIcon,
   PlayCircle,
   Lock,
@@ -18,12 +17,18 @@ import {
   Frame,
   Clapperboard,
   Lightbulb,
+  Zap,
+  Grid3X3,
+  Archive,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
 import { Input } from '@/components/ui/input';
 import { useTheme } from 'next-themes';
 import { useSidebarStore } from '@/store/sidebar-store';
+import { useGeneration } from '@/contexts/generation-context';
+import { isSimplifiedProject } from '@/lib/project-types';
+import type { ProjectType } from '@/types/database';
 
 interface NavSection {
   title: string;
@@ -44,7 +49,8 @@ const mainNavigation: NavSection[] = [
   },
 ];
 
-const projectNavigation: NavSection = {
+// Full pipeline navigation for movie/short/music_video
+const fullPipelineNavigation: NavSection = {
   title: 'PROJET',
   items: [
     { name: 'Brainstorming', href: '/brainstorming', icon: Lightbulb },
@@ -55,12 +61,24 @@ const projectNavigation: NavSection = {
   ],
 };
 
+// Simplified navigation for portfolio/photo_series
+const simplifiedNavigation: NavSection = {
+  title: 'PROJET',
+  items: [
+    { name: 'Quick Shot', href: '/quick-shot', icon: Zap },
+    { name: 'Gallery', href: '/gallery', icon: Grid3X3 },
+    { name: 'Rushes', href: '/rushes', icon: Archive },
+  ],
+};
+
 export function Sidebar() {
   const pathname = usePathname();
   const [searchQuery, setSearchQuery] = useState('');
   const { theme, setTheme } = useTheme();
   const { isLocked, isVisible, toggleLock, hide, _hasHydrated } = useSidebarStore();
+  const { activeCount } = useGeneration();
   const [mounted, setMounted] = useState(false);
+  const [projectType, setProjectType] = useState<ProjectType | null>(null);
 
   // Wait for client-side hydration
   useEffect(() => {
@@ -70,6 +88,34 @@ export function Sidebar() {
   const projectMatch = pathname.match(/\/project\/([^/]+)/);
   const projectId = projectMatch?.[1];
   const isInProject = !!projectId;
+
+  // Fetch project type when in a project
+  useEffect(() => {
+    if (!projectId) {
+      setProjectType(null);
+      return;
+    }
+
+    const fetchProjectType = async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}`);
+        if (res.ok) {
+          const data = await res.json();
+          setProjectType(data.project?.project_type || 'short');
+        }
+      } catch (error) {
+        console.error('Failed to fetch project type:', error);
+        setProjectType('short'); // Default fallback
+      }
+    };
+
+    fetchProjectType();
+  }, [projectId]);
+
+  // Get the appropriate navigation based on project type
+  const projectNavigation = projectType && isSimplifiedProject(projectType)
+    ? simplifiedNavigation
+    : fullPipelineNavigation;
 
   // Use default (locked) state until hydrated to avoid mismatch
   const effectiveIsLocked = _hasHydrated ? isLocked : true;
@@ -212,21 +258,32 @@ export function Sidebar() {
         </nav>
 
         {/* Footer */}
-        <div className="px-3 py-3 border-t border-white/5 flex items-center justify-between">
-          <button
-            onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
-            className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-white/5 text-slate-500 hover:text-white transition-colors"
-          >
-            {/* Show consistent icon until mounted to avoid hydration mismatch */}
-            {!mounted ? (
-              <Sun className="w-4 h-4" />
-            ) : theme === 'dark' ? (
-              <Sun className="w-4 h-4" />
-            ) : (
-              <Moon className="w-4 h-4" />
-            )}
-          </button>
-          <span className="text-xs text-slate-600">v1.0.0</span>
+        <div className="px-3 py-3 border-t border-white/5 space-y-2">
+          {/* Generation indicator */}
+          {activeCount > 0 && (
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded-lg bg-blue-500/10 text-blue-400">
+              <div className="w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+              <span className="text-xs">
+                {activeCount} generation{activeCount > 1 ? 's' : ''} en cours...
+              </span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+              className="flex items-center justify-center w-8 h-8 rounded-lg hover:bg-white/5 text-slate-500 hover:text-white transition-colors"
+            >
+              {/* Show consistent icon until mounted to avoid hydration mismatch */}
+              {!mounted ? (
+                <Sun className="w-4 h-4" />
+              ) : theme === 'dark' ? (
+                <Sun className="w-4 h-4" />
+              ) : (
+                <Moon className="w-4 h-4" />
+              )}
+            </button>
+            <span className="text-xs text-slate-600">v1.0.0</span>
+          </div>
         </div>
       </div>
     </>

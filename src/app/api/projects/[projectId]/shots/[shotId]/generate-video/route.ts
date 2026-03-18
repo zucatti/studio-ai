@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { logFalUsage } from '@/lib/ai/log-api-usage';
+import { getPublicImageUrl } from '@/lib/fal-utils';
 
 interface RouteParams {
   params: Promise<{ projectId: string; shotId: string }>;
@@ -245,34 +246,6 @@ function buildPromptWithDialogues(
   return prompt;
 }
 
-// Helper to upload image to fal.ai storage if it's a local URL
-async function uploadToFalStorage(imageUrl: string, fal: any): Promise<string> {
-  // Check if it's a local URL (localhost, 127.0.0.1, or internal)
-  const isLocalUrl = imageUrl.includes('localhost') ||
-                     imageUrl.includes('127.0.0.1') ||
-                     imageUrl.includes('0.0.0.0');
-
-  if (!isLocalUrl) {
-    // Already a public URL, use as-is
-    return imageUrl;
-  }
-
-  console.log(`Uploading local image to fal.ai storage: ${imageUrl}`);
-
-  // Fetch the image
-  const response = await fetch(imageUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image: ${response.status}`);
-  }
-
-  const blob = await response.blob();
-
-  // Upload to fal.ai storage
-  const uploadedUrl = await fal.storage.upload(blob);
-  console.log(`Uploaded to fal.ai: ${uploadedUrl}`);
-
-  return uploadedUrl;
-}
 
 // Generate video with lip sync using Kling Avatar v2 Pro
 async function generateWithLipSync(
@@ -293,8 +266,8 @@ async function generateWithLipSync(
     console.log(`Image: ${shot.first_frame_url}`);
     console.log(`Audio: ${audioUrl}`);
 
-    // Upload image to fal.ai storage if needed
-    const imageUrl = await uploadToFalStorage(shot.first_frame_url, fal);
+    // Get a public URL for the image (converts B2 to signed URLs)
+    const imageUrl = await getPublicImageUrl(shot.first_frame_url);
 
     // Build input for Kling Avatar
     // Note: The model expects a face image and audio, and generates a talking head video
@@ -396,10 +369,10 @@ async function generateWithFal(
     console.log(`First frame: ${shot.first_frame_url}`);
     console.log(`Last frame: ${shot.last_frame_url}`);
 
-    // Upload images to fal.ai storage if they're local URLs
-    const firstFrameUrl = await uploadToFalStorage(shot.first_frame_url, fal);
+    // Get public URLs for the images (converts B2 to signed URLs)
+    const firstFrameUrl = await getPublicImageUrl(shot.first_frame_url);
     const lastFrameUrl = shot.last_frame_url
-      ? await uploadToFalStorage(shot.last_frame_url, fal)
+      ? await getPublicImageUrl(shot.last_frame_url)
       : null;
 
     // Build prompt with dialogues

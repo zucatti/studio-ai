@@ -7,6 +7,7 @@ import { exec } from 'child_process';
 import { promisify } from 'util';
 import path from 'path';
 import { logFalUsage } from '@/lib/ai/log-api-usage';
+import { getPublicImageUrl } from '@/lib/fal-utils';
 
 const execAsync = promisify(exec);
 
@@ -133,21 +134,9 @@ export async function POST(request: Request) {
       }
     }
 
-    // Upload image to fal.ai storage to ensure it's accessible by Kling
-    console.log('Uploading image to fal.ai storage...');
-    let uploadedImageUrl = firstFrameUrl;
-    try {
-      const imageResponse = await fetch(firstFrameUrl);
-      if (!imageResponse.ok) {
-        throw new Error(`Failed to fetch generated image: ${imageResponse.status}`);
-      }
-      const imageBlob = await imageResponse.blob();
-      uploadedImageUrl = await fal.storage.upload(imageBlob);
-      console.log('Image uploaded to fal.ai storage:', uploadedImageUrl);
-    } catch (uploadError) {
-      console.error('Upload error, using original URL:', uploadError);
-      // Continue with original URL
-    }
+    // Get a public URL for the image (converts B2 to signed URLs, keeps public URLs as-is)
+    const uploadedImageUrl = await getPublicImageUrl(firstFrameUrl);
+    console.log('Public image URL:', uploadedImageUrl);
 
     // Step 2: Generate video with camera movement using Kling v3 Pro
     console.log('Generating video with Kling 3 Pro...');

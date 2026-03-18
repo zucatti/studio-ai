@@ -15,7 +15,7 @@ import {
 import { StorageImg } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+import { MentionInput } from '@/components/ui/mention-input';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -65,6 +65,7 @@ interface Shot {
 interface ShotCardProps {
   shot: Shot;
   sceneNumber: number;
+  projectId: string;
   characters: Character[];
   hasAudio: boolean;
   currentAudioTime: number;
@@ -79,6 +80,7 @@ interface ShotCardProps {
 export function ShotCard({
   shot,
   sceneNumber,
+  projectId,
   characters,
   hasAudio,
   currentAudioTime,
@@ -219,16 +221,17 @@ export function ShotCard({
           )}
 
           {/* Description */}
-          <Textarea
+          <MentionInput
             value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            onBlur={() => {
-              if (description !== shot.description) {
-                onUpdate({ description });
+            onChange={(newValue) => {
+              setDescription(newValue);
+              if (newValue !== shot.description) {
+                onUpdate({ description: newValue });
               }
             }}
-            placeholder="Description du plan..."
-            className="bg-white/5 border-white/10 text-white text-sm min-h-[60px] resize-none placeholder:text-slate-500"
+            placeholder="Description du plan... (@Personnage #Lieu !Référence)"
+            projectId={projectId}
+            minHeight="60px"
           />
 
           {/* Quick camera settings */}

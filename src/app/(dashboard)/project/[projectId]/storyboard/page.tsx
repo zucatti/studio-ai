@@ -3,7 +3,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
+import { MentionInput } from '@/components/ui/mention-input';
 import { Label } from '@/components/ui/label';
 import {
   Select,
@@ -52,34 +52,12 @@ import { PromptEditor } from '@/components/storyboard/PromptEditor';
 import { CameraSettings } from '@/components/decoupage/CameraSettings';
 import { TimelineBinding } from '@/components/decoupage/TimelineBinding';
 import { WaveformTimeline } from '@/components/audio/WaveformTimeline';
+import { MentionText, type MentionEntity } from '@/components/ui/mention-text';
 import { useShotsStore, type Shot } from '@/store/shots-store';
+import { useBibleStore } from '@/store/bible-store';
 import { toast } from 'sonner';
 import type { ShotType, CameraAngle, CameraMovement } from '@/types/shot';
-
-// Render text with @mentions highlighted as tags
-function RenderWithMentions({ text, className }: { text: string; className?: string }) {
-  if (!text) return null;
-
-  const parts = text.split(/(@[A-Z][a-zA-Z0-9]*)/g);
-
-  return (
-    <span className={className}>
-      {parts.map((part, index) => {
-        if (part.match(/^@[A-Z][a-zA-Z0-9]*$/)) {
-          return (
-            <span
-              key={index}
-              className="inline-flex items-center px-1.5 py-0.5 mx-0.5 rounded bg-blue-500/20 text-blue-300 text-xs font-mono border border-blue-500/30"
-            >
-              {part}
-            </span>
-          );
-        }
-        return <span key={index}>{part}</span>;
-      })}
-    </span>
-  );
-}
+import { generateReferenceName, getReferencePrefix } from '@/lib/reference-name';
 
 interface Character {
   id: string;
@@ -122,10 +100,32 @@ export default function StoryboardPage() {
   const [currentAudioTime, setCurrentAudioTime] = useState(0);
   const [generatingScenes, setGeneratingScenes] = useState<Set<string>>(new Set());
 
+  // Bible store for mention entities
+  const { projectAssets, fetchProjectAssets } = useBibleStore();
+
   // Fetch scenes on mount
   useEffect(() => {
     fetchScenes(projectId);
-  }, [projectId, fetchScenes]);
+    fetchProjectAssets(projectId);
+  }, [projectId, fetchScenes, fetchProjectAssets]);
+
+  // Build mention entities from project assets
+  const mentionEntities = useMemo((): MentionEntity[] => {
+    return projectAssets.map((asset) => {
+      const assetType = asset.asset_type as 'character' | 'location' | 'prop';
+      const prefix = getReferencePrefix(assetType);
+      const reference = generateReferenceName(asset.name, prefix);
+      const data = asset.data as Record<string, unknown> | null;
+
+      return {
+        reference,
+        name: asset.name,
+        type: assetType,
+        visual_description: (data?.visual_description as string) || undefined,
+        reference_images: asset.reference_images || undefined,
+      };
+    });
+  }, [projectAssets]);
 
   // Fetch characters and audio
   useEffect(() => {
@@ -671,7 +671,11 @@ export default function StoryboardPage() {
                 <div>
                   <p className="text-xs text-slate-500 mb-1">Description</p>
                   <p className="text-sm text-slate-300 leading-relaxed">
-                    <RenderWithMentions text={currentShot.description} />
+                    <MentionText
+                      text={currentShot.description}
+                      entities={mentionEntities}
+                      showTooltip
+                    />
                   </p>
                 </div>
                 {currentShot.storyboard_prompt && (
@@ -745,45 +749,19 @@ export default function StoryboardPage() {
                 <TabsContent value="shot" className="p-4 space-y-4 mt-0">
                   <div className="space-y-2">
                     <Label className="text-slate-300 text-sm">Description du plan</Label>
-                    {editingDescription ? (
-                      <div className="space-y-2">
-                        <Textarea
-                          value={descriptionValue}
-                          onChange={(e) => setDescriptionValue(e.target.value)}
-                          className="bg-white/5 border-white/10 text-white min-h-[100px] resize-none"
-                          placeholder="Décrivez le plan..."
-                        />
-                        <div className="flex gap-2">
-                          <Button
-                            size="sm"
-                            className="bg-blue-600 hover:bg-blue-700"
-                            onClick={handleSaveDescription}
-                          >
-                            Sauvegarder
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="border-white/10 text-slate-300"
-                            onClick={() => {
-                              setDescriptionValue(currentShot.description || '');
-                              setEditingDescription(false);
-                            }}
-                          >
-                            Annuler
-                          </Button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        className="p-3 bg-white/5 rounded-lg border border-white/10 text-sm text-slate-300 cursor-pointer hover:bg-white/10 transition-colors min-h-[60px]"
-                        onClick={() => setEditingDescription(true)}
-                      >
-                        {currentShot.description || (
-                          <span className="text-slate-500 italic">Cliquez pour ajouter une description...</span>
-                        )}
-                      </div>
-                    )}
+                    <MentionInput
+                      value={descriptionValue}
+                      onChange={(newValue) => {
+                        setDescriptionValue(newValue);
+                        // Auto-save on change (debounced via the input)
+                        if (currentShot && newValue !== currentShot.description) {
+                          updateShot(projectId, currentShot.id, { description: newValue });
+                        }
+                      }}
+                      placeholder="Décrivez le plan... (@Personnage #Lieu !Référence)"
+                      projectId={projectId}
+                      minHeight="100px"
+                    />
                   </div>
 
                   {/* Timeline binding if audio exists */}

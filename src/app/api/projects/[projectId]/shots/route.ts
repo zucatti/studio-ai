@@ -15,6 +15,8 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
 
     const { projectId } = await params;
+    const { searchParams } = new URL(request.url);
+    const statusFilter = searchParams.get('status'); // Optional: filter by status
     const supabase = createServerSupabaseClient();
 
     // Verify project ownership
@@ -36,13 +38,10 @@ export async function GET(request: Request, { params }: RouteParams) {
       .eq('project_id', projectId)
       .order('scene_number');
 
-    if (!scenes || scenes.length === 0) {
-      return NextResponse.json({ shots: [] });
-    }
+    const sceneIds = scenes?.map((s) => s.id) || [];
 
-    // Get all shots for these scenes with their dialogues
-    const sceneIds = scenes.map((s) => s.id);
-    const { data: shots, error } = await supabase
+    // Build query for shots - include both scene-based and direct project shots
+    let shotsQuery = supabase
       .from('shots')
       .select(`
         *,
@@ -53,9 +52,21 @@ export async function GET(request: Request, { params }: RouteParams) {
           parenthetical,
           sort_order
         )
-      `)
-      .in('scene_id', sceneIds)
-      .order('shot_number');
+      `);
+
+    // Include shots from scenes OR direct project shots
+    if (sceneIds.length > 0) {
+      shotsQuery = shotsQuery.or(`scene_id.in.(${sceneIds.join(',')}),project_id.eq.${projectId}`);
+    } else {
+      shotsQuery = shotsQuery.eq('project_id', projectId);
+    }
+
+    // Apply status filter if provided
+    if (statusFilter) {
+      shotsQuery = shotsQuery.eq('status', statusFilter);
+    }
+
+    const { data: shots, error } = await shotsQuery.order('shot_number');
 
     if (error) {
       console.error('Error fetching shots:', error);
@@ -64,7 +75,7 @@ export async function GET(request: Request, { params }: RouteParams) {
 
     // Attach scene info to each shot
     const shotsWithScenes = (shots || []).map((shot) => {
-      const scene = scenes.find((s) => s.id === shot.scene_id);
+      const scene = shot.scene_id ? scenes?.find((s) => s.id === shot.scene_id) : null;
       return {
         ...shot,
         scene,
@@ -103,29 +114,34 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Verify scene belongs to project
-    const { data: scene } = await supabase
-      .from('scenes')
-      .select('id')
-      .eq('id', body.scene_id)
-      .eq('project_id', projectId)
-      .single();
+    // If scene_id is provided, verify scene belongs to project
+    if (body.scene_id) {
+      const { data: scene } = await supabase
+        .from('scenes')
+        .select('id')
+        .eq('id', body.scene_id)
+        .eq('project_id', projectId)
+        .single();
 
-    if (!scene) {
-      return NextResponse.json({ error: 'Scene not found' }, { status: 404 });
+      if (!scene) {
+        return NextResponse.json({ error: 'Scene not found' }, { status: 404 });
+      }
     }
 
     // Create the shot
     const { data: shot, error } = await supabase
       .from('shots')
       .insert({
-        scene_id: body.scene_id,
+        scene_id: body.scene_id || null,
+        project_id: projectId,
         shot_number: body.shot_number || 1,
         description: body.description || '',
         shot_type: body.shot_type || 'medium',
         camera_angle: body.camera_angle || 'eye_level',
         camera_movement: body.camera_movement || 'static',
+        status: body.status || 'draft',
         sort_order: body.shot_number || 1,
+        storyboard_image_url: body.storyboard_image_url || null,
       })
       .select()
       .single();

@@ -88,6 +88,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       'video_provider',
       'video_duration',
       'generation_status',
+      'status', // Shot status: draft, selected, rush, archived
       // Audio timeline fields
       'start_time',
       'end_time',

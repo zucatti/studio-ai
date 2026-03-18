@@ -1,14 +1,19 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Project, AspectRatio } from '@/types/database';
+import type { Project, AspectRatio, ProjectType } from '@/types/database';
+
+interface FocalPoint {
+  x: number;
+  y: number;
+}
 
 interface UseProjectsReturn {
   projects: Project[];
   isLoading: boolean;
   error: string | null;
   refetch: () => Promise<void>;
-  createProject: (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio) => Promise<Project | null>;
+  createProject: (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio, projectType?: ProjectType, focalPoint?: FocalPoint) => Promise<Project | null>;
   updateProject: (id: string, data: Partial<Project>) => Promise<Project | null>;
   deleteProject: (id: string) => Promise<boolean>;
 }
@@ -37,7 +42,7 @@ export function useProjects(): UseProjectsReturn {
     fetchProjects();
   }, [fetchProjects]);
 
-  const createProject = async (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio): Promise<Project | null> => {
+  const createProject = async (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio, projectType?: ProjectType, focalPoint?: FocalPoint): Promise<Project | null> => {
     try {
       const res = await fetch('/api/projects', {
         method: 'POST',
@@ -46,7 +51,9 @@ export function useProjects(): UseProjectsReturn {
           name,
           description,
           thumbnail_url: thumbnailUrl,
+          thumbnail_focal_point: focalPoint || { x: 50, y: 25 },
           aspect_ratio: aspectRatio || '16:9',
+          project_type: projectType || 'short',
         }),
       });
       if (!res.ok) throw new Error('Failed to create project');

@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { StorageImg } from '@/components/ui/storage-image';
 import { MoreVertical, Trash2, Edit, Film, Play } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { getDefaultPageForType, getProjectTypeConfig, isSimplifiedProject } from '@/lib/project-types';
+import { ProjectTypeIcon } from '@/components/icons/project-type-icons';
 
 interface ProjectCardProps {
   project: Project;
@@ -45,6 +47,11 @@ const statusConfig = {
 };
 
 export function ProjectCard({ project, onDelete, onEdit }: ProjectCardProps) {
+  const projectType = project.project_type || 'short';
+  const typeConfig = getProjectTypeConfig(projectType);
+  const isSimplified = isSimplifiedProject(projectType);
+  const defaultPage = getDefaultPageForType(projectType);
+
   const currentStepInfo = PIPELINE_STEPS.find(
     (s) => s.step === project.current_step
   );
@@ -53,13 +60,18 @@ export function ProjectCard({ project, onDelete, onEdit }: ProjectCardProps) {
   return (
     <div className="group relative rounded-xl overflow-hidden bg-[#151d28] border border-white/5 hover:border-white/20 transition-all duration-300 hover:shadow-xl hover:shadow-black/20">
       {/* Image / Thumbnail */}
-      <Link href={`/project/${project.id}/${project.current_step}`}>
+      <Link href={`/project/${project.id}${defaultPage}`}>
         <div className="aspect-video relative bg-[#0d1520] overflow-hidden">
           {project.thumbnail_url ? (
             <StorageImg
               src={project.thumbnail_url}
               alt={project.name}
               className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500"
+              style={{
+                objectPosition: project.thumbnail_focal_point
+                  ? `${project.thumbnail_focal_point.x}% ${project.thumbnail_focal_point.y}%`
+                  : '50% 25%', // Default: center horizontally, 25% from top (good for faces)
+              }}
             />
           ) : (
             <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-slate-800/50 to-slate-900/50">
@@ -69,6 +81,16 @@ export function ProjectCard({ project, onDelete, onEdit }: ProjectCardProps) {
 
           {/* Overlay gradient */}
           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+
+          {/* Type Icon - Top Right */}
+          <div className="absolute top-3 right-3">
+            <div className="w-8 h-8 rounded-lg bg-black/60 backdrop-blur-sm flex items-center justify-center">
+              <ProjectTypeIcon
+                type={projectType}
+                className="w-5 h-5 text-white"
+              />
+            </div>
+          </div>
 
           {/* Title */}
           <div className="absolute bottom-3 left-3 right-3">
@@ -109,7 +131,7 @@ export function ProjectCard({ project, onDelete, onEdit }: ProjectCardProps) {
                 {status.label}
               </span>
               <span className="text-xs text-slate-600">
-                {currentStepInfo?.label}
+                {isSimplified ? typeConfig.label : currentStepInfo?.label}
               </span>
             </div>
           </div>

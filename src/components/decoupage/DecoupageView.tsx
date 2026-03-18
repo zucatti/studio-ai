@@ -274,6 +274,7 @@ export function DecoupageView({ projectId }: DecoupageViewProps) {
                   key={scene.id}
                   scene={scene}
                   shots={getShotsByScene(scene.id)}
+                  projectId={projectId}
                   characters={characters}
                   hasAudio={!!projectAudio?.audio_url}
                   currentAudioTime={currentAudioTime}

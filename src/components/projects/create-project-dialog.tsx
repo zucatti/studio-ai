@@ -14,11 +14,23 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { StorageImg } from '@/components/ui/storage-image';
-import type { Project, AspectRatio } from '@/types/database';
+import type { Project, AspectRatio, ProjectType } from '@/types/database';
+import { getProjectTypeConfig, getAspectRatiosForType } from '@/lib/project-types';
 import { Sparkles, Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { PROJECT_TYPE_ICONS } from '@/components/icons/project-type-icons';
+
+// Compact project types config
+const COMPACT_PROJECT_TYPES: { value: ProjectType; label: string; simplified: boolean }[] = [
+  { value: 'movie', label: 'Film', simplified: false },
+  { value: 'short', label: 'Court', simplified: false },
+  { value: 'music_video', label: 'Clip', simplified: false },
+  { value: 'portfolio', label: 'Portfolio', simplified: true },
+  { value: 'photo_series', label: 'Photos', simplified: true },
+];
 
 // Aspect ratio configuration with SVG icons
-const ASPECT_RATIOS: {
+const ALL_ASPECT_RATIOS: {
   value: AspectRatio;
   label: string;
   description: string;
@@ -47,10 +59,20 @@ const ASPECT_RATIOS: {
   {
     value: '1:1',
     label: '1:1',
-    description: 'Carré (Instagram)',
+    description: 'Carré',
     icon: ({ className }) => (
       <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <rect x="1" y="1" width="22" height="22" rx="2" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
+      </svg>
+    ),
+  },
+  {
+    value: '4:5',
+    label: '4:5',
+    description: 'Portrait (Instagram)',
+    icon: ({ className }) => (
+      <svg className={className} viewBox="0 0 20 25" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="18" height="23" rx="2" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
       </svg>
     ),
   },
@@ -64,13 +86,28 @@ const ASPECT_RATIOS: {
       </svg>
     ),
   },
+  {
+    value: '2:3',
+    label: '2:3',
+    description: 'Portrait photo',
+    icon: ({ className }) => (
+      <svg className={className} viewBox="0 0 20 30" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="18" height="28" rx="2" stroke="currentColor" strokeWidth="2" fill="currentColor" fillOpacity="0.1"/>
+      </svg>
+    ),
+  },
 ];
+
+interface FocalPoint {
+  x: number;
+  y: number;
+}
 
 interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editProject?: Project | null;
-  onSubmit: (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio) => Promise<void>;
+  onSubmit: (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio, projectType?: ProjectType, focalPoint?: FocalPoint) => Promise<void>;
 }
 
 export function CreateProjectDialog({
@@ -81,14 +118,17 @@ export function CreateProjectDialog({
 }: CreateProjectDialogProps) {
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [projectType, setProjectType] = useState<ProjectType>('short');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('16:9');
   const [thumbnailFile, setThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreview, setThumbnailPreview] = useState<string | null>(null);
   const [existingThumbnailUrl, setExistingThumbnailUrl] = useState<string | null>(null);
+  const [focalPoint, setFocalPoint] = useState<FocalPoint>({ x: 50, y: 25 });
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const thumbnailContainerRef = useRef<HTMLDivElement>(null);
 
   const isEditing = !!editProject;
 
@@ -96,19 +136,36 @@ export function CreateProjectDialog({
     if (open && editProject) {
       setName(editProject.name);
       setDescription(editProject.description || '');
+      setProjectType(editProject.project_type || 'short');
       setAspectRatio(editProject.aspect_ratio || '16:9');
       setExistingThumbnailUrl(editProject.thumbnail_url || null);
       setThumbnailPreview(editProject.thumbnail_url || null);
       setThumbnailFile(null);
+      setFocalPoint(editProject.thumbnail_focal_point || { x: 50, y: 25 });
     } else if (!open) {
       setName('');
       setDescription('');
+      setProjectType('short');
       setAspectRatio('16:9');
       setThumbnailPreview(null);
       setThumbnailFile(null);
       setExistingThumbnailUrl(null);
+      setFocalPoint({ x: 50, y: 25 });
     }
   }, [open, editProject]);
+
+  // Update aspect ratio when project type changes (only for new projects)
+  useEffect(() => {
+    if (isEditing) return; // Don't change ratio when editing
+    const config = getProjectTypeConfig(projectType);
+    // Always set the default ratio for the type when creating new project
+    setAspectRatio(config.defaultRatio);
+  }, [projectType, isEditing]);
+
+  // Get filtered aspect ratios for current project type
+  const availableAspectRatios = ALL_ASPECT_RATIOS.filter((r) =>
+    getAspectRatiosForType(projectType).includes(r.value)
+  );
 
   const resizeImage = (file: File, maxWidth: number, maxHeight: number): Promise<Blob> => {
     return new Promise((resolve, reject) => {
@@ -205,6 +262,14 @@ export function CreateProjectDialog({
     setIsDragging(false);
   };
 
+  const handleFocalPointClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!thumbnailContainerRef.current) return;
+    const rect = thumbnailContainerRef.current.getBoundingClientRect();
+    const x = Math.round(((e.clientX - rect.left) / rect.width) * 100);
+    const y = Math.round(((e.clientY - rect.top) / rect.height) * 100);
+    setFocalPoint({ x: Math.max(0, Math.min(100, x)), y: Math.max(0, Math.min(100, y)) });
+  };
+
   const uploadImage = async (file: File): Promise<string | null> => {
     const formData = new FormData();
     formData.append('file', file);
@@ -252,13 +317,15 @@ export function CreateProjectDialog({
         thumbnailUrl = undefined;
       }
 
-      await onSubmit(name.trim(), description.trim() || undefined, thumbnailUrl, aspectRatio);
+      await onSubmit(name.trim(), description.trim() || undefined, thumbnailUrl, aspectRatio, projectType, focalPoint);
       setName('');
       setDescription('');
+      setProjectType('short');
       setAspectRatio('16:9');
       setThumbnailPreview(null);
       setThumbnailFile(null);
       setExistingThumbnailUrl(null);
+      setFocalPoint({ x: 50, y: 25 });
     } finally {
       setIsLoading(false);
       setIsUploading(false);
@@ -298,7 +365,7 @@ export function CreateProjectDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <div className="grid gap-5 py-6">
+          <div className="grid gap-4 py-4">
             {/* Thumbnail Upload */}
             <div className="grid gap-2">
               <Label className="text-slate-300">
@@ -307,36 +374,53 @@ export function CreateProjectDialog({
               </Label>
 
               {displayPreview ? (
-                <div className="relative group">
-                  <div className="aspect-video rounded-xl overflow-hidden border border-white/10 bg-[#0d1829]">
-                    <StorageImg
-                      src={displayPreview}
-                      alt="Aperçu"
-                      className="w-full h-full object-cover"
-                    />
-                  </div>
-                  <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity rounded-xl flex items-center justify-center gap-3">
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="bg-white/10 hover:bg-white/20 text-white border-0"
+                <div className="space-y-1.5">
+                  <div className="relative group">
+                    <div
+                      ref={thumbnailContainerRef}
+                      onClick={handleFocalPointClick}
+                      className="h-44 rounded-xl overflow-hidden border border-white/10 bg-[#0d1829] cursor-crosshair relative"
                     >
-                      <Upload className="w-4 h-4 mr-2" />
-                      Changer
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="secondary"
-                      size="sm"
-                      onClick={removeThumbnail}
-                      className="bg-red-500/20 hover:bg-red-500/30 text-red-400 border-0"
-                    >
-                      <X className="w-4 h-4 mr-2" />
-                      Supprimer
-                    </Button>
+                      <StorageImg
+                        src={displayPreview}
+                        alt="Aperçu"
+                        className="w-full h-full object-cover"
+                        style={{ objectPosition: `${focalPoint.x}% ${focalPoint.y}%` }}
+                      />
+                      {/* Focal point indicator */}
+                      <div
+                        className="absolute w-6 h-6 -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+                        style={{ left: `${focalPoint.x}%`, top: `${focalPoint.y}%` }}
+                      >
+                        <div className="absolute inset-0 rounded-full border-2 border-white shadow-lg" />
+                        <div className="absolute inset-[6px] rounded-full bg-blue-500" />
+                      </div>
+                    </div>
+                    <div className="absolute top-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                        className="bg-black/60 hover:bg-black/80 text-white border-0 h-7 px-2 text-xs backdrop-blur-sm"
+                      >
+                        <Upload className="w-3.5 h-3.5 mr-1" />
+                        Changer
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={(e) => { e.stopPropagation(); removeThumbnail(); }}
+                        className="bg-red-500/60 hover:bg-red-500/80 text-white border-0 h-7 px-2 text-xs backdrop-blur-sm"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
                   </div>
+                  <p className="text-[10px] text-slate-500 text-center">
+                    Cliquez pour définir le point focal
+                  </p>
                 </div>
               ) : (
                 <div
@@ -345,27 +429,20 @@ export function CreateProjectDialog({
                   onDragOver={handleDragOver}
                   onDragLeave={handleDragLeave}
                   className={`
-                    aspect-video rounded-xl border-2 border-dashed cursor-pointer
-                    flex flex-col items-center justify-center gap-3 transition-all duration-200
+                    h-40 rounded-xl border-2 border-dashed cursor-pointer
+                    flex flex-col items-center justify-center gap-2 transition-all duration-200
                     ${isDragging
                       ? 'border-blue-400 bg-blue-500/10'
                       : 'border-white/10 hover:border-blue-400/50 hover:bg-white/5 bg-[#0d1829]/50'
                     }
                   `}
                 >
-                  <div className={`
-                    w-14 h-14 rounded-2xl flex items-center justify-center transition-colors
-                    ${isDragging ? 'bg-blue-500/20' : 'bg-white/5'}
-                  `}>
-                    <ImageIcon className={`w-7 h-7 ${isDragging ? 'text-blue-400' : 'text-slate-500'}`} />
-                  </div>
+                  <ImageIcon className={`w-8 h-8 ${isDragging ? 'text-blue-400' : 'text-slate-500'}`} />
                   <div className="text-center">
-                    <p className={`text-sm font-medium ${isDragging ? 'text-blue-400' : 'text-slate-400'}`}>
-                      {isDragging ? 'Déposez l\'image ici' : 'Cliquez ou glissez-déposez'}
+                    <p className={`text-sm ${isDragging ? 'text-blue-400' : 'text-slate-400'}`}>
+                      {isDragging ? 'Déposez ici' : 'Cliquez ou glissez-déposez'}
                     </p>
-                    <p className="text-xs text-slate-600 mt-1">
-                      PNG, JPG ou WebP (max. 5MB)
-                    </p>
+                    <p className="text-[10px] text-slate-600">PNG, JPG, WebP (max. 5MB)</p>
                   </div>
                 </div>
               )}
@@ -394,11 +471,47 @@ export function CreateProjectDialog({
               />
             </div>
 
+            {/* Project Type - only show when creating */}
+            {!isEditing && (
+              <div className="grid gap-2">
+                <Label className="text-slate-300">Type de projet</Label>
+                <div className="flex rounded-lg border border-white/10 bg-[#0d1829]/50 p-1 gap-1">
+                  {COMPACT_PROJECT_TYPES.map((type) => {
+                    const isSelected = projectType === type.value;
+                    const IconComponent = PROJECT_TYPE_ICONS[type.value];
+                    return (
+                      <button
+                        key={type.value}
+                        type="button"
+                        onClick={() => setProjectType(type.value)}
+                        title={type.simplified ? 'Quick Shot' : 'Pipeline complet'}
+                        className={cn(
+                          'flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-xs font-medium transition-all duration-200',
+                          isSelected
+                            ? 'bg-blue-500 text-white shadow-sm'
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        )}
+                      >
+                        <IconComponent className="w-4 h-4 flex-shrink-0" />
+                        <span className="hidden sm:inline">{type.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-500">
+                  {getProjectTypeConfig(projectType).simplified
+                    ? 'Mode Quick Shot : génération rapide d\'images'
+                    : 'Pipeline complet : brainstorming → script → storyboard'
+                  }
+                </p>
+              </div>
+            )}
+
             {/* Aspect Ratio */}
             <div className="grid gap-2">
-              <Label className="text-slate-300">Format vidéo</Label>
-              <div className="grid grid-cols-4 gap-2">
-                {ASPECT_RATIOS.map((ratio) => {
+              <Label className="text-slate-300">Format</Label>
+              <div className="flex flex-wrap gap-1.5">
+                {availableAspectRatios.map((ratio) => {
                   const isSelected = aspectRatio === ratio.value;
                   const IconComponent = ratio.icon;
                   return (
@@ -406,35 +519,18 @@ export function CreateProjectDialog({
                       key={ratio.value}
                       type="button"
                       onClick={() => setAspectRatio(ratio.value)}
-                      className={`
-                        group relative flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all duration-200
-                        ${isSelected
-                          ? 'border-blue-500 bg-blue-500/10'
-                          : 'border-white/10 hover:border-white/20 hover:bg-white/5'
-                        }
-                      `}
-                    >
-                      <div className={`
-                        flex items-center justify-center h-8
-                        ${isSelected ? 'text-blue-400' : 'text-slate-400 group-hover:text-slate-300'}
-                      `}>
-                        <IconComponent className="h-full w-auto" />
-                      </div>
-                      <div className="text-center">
-                        <div className={`text-sm font-medium ${isSelected ? 'text-white' : 'text-slate-300'}`}>
-                          {ratio.label}
-                        </div>
-                        <div className="text-[10px] text-slate-500 leading-tight mt-0.5">
-                          {ratio.description}
-                        </div>
-                      </div>
-                      {isSelected && (
-                        <div className="absolute -top-1 -right-1 w-4 h-4 bg-blue-500 rounded-full flex items-center justify-center">
-                          <svg className="w-2.5 h-2.5 text-white" viewBox="0 0 12 12" fill="none">
-                            <path d="M2 6l3 3 5-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                          </svg>
-                        </div>
+                      title={ratio.description}
+                      className={cn(
+                        'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border transition-all duration-200',
+                        isSelected
+                          ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                          : 'border-white/10 hover:border-white/20 hover:bg-white/5 text-slate-400'
                       )}
+                    >
+                      <IconComponent className="h-4 w-auto" />
+                      <span className={cn('text-xs font-medium', isSelected && 'text-white')}>
+                        {ratio.label}
+                      </span>
                     </button>
                   );
                 })}
@@ -442,7 +538,7 @@ export function CreateProjectDialog({
             </div>
 
             {/* Description */}
-            <div className="grid gap-2">
+            <div className="grid gap-1.5">
               <Label htmlFor="description" className="text-slate-300">
                 Description{' '}
                 <span className="text-slate-500 font-normal">(optionnelle)</span>
@@ -452,7 +548,7 @@ export function CreateProjectDialog({
                 placeholder="Une brève description de votre projet..."
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
-                rows={3}
+                rows={2}
                 className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 focus:border-blue-500/50 focus:bg-white/10 resize-none"
               />
             </div>

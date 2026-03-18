@@ -6,6 +6,7 @@ import { LocationCard } from './LocationCard';
 import { LocationFormDialog } from './LocationFormDialog';
 import { MapPin, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { toast } from 'sonner';
 import type { GlobalAsset } from '@/types/database';
 
 interface BibleLocationsProps {
@@ -55,6 +56,27 @@ export function BibleLocations({ projectId, onInsertReference, showGlobalOnly = 
 
   const handleFormSuccess = () => {
     fetchGlobalAssets('');
+  };
+
+  const handleDelete = async (locationId: string, locationName: string) => {
+    if (!confirm(`Supprimer le lieu "${locationName}" ?`)) return;
+
+    try {
+      const res = await fetch(`/api/global-assets/${locationId}`, {
+        method: 'DELETE',
+      });
+
+      if (res.ok) {
+        toast.success('Lieu supprimé');
+        fetchGlobalAssets('');
+      } else {
+        const error = await res.json();
+        toast.error(error.error || 'Erreur lors de la suppression');
+      }
+    } catch (error) {
+      console.error('Error deleting location:', error);
+      toast.error('Erreur de connexion');
+    }
   };
 
   const displayLocations = showGlobalOnly
@@ -125,6 +147,7 @@ export function BibleLocations({ projectId, onInsertReference, showGlobalOnly = 
               onImport={projectId && !isInProject ? () => handleImport(location.id) : undefined}
               onRemove={projectAssetId ? () => handleRemove(projectAssetId) : undefined}
               onEdit={globalLocation ? () => handleEdit(globalLocation) : undefined}
+              onDelete={() => handleDelete(location.id, location.name)}
             />
           );
         })}

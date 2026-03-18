@@ -4,11 +4,12 @@
  * "La forêt magique" -> "#LaForetMagique" (location/prop)
  * "Jean-Pierre" -> "@JeanPierre"
  * "L'épée magique" -> "#LEpeeMagique"
+ * "Jump Pose" -> "!JumpPose" (reference)
  *
  * @param displayName - The display name to convert
- * @param prefix - The prefix to use (@ for characters, # for locations/props)
+ * @param prefix - The prefix to use (@ for characters, # for locations/props, ! for references)
  */
-export function generateReferenceName(displayName: string, prefix: '@' | '#' = '@'): string {
+export function generateReferenceName(displayName: string, prefix: '@' | '#' | '!' = '@'): string {
   if (!displayName) return '';
 
   // Normalize and clean the string
@@ -36,28 +37,30 @@ export function generateReferenceName(displayName: string, prefix: '@' | '#' = '
 /**
  * Get the appropriate prefix for an asset type
  */
-export function getReferencePrefix(assetType: 'character' | 'location' | 'prop' | 'audio'): '@' | '#' {
-  return assetType === 'character' ? '@' : '#';
+export function getReferencePrefix(assetType: 'character' | 'location' | 'prop' | 'audio' | 'reference'): '@' | '#' | '!' {
+  if (assetType === 'character') return '@';
+  if (assetType === 'reference') return '!';
+  return '#';
 }
 
 /**
  * Check if a text contains a reference to an entity
- * Supports both @ReferenceName and full display name
+ * Supports both @ReferenceName/#ReferenceName/!ReferenceName and full display name
  */
-export function hasReference(text: string, displayName: string): boolean {
+export function hasReference(text: string, displayName: string, prefix: '@' | '#' | '!' = '@'): boolean {
   if (!text || !displayName) return false;
 
   const textLower = text.toLowerCase();
   const nameLower = displayName.toLowerCase();
-  const refName = generateReferenceName(displayName).toLowerCase();
+  const refName = generateReferenceName(displayName, prefix).toLowerCase();
 
-  // Check for @ReferenceName (case insensitive)
+  // Check for @ReferenceName or #ReferenceName (case insensitive)
   if (textLower.includes(refName)) {
     return true;
   }
 
   // Check for full name as word boundary
-  const nameRegex = new RegExp(`(^|\\s|@)${escapeRegex(nameLower)}(\\s|$|[.,!?;:'"])`, 'i');
+  const nameRegex = new RegExp(`(^|\\s|[@#!])${escapeRegex(nameLower)}(\\s|$|[.,;:'"])`, 'i');
   if (nameRegex.test(textLower)) {
     return true;
   }
@@ -73,12 +76,42 @@ export function escapeRegex(str: string): string {
 }
 
 /**
- * Extract all @references from a text
+ * Extract all @references, #references, and !references from a text
  */
 export function extractReferences(text: string): string[] {
   if (!text) return [];
 
-  const matches = text.match(/@[A-Z][a-zA-Z0-9]*/g);
+  const matches = text.match(/[@#!][A-Z][a-zA-Z0-9_]*/g);
+  return matches || [];
+}
+
+/**
+ * Extract only @references (characters) from text
+ */
+export function extractCharacterReferences(text: string): string[] {
+  if (!text) return [];
+
+  const matches = text.match(/@[A-Z][a-zA-Z0-9_]*/g);
+  return matches || [];
+}
+
+/**
+ * Extract only #references (locations/props) from text
+ */
+export function extractLocationReferences(text: string): string[] {
+  if (!text) return [];
+
+  const matches = text.match(/#[A-Z][a-zA-Z0-9_]*/g);
+  return matches || [];
+}
+
+/**
+ * Extract only !references (pose/composition/style) from text
+ */
+export function extractStyleReferences(text: string): string[] {
+  if (!text) return [];
+
+  const matches = text.match(/![A-Z][a-zA-Z0-9_]*/g);
   return matches || [];
 }
 

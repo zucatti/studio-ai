@@ -228,20 +228,12 @@ function collectReferenceImages(entities: EntityWithImage[], maxImages: number =
   return images;
 }
 
-// Helper to upload image to fal.ai storage
-async function uploadToFalStorage(falClient: typeof fal, imageUrl: string): Promise<string> {
-  if (imageUrl.includes('fal.media') || imageUrl.includes('fal-cdn')) {
-    return imageUrl;
-  }
-  console.log(`Uploading to fal.ai storage: ${imageUrl.substring(0, 50)}...`);
-  const response = await fetch(imageUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch image for fal.ai upload: ${response.status}`);
-  }
-  const blob = await response.blob();
-  const uploaded = await falClient.storage.upload(blob);
-  console.log(`Uploaded to fal.ai: ${uploaded}`);
-  return uploaded;
+// Helper to get public URL for fal.ai (no re-upload needed)
+async function getFalImageUrl(_falClient: typeof fal, imageUrl: string): Promise<string> {
+  const { getPublicImageUrl } = await import('@/lib/fal-utils');
+  const publicUrl = await getPublicImageUrl(imageUrl);
+  console.log(`Reference image URL: ${publicUrl.substring(0, 60)}...`);
+  return publicUrl;
 }
 
 // Expand @mentions in text to their visual descriptions
@@ -481,7 +473,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
       // Upload reference images to fal.ai storage
       const uploadedRefs = await Promise.all(
-        referenceImages.map(url => uploadToFalStorage(fal, url))
+        referenceImages.map(url => getFalImageUrl(fal, url))
       );
       console.log(`Uploaded ${uploadedRefs.length} reference images to fal.ai storage`);
 
