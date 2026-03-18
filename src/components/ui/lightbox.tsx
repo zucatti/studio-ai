@@ -11,7 +11,7 @@ import type { GenerationMetadata } from '@/types/database';
 // Parse generation metadata from description (stored as HTML comment)
 function parseGenerationMetadata(description?: string): GenerationMetadata | null {
   if (!description) return null;
-  const match = description.match(/<!-- metadata:(.*?) -->/s);
+  const match = description.match(/<!-- metadata:([\s\S]*?) -->/);
   if (!match) return null;
   try {
     return JSON.parse(match[1]);
