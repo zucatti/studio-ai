@@ -23,10 +23,10 @@ import { PROJECT_TYPE_ICONS } from '@/components/icons/project-type-icons';
 // Compact project types config
 const COMPACT_PROJECT_TYPES: { value: ProjectType; label: string; simplified: boolean }[] = [
   { value: 'movie', label: 'Film', simplified: false },
-  { value: 'short', label: 'Court', simplified: false },
+  { value: 'short', label: 'Court-métrage', simplified: false },
   { value: 'music_video', label: 'Clip', simplified: false },
+  { value: 'shorts_project', label: 'Shorts', simplified: true },
   { value: 'portfolio', label: 'Portfolio', simplified: true },
-  { value: 'photo_series', label: 'Photos', simplified: true },
 ];
 
 // Aspect ratio configuration with SVG icons
@@ -345,7 +345,7 @@ export function CreateProjectDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[540px] bg-gradient-to-br from-[#1a2e44] to-[#152238] border-white/10">
+      <DialogContent className="sm:max-w-[850px] bg-gradient-to-br from-[#1a2e44] to-[#152238] border-white/10">
         <form onSubmit={handleSubmit}>
           <DialogHeader>
             <DialogTitle className="text-xl text-white flex items-center gap-2">
@@ -486,7 +486,7 @@ export function CreateProjectDialog({
                         onClick={() => setProjectType(type.value)}
                         title={type.simplified ? 'Quick Shot' : 'Pipeline complet'}
                         className={cn(
-                          'flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-xs font-medium transition-all duration-200',
+                          'flex-1 flex items-center justify-center gap-1.5 py-2 px-2 rounded-md text-xs font-medium transition-all duration-200 whitespace-nowrap',
                           isSelected
                             ? 'bg-blue-500 text-white shadow-sm'
                             : 'text-slate-400 hover:text-white hover:bg-white/5'

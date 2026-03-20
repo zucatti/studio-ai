@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Book, User, Users, MapPin, Package, Music, Plus, Loader2, AlertCircle, AtSign, Hash, Check, Trash2, Image as ImageIcon } from 'lucide-react';
+import { Book, User, Users, MapPin, Package, Plus, Loader2, AlertCircle, AtSign, Hash, Check, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { StorageImg } from '@/components/ui/storage-image';
+import { StorageThumbnail } from '@/components/ui/storage-image';
 import {
   Dialog,
   DialogContent,
@@ -20,7 +20,6 @@ import { useBibleStore } from '@/store/bible-store';
 import { GENERIC_CHARACTERS, type GenericCharacter } from '@/lib/generic-characters';
 import { generateReferenceName } from '@/lib/reference-name';
 import { cn } from '@/lib/utils';
-import type { GlobalReference } from '@/types/database';
 
 const GENERIC_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   crowd: Users,
@@ -51,14 +50,12 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
   } = useBibleStore();
 
   const [usedCharacterIds, setUsedCharacterIds] = useState<Set<string>>(new Set());
-  const [projectReferences, setProjectReferences] = useState<(GlobalReference & { link_id: string })[]>([]);
 
   useEffect(() => {
     if (open && projectId) {
       fetchProjectAssets(projectId);
       fetchProjectGenericAssets(projectId);
       fetchUsedCharacters(projectId).then(setUsedCharacterIds);
-      fetchProjectReferences(projectId).then(setProjectReferences);
     }
   }, [open, projectId, fetchProjectAssets, fetchProjectGenericAssets]);
 
@@ -77,25 +74,12 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
     await removeGenericAsset(projectId, projectGenericAssetId);
   };
 
-  const handleRemoveReference = async (linkId: string) => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}/references/${linkId}`, {
-        method: 'DELETE',
-      });
-      if (res.ok) {
-        setProjectReferences(prev => prev.filter(r => r.link_id !== linkId));
-      }
-    } catch (error) {
-      console.error('Error removing reference:', error);
-    }
-  };
-
   const handleOpenGlobalBible = () => {
     onOpenChange(false);
     openGlobalBible(true);
   };
 
-  const totalAssets = characters.length + locations.length + props.length + genericCharacters.length + projectReferences.length;
+  const totalAssets = characters.length + locations.length + props.length + genericCharacters.length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -127,7 +111,7 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
         </DialogHeader>
 
         {/* Content */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto scrollbar-none p-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-6 h-6 text-green-400 animate-spin" />
@@ -200,24 +184,6 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
                         reference={generateReferenceName(prop.name, '#')}
                         prefix="#"
                         onRemove={() => handleRemoveAsset(prop.project_asset_id)}
-                      />
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {/* References */}
-              {projectReferences.length > 0 && (
-                <Section icon={ImageIcon} title="Références" count={projectReferences.length} color="purple">
-                  <div className="grid grid-cols-2 gap-3">
-                    {projectReferences.map((ref) => (
-                      <ReferenceCard
-                        key={ref.id}
-                        name={ref.name}
-                        type={ref.type}
-                        image={ref.image_url}
-                        reference={generateReferenceName(ref.name, '!')}
-                        onRemove={() => handleRemoveReference(ref.link_id)}
                       />
                     ))}
                   </div>
@@ -298,7 +264,13 @@ function AssetCard({
     <div className="p-3 rounded-lg bg-white/5 border border-white/10">
       <div className="flex items-start gap-3">
         {image ? (
-          <StorageImg src={image} alt={name} className="w-14 h-14 rounded-lg object-cover object-top flex-shrink-0" />
+          <StorageThumbnail
+            src={image}
+            alt={name}
+            size={56}
+            className="rounded-lg flex-shrink-0"
+            objectPosition="center top"
+          />
         ) : (
           <div className="w-14 h-14 rounded-lg bg-white/10 flex items-center justify-center flex-shrink-0">
             <User className="w-6 h-6 text-slate-400" />
@@ -426,73 +398,6 @@ function GenericCard({
   );
 }
 
-// Reference card
-function ReferenceCard({
-  name,
-  type,
-  image,
-  reference,
-  onRemove,
-}: {
-  name: string;
-  type: string;
-  image: string | null;
-  reference: string;
-  onRemove: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(reference);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  const typeEmoji = type === 'pose' ? '🕺' : type === 'composition' ? '📐' : '🎨';
-
-  return (
-    <div className="p-3 rounded-lg bg-purple-500/5 border border-purple-500/20">
-      <div className="flex items-start gap-3">
-        <div className="w-14 h-14 rounded-lg overflow-hidden flex-shrink-0 flex items-center justify-center bg-purple-500/10">
-          {image ? (
-            <StorageImg src={image} alt={name} className="w-full h-full object-cover" />
-          ) : (
-            <span className="text-2xl">{typeEmoji}</span>
-          )}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1">
-            <span className="text-sm">{typeEmoji}</span>
-            <p className="text-sm font-medium text-white truncate">{name}</p>
-          </div>
-          <button
-            onClick={handleCopy}
-            className="flex items-center gap-1 mt-0.5 text-xs text-purple-400 hover:text-purple-300"
-          >
-            <span className="font-mono">{reference}</span>
-            {copied && <Check className="w-3 h-3 text-green-400" />}
-          </button>
-        </div>
-        <TooltipProvider>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onRemove}
-                className="p-1.5 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent className="bg-[#1a2433] border-white/10">
-              <p className="text-xs">Retirer du projet</p>
-            </TooltipContent>
-          </Tooltip>
-        </TooltipProvider>
-      </div>
-    </div>
-  );
-}
-
 // Helper function
 async function fetchUsedCharacters(projectId: string): Promise<Set<string>> {
   try {
@@ -505,23 +410,6 @@ async function fetchUsedCharacters(projectId: string): Promise<Set<string>> {
     console.error('Error fetching used characters:', error);
   }
   return new Set();
-}
-
-// Helper function to fetch project references
-async function fetchProjectReferences(projectId: string): Promise<(GlobalReference & { link_id: string })[]> {
-  try {
-    const res = await fetch(`/api/projects/${projectId}/references`);
-    if (res.ok) {
-      const data = await res.json();
-      return (data.references || []).map((r: GlobalReference & { link_id: string }) => ({
-        ...r,
-        link_id: r.link_id,
-      }));
-    }
-  } catch (error) {
-    console.error('Error fetching project references:', error);
-  }
-  return [];
 }
 
 // Button to open Project Bible

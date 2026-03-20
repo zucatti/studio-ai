@@ -4,7 +4,7 @@ import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { User, MapPin, Package, Image as ImageIcon, Loader2 } from 'lucide-react';
-import { StorageImg } from '@/components/ui/storage-image';
+import { StorageThumbnail } from '@/components/ui/storage-image';
 
 // Types for mention suggestions
 export interface MentionSuggestion {
@@ -14,6 +14,7 @@ export interface MentionSuggestion {
   type: 'character' | 'location' | 'prop' | 'reference';
   image?: string;
   description?: string;
+  looks?: Array<{ id?: string; name: string; description: string; imageUrl: string }>;
 }
 
 interface MentionInputProps {
@@ -60,10 +61,15 @@ function setCachedSuggestions(key: string, data: MentionSuggestion[]): void {
 
 // Parse text and render with styled mentions
 // IMPORTANT: This must render text EXACTLY like the textarea to avoid cursor drift
+// @ = characters (blue), # = locations/props (green), ! = looks (purple)
 function StyledMentionOverlay({ text }: { text: string }) {
-  // Match @Reference, #Reference, or !Reference (PascalCase)
+  // Match @Character, #Location, !Look separately
   const mentionRegex = /[@#!][A-Z][a-zA-Z0-9_]*/g;
-  const parts: { text: string; isMention: boolean; prefix?: '@' | '#' | '!' }[] = [];
+  const parts: {
+    text: string;
+    isMention: boolean;
+    prefix?: '@' | '#' | '!';
+  }[] = [];
 
   let lastIndex = 0;
   let match;
@@ -72,12 +78,16 @@ function StyledMentionOverlay({ text }: { text: string }) {
     if (match.index > lastIndex) {
       parts.push({ text: text.slice(lastIndex, match.index), isMention: false });
     }
+
+    const fullMatch = match[0];
+    const prefix = fullMatch[0] as '@' | '#' | '!';
+
     parts.push({
-      text: match[0],
+      text: fullMatch,
       isMention: true,
-      prefix: match[0][0] as '@' | '#' | '!',
+      prefix,
     });
-    lastIndex = match.index + match[0].length;
+    lastIndex = match.index + fullMatch.length;
   }
 
   if (lastIndex < text.length) {
@@ -88,12 +98,11 @@ function StyledMentionOverlay({ text }: { text: string }) {
     <>
       {parts.map((part, idx) => {
         if (!part.isMention) {
-          // Use span with identical rendering - no extra styling
           return <span key={idx}>{part.text}</span>;
         }
 
         const isCharacter = part.prefix === '@';
-        const isReference = part.prefix === '!';
+        const isLook = part.prefix === '!';
 
         // Simple color-only styling - NO padding, margin, box-shadow, or font-weight changes
         // This ensures text width is IDENTICAL to the textarea
@@ -103,7 +112,7 @@ function StyledMentionOverlay({ text }: { text: string }) {
             className={
               isCharacter
                 ? 'text-blue-400'
-                : isReference
+                : isLook
                 ? 'text-purple-400'
                 : 'text-green-400'
             }
@@ -137,23 +146,38 @@ export function MentionInput({
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
+  const [currentCharacterForLooks, setCurrentCharacterForLooks] = useState<string | null>(null);
 
-  // Fetch suggestions based on trigger type
-  const fetchSuggestions = useCallback(async (trigger: TriggerChar) => {
-    const cacheKey = `${projectId}-${trigger}`;
+  // Find the last @Character reference in text before a given position
+  const findLastCharacterRef = useCallback((text: string): string | null => {
+    const charRegex = /@[A-Z][a-zA-Z0-9_]*/g;
+    let lastMatch: string | null = null;
+    let match;
 
-    // Check cache with TTL
-    const cached = getCachedSuggestions(cacheKey);
-    if (cached) {
-      return cached;
+    while ((match = charRegex.exec(text)) !== null) {
+      lastMatch = match[0];
     }
 
+    return lastMatch;
+  }, []);
+
+  // Fetch suggestions based on trigger type
+  const fetchSuggestions = useCallback(async (trigger: TriggerChar, textBeforeTrigger?: string) => {
     setIsLoading(true);
 
     try {
       let suggestions: MentionSuggestion[] = [];
 
       if (trigger === '@' || trigger === '#') {
+        const cacheKey = `${projectId}-${trigger}`;
+
+        // Check cache with TTL
+        const cached = getCachedSuggestions(cacheKey);
+        if (cached) {
+          setIsLoading(false);
+          return cached;
+        }
+
         // Fetch project assets (characters, locations, props)
         const res = await fetch(`/api/projects/${projectId}/assets`);
         if (res.ok) {
@@ -172,27 +196,77 @@ export function MentionInput({
               type: a.asset_type as 'character' | 'location' | 'prop',
               image: a.reference_images?.[0],
               description: a.data?.visual_description,
+              // Include looks for characters (needed for ! autocomplete)
+              looks: a.asset_type === 'character' ? (a.data?.looks || []) : undefined,
             }));
         }
-      } else if (trigger === '!') {
-        // Fetch project references
-        const res = await fetch(`/api/projects/${projectId}/references`);
-        if (res.ok) {
-          const data = await res.json();
-          const refs = data.references || [];
 
-          suggestions = refs.map((r: any) => ({
-            id: r.id,
-            reference: generateReference(r.name, '!'),
-            name: r.name,
-            type: 'reference' as const,
-            image: r.image_url,
-            description: r.description,
-          }));
+        setCachedSuggestions(cacheKey, suggestions);
+      } else if (trigger === '!') {
+        // For ! trigger, find the last @Character and show their looks
+        const lastCharRef = textBeforeTrigger ? findLastCharacterRef(textBeforeTrigger) : null;
+
+        if (!lastCharRef) {
+          // No character found, return empty
+          setCurrentCharacterForLooks(null);
+          setIsLoading(false);
+          return [];
+        }
+
+        // First try to get characters from cache, otherwise fetch
+        const cacheKey = `${projectId}-@`;
+        let characters: MentionSuggestion[] | null = getCachedSuggestions(cacheKey);
+
+        if (!characters) {
+          // Fetch and cache characters with their looks
+          const res = await fetch(`/api/projects/${projectId}/assets`);
+          if (res.ok) {
+            const data = await res.json();
+            const assets = data.assets || [];
+
+            const fetchedCharacters: MentionSuggestion[] = assets
+              .filter((a: any) => a.asset_type === 'character')
+              .map((a: any) => ({
+                id: a.id,
+                reference: generateReference(a.name, '@'),
+                name: a.name,
+                type: 'character' as const,
+                image: a.reference_images?.[0],
+                description: a.data?.visual_description,
+                looks: a.data?.looks || [],
+              }));
+            setCachedSuggestions(cacheKey, fetchedCharacters);
+            characters = fetchedCharacters;
+          }
+        }
+
+        if (characters && characters.length > 0) {
+          // Find the character matching the last @reference
+          const matchingChar = characters.find(
+            (c) => c.reference.toLowerCase() === lastCharRef.toLowerCase()
+          );
+
+          if (matchingChar && matchingChar.looks && matchingChar.looks.length > 0) {
+            // Set the character name for the dropdown header
+            setCurrentCharacterForLooks(matchingChar.name);
+
+            // Return that character's looks as suggestions
+            suggestions = matchingChar.looks.map((look, idx) => ({
+              id: `${matchingChar.id}-look-${idx}`,
+              reference: generateReference(look.name, '!'),
+              name: look.name,
+              type: 'reference' as const,
+              image: look.imageUrl,
+              description: look.description,
+            }));
+          } else {
+            setCurrentCharacterForLooks(null);
+          }
+        } else {
+          setCurrentCharacterForLooks(null);
         }
       }
 
-      setCachedSuggestions(cacheKey, suggestions);
       return suggestions;
     } catch (error) {
       console.error('Error fetching suggestions:', error);
@@ -200,7 +274,7 @@ export function MentionInput({
     } finally {
       setIsLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, findLastCharacterRef]);
 
   // Generate reference name from display name
   const generateReference = (name: string, prefix: TriggerChar): string => {
@@ -314,8 +388,9 @@ export function MentionInput({
       setSelectedIndex(0);
       setIsOpen(true);
 
-      // Fetch suggestions if not cached
-      fetchSuggestions(lastTrigger).then(setSuggestions);
+      // Fetch suggestions - pass text before trigger for ! to find last @Character
+      const textBeforeTrigger = newValue.slice(0, lastTriggerIndex);
+      fetchSuggestions(lastTrigger, textBeforeTrigger).then(setSuggestions);
     } else {
       setIsOpen(false);
       setTriggerChar(null);
@@ -332,6 +407,7 @@ export function MentionInput({
     setSearchQuery('');
     setSuggestions([]);
     setSelectedIndex(0);
+    setCurrentCharacterForLooks(null);
   }, []);
 
   // Handle suggestion selection
@@ -514,7 +590,9 @@ export function MentionInput({
             )}>
               <config.icon className={cn('w-4 h-4', config.color)} />
               <span className={cn('text-xs font-medium', config.color)}>
-                {config.label}
+                {triggerChar === '!' && currentCharacterForLooks
+                  ? `Looks de ${currentCharacterForLooks}`
+                  : config.label}
               </span>
               {isLoading && (
                 <Loader2 className="w-3 h-3 animate-spin text-slate-400 ml-auto" />
@@ -550,10 +628,11 @@ export function MentionInput({
                   >
                     {/* Image or Icon */}
                     {suggestion.image ? (
-                      <StorageImg
+                      <StorageThumbnail
                         src={suggestion.image}
                         alt={suggestion.name}
-                        className="w-8 h-8 rounded object-cover flex-shrink-0"
+                        size={32}
+                        className="rounded flex-shrink-0"
                       />
                     ) : (
                       <div className={cn(

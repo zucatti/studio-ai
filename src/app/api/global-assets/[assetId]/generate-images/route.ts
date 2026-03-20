@@ -27,6 +27,7 @@ const MODEL_CONFIG: Record<string, {
   description: string;
   supportsReference: boolean;
   aspectRatioParam: string; // How aspect ratio is passed to the API
+  falEndpoint?: string; // Optional: different fal.ai endpoint
 }> = {
   'fal-ai/nano-banana-2': {
     name: 'Nano Banana 2',
@@ -34,11 +35,19 @@ const MODEL_CONFIG: Record<string, {
     supportsReference: false,
     aspectRatioParam: 'aspect_ratio', // supports: auto, 21:9, 16:9, 3:2, 4:3, 5:4, 1:1, 4:5, 3:4, 2:3, 9:16
   },
-  'fal-ai/flux-pro/v1.1': {
-    name: 'Flux Pro 1.1',
-    description: 'Black Forest Labs - Très haute qualité',
-    supportsReference: false,
-    aspectRatioParam: 'image_size',
+  'seedream-5': {
+    name: 'Seedream 5',
+    description: 'ByteDance - Excellente consistance de personnage',
+    supportsReference: true,
+    aspectRatioParam: 'aspect_ratio',
+    falEndpoint: 'fal-ai/bytedance/seedream/v5/lite',
+  },
+  'kling-o1': {
+    name: 'Kling O1',
+    description: 'Kling - Haute qualité avec éléments de référence',
+    supportsReference: true,
+    aspectRatioParam: 'aspect_ratio',
+    falEndpoint: 'fal-ai/kling-image/o1',
   },
   'fal-ai/ideogram/character': {
     name: 'Ideogram Character',
@@ -393,19 +402,33 @@ export async function POST(request: Request, { params }: RouteParams) {
       return `b2://${STORAGE_BUCKET}/${storageKey}`;
     };
 
+    // Get the actual fal.ai endpoint for a model
+    const getFalEndpoint = (model: string): string => {
+      const config = MODEL_CONFIG[model];
+      return config?.falEndpoint || model;
+    };
+
     // Helper to build text-to-image input based on model
     const buildTextToImageInput = (prompt: string) => {
-      if (textToImageModel === 'fal-ai/flux-pro/v1.1') {
-        // Flux Pro uses image_size parameter
+      const imageResolution = resolution || styleConfig.resolution;
+
+      if (textToImageModel === 'seedream-5') {
+        // Seedream 5 uses aspect_ratio
         return {
           prompt,
-          image_size: 'portrait_4_3', // Flux Pro format
+          aspect_ratio: '3:4', // Portrait format
+          num_images: 1,
+          output_format: 'png',
+        };
+      } else if (textToImageModel === 'kling-o1') {
+        // Kling O1 uses aspect_ratio
+        return {
+          prompt,
+          aspect_ratio: '3:4', // Portrait format
           num_images: 1,
         };
       } else {
         // Nano Banana 2 uses aspect_ratio and image_resolution
-        // Use resolution from request body, fallback to style config
-        const imageResolution = resolution || styleConfig.resolution;
         return {
           prompt,
           aspect_ratio: '3:4', // Portrait format
@@ -434,7 +457,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         console.log(`Step 1: Generating front view with ${MODEL_CONFIG[textToImageModel]?.name || textToImageModel}...`);
         const frontPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, front view, facing camera, full body portrait, standing pose${styleConfig.promptSuffix}`;
 
-        const frontResult = await fal.subscribe(textToImageModel, {
+        const frontResult = await fal.subscribe(getFalEndpoint(textToImageModel), {
           input: buildTextToImageInput(frontPrompt),
           logs: true,
         });
@@ -688,7 +711,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           }
 
           // Use selected model for text-to-image generation
-          const result = await fal.subscribe(textToImageModel, {
+          const result = await fal.subscribe(getFalEndpoint(textToImageModel), {
             input: buildTextToImageInput(viewPrompt),
             logs: true,
           });
@@ -746,7 +769,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           lookImageUrl = (result.data as any)?.images?.[0]?.url;
         } else {
           // Generate without reference - use selected model
-          const result = await fal.subscribe(textToImageModel, {
+          const result = await fal.subscribe(getFalEndpoint(textToImageModel), {
             input: buildTextToImageInput(fullPrompt),
             logs: true,
           });

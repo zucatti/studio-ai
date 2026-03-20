@@ -12,6 +12,15 @@ interface StorageImageProps extends Omit<ImageProps, 'src'> {
   showLoader?: boolean;
 }
 
+// Thumbnail size presets
+export type ThumbnailSize = 'xs' | 'sm' | 'md' | 'lg';
+const THUMBNAIL_SIZES: Record<ThumbnailSize, number> = {
+  xs: 48,   // 48x48 - tiny avatars
+  sm: 80,   // 80x80 - small cards
+  md: 160,  // 160x160 - medium cards
+  lg: 320,  // 320x320 - large previews
+};
+
 /**
  * Image component that automatically handles B2 storage URLs
  * Resolves b2:// URLs to signed URLs before rendering
@@ -300,6 +309,88 @@ export function StorageBackgroundDiv({
     >
       {children}
     </div>
+  );
+}
+
+/**
+ * Optimized thumbnail component using Next.js Image
+ * Automatically resizes images for better performance
+ */
+export function StorageThumbnail({
+  src,
+  size = 'sm',
+  alt,
+  className,
+  fallback,
+  objectFit = 'cover',
+  objectPosition = 'center top',
+}: {
+  src: string | null | undefined;
+  size?: ThumbnailSize | number;
+  alt?: string;
+  className?: string;
+  fallback?: React.ReactNode;
+  objectFit?: 'cover' | 'contain' | 'fill';
+  objectPosition?: string;
+}) {
+  const { signedUrl, isLoading, error } = useSignedUrl(src);
+  const [imageError, setImageError] = useState(false);
+
+  const dimension = typeof size === 'number' ? size : THUMBNAIL_SIZES[size];
+
+  // Show loading state
+  if (isLoading && isB2Url(src)) {
+    return (
+      <div
+        className={cn(
+          'animate-pulse bg-slate-700/50 rounded',
+          className
+        )}
+        style={{ width: dimension, height: dimension }}
+      />
+    );
+  }
+
+  // Show fallback on error
+  if (error || imageError || !signedUrl) {
+    if (fallback) {
+      return <>{fallback}</>;
+    }
+    return (
+      <div
+        className={cn(
+          'bg-slate-800 rounded flex items-center justify-center text-slate-500',
+          className
+        )}
+        style={{ width: dimension, height: dimension }}
+      >
+        <svg
+          className="w-1/3 h-1/3"
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={1.5}
+            d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+          />
+        </svg>
+      </div>
+    );
+  }
+
+  return (
+    <Image
+      src={signedUrl}
+      alt={alt || ''}
+      width={dimension}
+      height={dimension}
+      className={className}
+      style={{ objectFit, objectPosition }}
+      onError={() => setImageError(true)}
+    />
   );
 }
 

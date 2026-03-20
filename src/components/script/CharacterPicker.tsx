@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { User, ChevronDown, Plus, Users, Mic, Baby, Radio, BookOpen } from 'lucide-react';
-import { StorageImg } from '@/components/ui/storage-image';
+import { StorageThumbnail } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import {
   Popover,
@@ -169,10 +169,12 @@ export function CharacterPicker({
                   )}
                 >
                   {character.data?.reference_images?.[0] ? (
-                    <StorageImg
+                    <StorageThumbnail
                       src={character.data.reference_images[0]}
                       alt={character.name}
-                      className="w-8 h-8 rounded-full object-cover object-top pointer-events-none"
+                      size={32}
+                      className="rounded-full pointer-events-none"
+                      objectPosition="center top"
                     />
                   ) : (
                     <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center pointer-events-none">

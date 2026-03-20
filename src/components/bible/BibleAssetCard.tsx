@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
-import { User, MapPin, Package, Music, MoreVertical, Trash2, Edit, Plus, Check, AtSign, Hash, Copy, Wand2, Upload, Loader2 } from 'lucide-react';
-import { StorageImg } from '@/components/ui/storage-image';
+import { useState, useRef, useEffect, useCallback } from 'react';
+import { User, MapPin, Package, Music, MoreVertical, Trash2, Edit, Plus, Check, AtSign, Hash, Copy, Wand2, Upload, Loader2, Play, Pause, Volume2 } from 'lucide-react';
+import { StorageThumbnail } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -23,7 +23,25 @@ import {
 import type { GlobalAssetType } from '@/types/database';
 import { cn } from '@/lib/utils';
 import { generateReferenceName, getReferencePrefix } from '@/lib/reference-name';
-import type { CharacterImageType } from '@/store/bible-store';
+import type { CharacterImageType, AudioData, AudioType } from '@/store/bible-store';
+import { getSignedUrl, isB2Url } from '@/hooks/use-signed-url';
+
+// Audio type labels
+const AUDIO_TYPE_LABELS: Record<AudioType, string> = {
+  music: 'Musique',
+  sfx: 'SFX',
+  dialogue: 'Dialogue',
+  ambiance: 'Ambiance',
+  foley: 'Foley',
+  voiceover: 'Voix-off',
+};
+
+// Format duration as mm:ss
+function formatDuration(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
 
 // Minimal asset interface - works with both GlobalAsset and ProjectAssetFlat
 interface AssetLike {
@@ -67,7 +85,7 @@ const ASSET_COLORS: Record<GlobalAssetType, string> = {
   character: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   location: 'bg-green-500/20 text-green-400 border-green-500/30',
   prop: 'bg-orange-500/20 text-orange-400 border-orange-500/30',
-  audio: 'bg-purple-500/20 text-purple-400 border-purple-500/30',
+  audio: 'bg-slate-700/50 text-blue-400 border-slate-600/50',
 };
 
 export function BibleAssetCard({
@@ -86,6 +104,18 @@ export function BibleAssetCard({
 }: BibleAssetCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Cleanup audio on unmount
+  useEffect(() => {
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+        audioRef.current = null;
+      }
+    };
+  }, []);
 
   // Check if character has a face image (required for generation)
   const data = asset.data as Record<string, unknown>;
@@ -113,6 +143,71 @@ export function BibleAssetCard({
     await navigator.clipboard.writeText(referenceName);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Audio playback for audio assets
+  const audioData = asset.asset_type === 'audio' ? (data as AudioData) : null;
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(audioData?.duration || 0);
+
+  const updateProgress = useCallback(() => {
+    if (audioRef.current) {
+      setAudioProgress(audioRef.current.currentTime);
+      if (audioRef.current.duration && !isNaN(audioRef.current.duration)) {
+        setAudioDuration(audioRef.current.duration);
+      }
+    }
+  }, []);
+
+  const toggleAudioPlay = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!audioData?.fileUrl) return;
+
+    // If already playing, just pause
+    if (isAudioPlaying && audioRef.current) {
+      audioRef.current.pause();
+      setIsAudioPlaying(false);
+      return;
+    }
+
+    // Get signed URL if needed
+    setIsLoadingAudio(true);
+    try {
+      const playUrl = isB2Url(audioData.fileUrl)
+        ? await getSignedUrl(audioData.fileUrl)
+        : audioData.fileUrl;
+
+      if (!audioRef.current || audioRef.current.src !== playUrl) {
+        audioRef.current = new Audio(playUrl);
+        audioRef.current.onended = () => {
+          setIsAudioPlaying(false);
+          setAudioProgress(0);
+        };
+        audioRef.current.ontimeupdate = updateProgress;
+        audioRef.current.onloadedmetadata = () => {
+          if (audioRef.current?.duration) {
+            setAudioDuration(audioRef.current.duration);
+          }
+        };
+      }
+
+      await audioRef.current.play();
+      setIsAudioPlaying(true);
+    } catch (err) {
+      console.error('Error playing audio:', err);
+    } finally {
+      setIsLoadingAudio(false);
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    e.stopPropagation();
+    const time = parseFloat(e.target.value);
+    setAudioProgress(time);
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+    }
   };
 
   if (compact) {
@@ -144,6 +239,156 @@ export function BibleAssetCard({
     }
   };
 
+  // Specialized audio card
+  if (asset.asset_type === 'audio' && audioData) {
+    return (
+      <div
+        className={cn(
+          'relative rounded-lg border border-white/10 bg-slate-800/30 overflow-hidden transition-all',
+          'hover:bg-slate-800/50',
+          isHovered && 'ring-1 ring-blue-500/30',
+        )}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <div className="p-3">
+          {/* Top row: play button, name, hashtag & menu */}
+          <div className="flex items-center gap-3 mb-2">
+            {/* Play/Pause button */}
+            <button
+              onClick={toggleAudioPlay}
+              disabled={isLoadingAudio}
+              className={cn(
+                'w-10 h-10 rounded-full flex items-center justify-center transition-all flex-shrink-0',
+                'bg-blue-600 hover:bg-blue-500 text-white',
+                'hover:scale-105 active:scale-95',
+                isLoadingAudio && 'opacity-50 cursor-wait'
+              )}
+            >
+              {isLoadingAudio ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : isAudioPlaying ? (
+                <Pause className="w-5 h-5" />
+              ) : (
+                <Play className="w-5 h-5 ml-0.5" />
+              )}
+            </button>
+
+            {/* Name */}
+            <h4 className="flex-1 font-medium text-white text-sm truncate">{asset.name}</h4>
+
+            {/* Right side: hashtag + menu */}
+            <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Reference hashtag - green */}
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleCopyReference(); }}
+                      className="flex items-center gap-0.5 px-1.5 py-1 rounded text-xs text-green-400 hover:text-green-300 hover:bg-white/5 transition-colors"
+                    >
+                      <Hash className="w-3 h-3" />
+                      <span className="font-mono text-[10px]">{referenceName.slice(1)}</span>
+                      {copied && <Check className="w-3 h-3 text-green-400 ml-0.5" />}
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="bg-[#1a2433] border-white/10">
+                    <p className="text-xs">{copied ? 'Copié !' : 'Copier la référence'}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+
+              {/* 3-dot menu */}
+              {(onEdit || onDelete) && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={(e) => e.stopPropagation()}
+                      className="h-7 w-7 text-slate-400 hover:text-white"
+                    >
+                      <MoreVertical className="w-4 h-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="bg-[#1a2433] border-white/10">
+                    {onEdit && (
+                      <DropdownMenuItem
+                        onClick={onEdit}
+                        className="text-slate-300 focus:text-white focus:bg-white/5"
+                      >
+                        <Edit className="w-4 h-4 mr-2" />
+                        Modifier
+                      </DropdownMenuItem>
+                    )}
+                    {onDelete && (
+                      <>
+                        <DropdownMenuSeparator className="bg-white/10" />
+                        <DropdownMenuItem
+                          onClick={onDelete}
+                          className="text-red-400 focus:text-red-300 focus:bg-red-500/10"
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Supprimer
+                        </DropdownMenuItem>
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
+            </div>
+          </div>
+
+          {/* Progress slider */}
+          <div className="flex items-center gap-2 mb-2">
+            <div className="flex-1 relative h-1.5 group">
+              <div className="h-full bg-white/10 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-blue-500 rounded-full transition-all"
+                  style={{ width: `${audioDuration > 0 ? (audioProgress / audioDuration) * 100 : 0}%` }}
+                />
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={audioDuration || 100}
+                value={audioProgress}
+                onChange={handleSeek}
+                onClick={(e) => e.stopPropagation()}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              />
+            </div>
+            <span className="text-[10px] text-slate-500 tabular-nums flex-shrink-0">
+              {formatDuration(audioProgress)} / {formatDuration(audioDuration)}
+            </span>
+          </div>
+
+          {/* Description */}
+          {audioData.description && (
+            <p className="text-xs text-slate-400 line-clamp-2 mb-2">{audioData.description}</p>
+          )}
+
+          {/* Tags */}
+          {asset.tags && asset.tags.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {asset.tags.slice(0, 4).map((tag, idx) => (
+                <span
+                  key={idx}
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-white/10 text-slate-400"
+                >
+                  {tag}
+                </span>
+              ))}
+              {asset.tags.length > 4 && (
+                <span className="text-[10px] text-slate-500">+{asset.tags.length - 4}</span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -158,6 +403,7 @@ export function BibleAssetCard({
     >
       {/* Header */}
       <div className="flex items-start gap-3 p-3">
+        {/* Icon */}
         <div className={cn('p-2 rounded-lg border', colorClass)}>
           <Icon className="w-4 h-4" />
         </div>
@@ -314,11 +560,13 @@ export function BibleAssetCard({
         <div className="px-3 pb-3">
           <div className="flex gap-1 overflow-x-auto">
             {asset.reference_images.slice(0, 3).map((img, idx) => (
-              <StorageImg
+              <StorageThumbnail
                 key={idx}
                 src={img}
                 alt={`${asset.name} reference ${idx + 1}`}
-                className="w-12 h-12 rounded object-cover object-top flex-shrink-0"
+                size="xs"
+                className="rounded flex-shrink-0"
+                objectPosition="center top"
               />
             ))}
             {asset.reference_images.length > 3 && (

@@ -1,29 +1,25 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { logFalUsage } from '@/lib/ai/log-api-usage';
 import { getPublicImageUrl } from '@/lib/fal-utils';
+import { createPiapiWrapper, type VideoModel } from '@/lib/ai/piapi-wrapper';
 
 interface RouteParams {
   params: Promise<{ projectId: string; shotId: string }>;
 }
 
-interface Dialogue {
-  id: string;
-  character_name: string;
-  content: string;
-  parenthetical: string | null;
-  sort_order: number;
-}
+// Video models available through PiAPI
+const VIDEO_MODELS: VideoModel[] = [
+  'kling-omni',
+  'seedance-2',
+  'sora-2',
+  'veo-3',
+  'kling-2',
+  'wan-2.1',
+  'hunyuan',
+];
 
-// Video providers available through fal.ai
-const VIDEO_PROVIDERS = ['kling', 'wan', 'sora', 'veo', 'avatar'] as const;
-type VideoProvider = typeof VIDEO_PROVIDERS[number];
-
-// Lip sync model for vocal shots
-const KLING_AVATAR_MODEL = 'fal-ai/kling-avatar/v2/pro';
-
-// Generate video for a shot using Higgsfield (Kling, WAN, Sora, Veo)
+// Generate video for a shot using PiAPI (Kling Omni, Seedance 2, Sora 2, Veo 3, etc.)
 export async function POST(request: Request, { params }: RouteParams) {
   try {
     const session = await auth0.getSession();
@@ -33,34 +29,25 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const { projectId, shotId } = await params;
     const body = await request.json();
-    const { duration, enableAudio = true } = body;
+    const { duration, model: requestedModel } = body;
 
-    // Map legacy providers to new ones
-    let provider = body.provider || 'kling';
-    const legacyProviderMap: Record<string, string> = {
-      'runway': 'kling',
-      'runwayml': 'kling',
-    };
-    if (legacyProviderMap[provider]) {
-      provider = legacyProviderMap[provider];
-    }
-
-    // Validate provider
-    if (!VIDEO_PROVIDERS.includes(provider as any)) {
-      return NextResponse.json({ error: 'Invalid provider. Use: kling, wan, sora, or veo' }, { status: 400 });
+    // Get video model (default to kling-omni)
+    let videoModel: VideoModel = 'kling-omni';
+    if (requestedModel && VIDEO_MODELS.includes(requestedModel as VideoModel)) {
+      videoModel = requestedModel as VideoModel;
     }
 
     const supabase = createServerSupabaseClient();
 
-    // Check fal.ai API key
-    if (!process.env.AI_FAL_KEY) {
-      return NextResponse.json({ error: 'fal.ai API not configured (AI_FAL_KEY)' }, { status: 500 });
+    // Check PiAPI key
+    if (!process.env.AI_PIAPI_KEY) {
+      return NextResponse.json({ error: 'PiAPI not configured (AI_PIAPI_KEY)' }, { status: 500 });
     }
 
     // Verify project ownership
     const { data: project, error: projectError } = await supabase
       .from('projects')
-      .select('id, audio_url')
+      .select('id, aspect_ratio')
       .eq('id', projectId)
       .eq('user_id', session.user.sub)
       .single();
@@ -70,7 +57,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Get shot (simplified query - removed singing_character join that may not exist)
+    // Get shot
     const { data: shot, error: shotError } = await supabase
       .from('shots')
       .select('*')
@@ -82,9 +69,6 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Shot not found' }, { status: 404 });
     }
 
-    // Lip sync is disabled until audio_url column is added to projects table
-    const isLipSyncShot = false; // shot.has_vocals && shot.lip_sync_enabled;
-
     // Validate frames exist
     if (!shot.first_frame_url) {
       return NextResponse.json(
@@ -93,111 +77,125 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    // For non-lip sync shots, we need both frames for interpolation
-    if (!isLipSyncShot && !shot.last_frame_url) {
+    // For video interpolation, we need both frames
+    if (!shot.last_frame_url) {
       return NextResponse.json(
         { error: 'Last frame is required for video interpolation' },
         { status: 400 }
       );
     }
 
-    // Fetch dialogues for this shot (for Kling native audio)
-    const { data: dialogues } = await supabase
-      .from('dialogues')
-      .select('id, character_name, content, parenthetical, sort_order')
-      .eq('shot_id', shotId)
-      .order('sort_order');
-
     const videoDuration = duration || shot.suggested_duration || 5;
-
-    // Determine effective provider based on lip sync
-    const effectiveProvider = isLipSyncShot ? 'avatar' : (provider as VideoProvider);
 
     // Update status
     await supabase
       .from('shots')
       .update({
         generation_status: 'generating',
-        video_provider: effectiveProvider,
+        video_provider: videoModel,
         video_duration: videoDuration,
         video_generation_progress: JSON.stringify({
           status: 'starting',
           progress: 0,
-          mode: isLipSyncShot ? 'lip_sync' : 'interpolation',
+          model: videoModel,
         }),
       })
       .eq('id', shotId);
 
-    // Generate video using appropriate model
-    let result;
+    // Get public URLs for the images
+    const firstFrameUrl = await getPublicImageUrl(shot.first_frame_url);
+    const lastFrameUrl = await getPublicImageUrl(shot.last_frame_url);
 
-    if (isLipSyncShot) {
-      // Use Kling Avatar for lip sync
-      result = await generateWithLipSync(
-        shot,
-        project.audio_url,
-        videoDuration,
-        supabase,
-        shotId
-      );
-    } else {
-      // Use standard interpolation (Kling v3)
-      result = await generateWithFal(
-        shot,
-        videoDuration,
-        provider as VideoProvider,
-        supabase,
-        shotId,
-        (dialogues as Dialogue[]) || []
-      );
-    }
+    // Map aspect ratio
+    const aspectRatioMap: Record<string, '9:16' | '16:9' | '1:1'> = {
+      '9:16': '9:16',
+      '16:9': '16:9',
+      '1:1': '1:1',
+      '4:5': '9:16',
+      '2:3': '9:16',
+      '21:9': '16:9',
+    };
+    const aspectRatio = aspectRatioMap[project.aspect_ratio] || '16:9';
 
-    if (result.error) {
+    // Create PiAPI wrapper
+    const piapi = createPiapiWrapper({
+      userId: session.user.sub,
+      projectId,
+      supabase,
+      operation: 'generate-video',
+    });
+
+    // Generate video with PiAPI
+    console.log(`[generate-video] Starting with model: ${videoModel}`);
+    console.log(`[generate-video] First frame: ${firstFrameUrl}`);
+    console.log(`[generate-video] Last frame: ${lastFrameUrl}`);
+    console.log(`[generate-video] Duration: ${videoDuration}s, Aspect ratio: ${aspectRatio}`);
+
+    const result = await piapi.generateVideo({
+      model: videoModel,
+      prompt: shot.description || 'Smooth cinematic motion',
+      first_frame_url: firstFrameUrl,
+      last_frame_url: lastFrameUrl,
+      duration: videoDuration,
+      aspect_ratio: aspectRatio,
+    });
+
+    // Check if task was created (PiAPI is async)
+    if (!result.taskId) {
       await supabase
         .from('shots')
         .update({
           generation_status: 'failed',
-          generation_error: result.error,
+          generation_error: 'No task ID returned from PiAPI',
         })
         .eq('id', shotId);
 
-      return NextResponse.json({ error: result.error }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to start video generation' }, { status: 500 });
     }
 
-    // Update with video URL
+    // Update with task ID - video will be polled for completion
     await supabase
       .from('shots')
       .update({
-        generated_video_url: result.videoUrl,
-        generation_status: 'completed',
-        video_generation_id: result.generationId,
-        video_generation_progress: JSON.stringify({ status: 'completed', progress: 100 }),
+        video_generation_id: result.taskId,
+        video_generation_progress: JSON.stringify({
+          status: 'processing',
+          progress: 10,
+          model: videoModel,
+          taskId: result.taskId,
+        }),
       })
       .eq('id', shotId);
 
-    // Log fal.ai usage for video generation
-    const falModel = isLipSyncShot
-      ? KLING_AVATAR_MODEL
-      : `fal-ai/kling-video/v3/${provider === 'kling' || provider === 'veo' ? 'pro' : 'standard'}/image-to-video`;
-    logFalUsage({
-      operation: 'generate-video',
-      model: falModel,
-      videoDuration: videoDuration,
-      projectId,
-    }).catch(console.error);
+    // If the result already has video URL (synchronous response)
+    if (result.result.video_url) {
+      await supabase
+        .from('shots')
+        .update({
+          generated_video_url: result.result.video_url,
+          generation_status: 'completed',
+          video_generation_progress: JSON.stringify({ status: 'completed', progress: 100 }),
+        })
+        .eq('id', shotId);
 
+      return NextResponse.json({
+        success: true,
+        videoUrl: result.result.video_url,
+        model: videoModel,
+        duration: videoDuration,
+        cost: result.cost,
+      });
+    }
+
+    // Video generation is async - return task ID for polling
     return NextResponse.json({
       success: true,
-      videoUrl: result.videoUrl,
-      provider: effectiveProvider,
+      taskId: result.taskId,
+      model: videoModel,
       duration: videoDuration,
-      mode: isLipSyncShot ? 'lip_sync' : 'interpolation',
-      lipSync: isLipSyncShot ? {
-        characterId: shot.singing_character_id,
-        characterName: shot.singing_character?.name,
-      } : null,
-      audioEnabled: enableAudio && provider === 'kling' && (dialogues?.length || 0) > 0,
-      dialoguesCount: dialogues?.length || 0,
+      cost: result.cost,
+      status: 'processing',
+      message: 'Video generation started. Poll /api/projects/{projectId}/shots/{shotId}/generate-video for status.',
     });
   } catch (error) {
     console.error('Error generating video:', error);
@@ -205,249 +203,6 @@ export async function POST(request: Request, { params }: RouteParams) {
       { error: 'Failed to generate video: ' + String(error) },
       { status: 500 }
     );
-  }
-}
-
-// Build prompt with dialogue and voice markers for Kling native audio
-function buildPromptWithDialogues(
-  baseDescription: string,
-  dialogues: Dialogue[],
-  enableAudio: boolean
-): string {
-  if (!enableAudio || dialogues.length === 0) {
-    return baseDescription || 'Smooth cinematic motion';
-  }
-
-  // Create unique voice mapping for each character
-  const characterVoiceMap = new Map<string, number>();
-  let voiceIndex = 1;
-
-  dialogues.forEach(d => {
-    if (!characterVoiceMap.has(d.character_name)) {
-      characterVoiceMap.set(d.character_name, voiceIndex++);
-    }
-  });
-
-  // Build prompt with dialogue and voice markers
-  // Format: "Description. CHARACTER_NAME says: <<<voice_N>>>"dialogue"<<<voice_N>>>"
-  let prompt = baseDescription || '';
-
-  const dialogueLines = dialogues.map(d => {
-    const voiceId = characterVoiceMap.get(d.character_name) || 1;
-    const voiceMarker = `<<<voice_${voiceId}>>>`;
-    const parenthetical = d.parenthetical ? ` (${d.parenthetical})` : '';
-    return `${d.character_name}${parenthetical} says: ${voiceMarker}"${d.content}"${voiceMarker}`;
-  });
-
-  if (dialogueLines.length > 0) {
-    prompt += '. ' + dialogueLines.join('. ');
-  }
-
-  return prompt;
-}
-
-
-// Generate video with lip sync using Kling Avatar v2 Pro
-async function generateWithLipSync(
-  shot: any,
-  audioUrl: string,
-  duration: number,
-  supabase: any,
-  shotId: string
-): Promise<{ videoUrl?: string; generationId?: string; error?: string }> {
-  try {
-    const { fal } = await import('@fal-ai/client');
-
-    fal.config({
-      credentials: process.env.AI_FAL_KEY,
-    });
-
-    console.log(`Generating lip sync video with Kling Avatar v2 Pro...`);
-    console.log(`Image: ${shot.first_frame_url}`);
-    console.log(`Audio: ${audioUrl}`);
-
-    // Get a public URL for the image (converts B2 to signed URLs)
-    const imageUrl = await getPublicImageUrl(shot.first_frame_url);
-
-    // Build input for Kling Avatar
-    // Note: The model expects a face image and audio, and generates a talking head video
-    const input: Record<string, any> = {
-      face_image_url: imageUrl,
-      audio_url: audioUrl,
-    };
-
-    // If shot has specific time range, we could add timestamps
-    // For now, we use the full audio (model will handle it)
-    // In the future, we could extract audio segments using ffmpeg
-
-    console.log('Kling Avatar input:', JSON.stringify(input, null, 2));
-
-    // Subscribe to Kling Avatar generation
-    const result = await fal.subscribe(KLING_AVATAR_MODEL, {
-      input,
-      logs: true,
-      onQueueUpdate: async (update) => {
-        if (update.status === 'IN_PROGRESS') {
-          await supabase
-            .from('shots')
-            .update({
-              video_generation_progress: JSON.stringify({
-                status: 'generating',
-                progress: 50,
-                mode: 'lip_sync',
-              }),
-            })
-            .eq('id', shotId);
-        }
-      },
-    });
-
-    const generationId = result.requestId;
-
-    // Update progress
-    await supabase
-      .from('shots')
-      .update({
-        video_generation_progress: JSON.stringify({
-          status: 'completed',
-          progress: 100,
-          mode: 'lip_sync',
-        }),
-      })
-      .eq('id', shotId);
-
-    // Get video URL from result
-    const videoUrl = result.data?.video?.url;
-    if (!videoUrl) {
-      return { error: 'No video URL in lip sync response' };
-    }
-
-    return {
-      videoUrl,
-      generationId,
-    };
-  } catch (error: any) {
-    console.error('Kling Avatar lip sync error:', {
-      message: error.message,
-      body: error.body,
-      status: error.status,
-      detail: error.detail,
-    });
-    const errorMsg = error.body?.detail || error.message || String(error);
-    return { error: `Lip sync failed: ${errorMsg}` };
-  }
-}
-
-async function generateWithFal(
-  shot: any,
-  duration: number,
-  provider: VideoProvider,
-  supabase: any,
-  shotId: string,
-  dialogues: Dialogue[]
-): Promise<{ videoUrl?: string; generationId?: string; error?: string }> {
-  try {
-    const { fal } = await import('@fal-ai/client');
-
-    // Configure fal.ai with API key
-    fal.config({
-      credentials: process.env.AI_FAL_KEY,
-    });
-
-    // Map provider to fal.ai Kling model versions (upgraded to v3)
-    const modelMap: Record<VideoProvider, string> = {
-      kling: 'fal-ai/kling-video/v3/pro/image-to-video',        // Pro quality (Kling 3)
-      sora: 'fal-ai/kling-video/v3/standard/image-to-video',    // Standard (Kling 3)
-      wan: 'fal-ai/kling-video/v3/standard/image-to-video',     // Standard (Kling 3)
-      veo: 'fal-ai/kling-video/v3/pro/image-to-video',          // Pro quality (Kling 3)
-      avatar: KLING_AVATAR_MODEL,                                // Lip sync (Avatar v2 Pro)
-    };
-
-    const model = modelMap[provider];
-
-    console.log(`Generating video with fal.ai (${provider} → ${model})...`);
-    console.log(`First frame: ${shot.first_frame_url}`);
-    console.log(`Last frame: ${shot.last_frame_url}`);
-
-    // Get public URLs for the images (converts B2 to signed URLs)
-    const firstFrameUrl = await getPublicImageUrl(shot.first_frame_url);
-    const lastFrameUrl = shot.last_frame_url
-      ? await getPublicImageUrl(shot.last_frame_url)
-      : null;
-
-    // Build prompt with dialogues
-    const prompt = buildPromptWithDialogues(shot.description, dialogues, false);
-
-    // Ensure duration is valid ("5" or "10")
-    const videoDuration = duration >= 7.5 ? '10' : '5';
-
-    // Build input object for Kling v3
-    const input: Record<string, any> = {
-      prompt: prompt || 'Smooth cinematic motion between frames',
-      start_image_url: firstFrameUrl, // Kling 3 uses start_image_url
-      duration: videoDuration,
-      aspect_ratio: '16:9',
-      generate_audio: false, // Disable audio generation
-    };
-
-    // Add end image only if available (Kling 3 uses end_image_url)
-    if (lastFrameUrl) {
-      input.end_image_url = lastFrameUrl;
-    }
-
-    console.log('fal.ai input:', JSON.stringify(input, null, 2));
-
-    // Subscribe to fal.ai Kling with start and end frames
-    const result = await fal.subscribe(model, {
-      input,
-      logs: true,
-      onQueueUpdate: async (update) => {
-        if (update.status === 'IN_PROGRESS') {
-          await supabase
-            .from('shots')
-            .update({
-              video_generation_progress: JSON.stringify({
-                status: 'generating',
-                progress: 50,
-              }),
-            })
-            .eq('id', shotId);
-        }
-      },
-    });
-
-    const generationId = result.requestId;
-
-    // Update progress
-    await supabase
-      .from('shots')
-      .update({
-        video_generation_progress: JSON.stringify({
-          status: 'completed',
-          progress: 100,
-        }),
-      })
-      .eq('id', shotId);
-
-    // Get video URL from result
-    const videoUrl = result.data?.video?.url;
-    if (!videoUrl) {
-      return { error: 'No video URL in response' };
-    }
-
-    return {
-      videoUrl,
-      generationId,
-    };
-  } catch (error: any) {
-    console.error('fal.ai video generation error:', {
-      message: error.message,
-      body: error.body,
-      status: error.status,
-      detail: error.detail,
-    });
-    const errorMsg = error.body?.detail || error.message || String(error);
-    return { error: errorMsg };
   }
 }
 
@@ -459,17 +214,81 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
-    const { shotId } = await params;
+    const { projectId, shotId } = await params;
     const supabase = createServerSupabaseClient();
 
     const { data: shot } = await supabase
       .from('shots')
-      .select('generation_status, video_generation_progress, generated_video_url, generation_error')
+      .select('generation_status, video_generation_progress, generated_video_url, generation_error, video_generation_id')
       .eq('id', shotId)
       .single();
 
     if (!shot) {
       return NextResponse.json({ error: 'Shot not found' }, { status: 404 });
+    }
+
+    // If video is already completed or failed, return status
+    if (shot.generation_status === 'completed' || shot.generation_status === 'failed') {
+      return NextResponse.json(shot);
+    }
+
+    // If we have a task ID, poll PiAPI for status
+    if (shot.video_generation_id && process.env.AI_PIAPI_KEY) {
+      try {
+        const piapi = createPiapiWrapper({
+          userId: session.user.sub,
+          projectId,
+          supabase,
+          operation: 'check-video-status',
+        });
+
+        const taskResult = await piapi.getVideoTask(shot.video_generation_id);
+
+        if (taskResult.status === 'completed' && taskResult.video_url) {
+          // Update shot with completed video
+          await supabase
+            .from('shots')
+            .update({
+              generated_video_url: taskResult.video_url,
+              generation_status: 'completed',
+              video_generation_progress: JSON.stringify({ status: 'completed', progress: 100 }),
+            })
+            .eq('id', shotId);
+
+          return NextResponse.json({
+            generation_status: 'completed',
+            generated_video_url: taskResult.video_url,
+            video_generation_progress: JSON.stringify({ status: 'completed', progress: 100 }),
+          });
+        } else if (taskResult.status === 'failed') {
+          await supabase
+            .from('shots')
+            .update({
+              generation_status: 'failed',
+              generation_error: taskResult.error || 'Video generation failed',
+            })
+            .eq('id', shotId);
+
+          return NextResponse.json({
+            generation_status: 'failed',
+            generation_error: taskResult.error || 'Video generation failed',
+          });
+        }
+
+        // Still processing
+        const progress = taskResult.progress || 50;
+        return NextResponse.json({
+          generation_status: 'generating',
+          video_generation_progress: JSON.stringify({
+            status: 'processing',
+            progress,
+            taskId: shot.video_generation_id,
+          }),
+        });
+      } catch (pollError) {
+        console.error('Error polling PiAPI:', pollError);
+        // Return current status without updating
+      }
     }
 
     return NextResponse.json(shot);

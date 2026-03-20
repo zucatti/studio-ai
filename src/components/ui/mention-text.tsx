@@ -66,13 +66,29 @@ const ENTITY_ICONS = {
 };
 
 // Parse text and extract mentions with positions
-// Supports @ (characters), # (locations/props), and ! (references)
-function parseMentions(text: string): { text: string; isMention: boolean; reference?: string; prefix?: '@' | '#' | '!' }[] {
-  // Match @Reference, #Reference, or !Reference (PascalCase with underscores allowed)
+// Supports @ (characters), # (locations/props), ! (looks - associated with previous @)
+// Example: "@Morgana !robeDeSoiree court vers @Kael !tenueRock"
+// - !robeDeSoiree is associated with @Morgana
+// - !tenueRock is associated with @Kael
+function parseMentions(text: string): {
+  text: string;
+  isMention: boolean;
+  reference?: string;
+  prefix?: '@' | '#' | '!';
+  associatedCharacter?: string; // For ! mentions, the @ character it belongs to
+}[] {
+  // Match @Character, #Location, !Look separately
   const mentionRegex = /[@#!][A-Z][a-zA-Z0-9_]*/g;
-  const parts: { text: string; isMention: boolean; reference?: string; prefix?: '@' | '#' | '!' }[] = [];
+  const parts: {
+    text: string;
+    isMention: boolean;
+    reference?: string;
+    prefix?: '@' | '#' | '!';
+    associatedCharacter?: string;
+  }[] = [];
 
   let lastIndex = 0;
+  let lastCharacter: string | undefined; // Track the last @Character for ! association
   let match;
 
   while ((match = mentionRegex.exec(text)) !== null) {
@@ -84,16 +100,23 @@ function parseMentions(text: string): { text: string; isMention: boolean; refere
       });
     }
 
-    // Add mention
-    const prefix = match[0][0] as '@' | '#' | '!';
+    const fullMatch = match[0];
+    const prefix = fullMatch[0] as '@' | '#' | '!';
+
+    // Track last character for look association
+    if (prefix === '@') {
+      lastCharacter = fullMatch;
+    }
+
     parts.push({
-      text: match[0],
+      text: fullMatch,
       isMention: true,
-      reference: match[0],
+      reference: fullMatch,
       prefix,
+      associatedCharacter: prefix === '!' ? lastCharacter : undefined,
     });
 
-    lastIndex = match.index + match[0].length;
+    lastIndex = match.index + fullMatch.length;
   }
 
   // Add remaining text
@@ -112,17 +135,19 @@ function MentionBadge({
   reference,
   entity,
   prefix,
+  associatedCharacter,
   showTooltip,
   onClick,
 }: {
   reference: string;
   entity?: MentionEntity;
   prefix?: '@' | '#' | '!';
+  associatedCharacter?: string; // For ! mentions, shows which @ it belongs to
   showTooltip?: boolean;
   onClick?: (reference: string, entity?: MentionEntity) => void;
 }) {
   // Determine entity type from entity data or infer from prefix
-  // @ = character (blue), # = location (green), ! = reference (purple)
+  // @ = character (blue), # = location (green), ! = look/reference (purple)
   const inferredType = prefix === '@' ? 'character' : prefix === '!' ? 'reference' : 'location';
   const entityType = entity?.type || inferredType;
   const colors = MENTION_COLORS[entityType] || MENTION_COLORS.unknown;
@@ -138,6 +163,7 @@ function MentionBadge({
         colors.text,
         onClick && 'hover:brightness-125'
       )}
+      title={associatedCharacter ? `Look pour ${associatedCharacter}` : undefined}
     >
       {Icon && <Icon className="w-3 h-3" />}
       <span className="font-mono">{reference}</span>
@@ -246,6 +272,7 @@ export function MentionText({
             reference={part.reference!}
             entity={entity}
             prefix={part.prefix}
+            associatedCharacter={part.associatedCharacter}
             showTooltip={showTooltip}
             onClick={onClick}
           />
@@ -256,7 +283,7 @@ export function MentionText({
 }
 
 /**
- * Extract all mentions from text (@, #, and ! tags)
+ * Extract all mentions from text (@, #, ! tags)
  */
 export function extractMentions(text: string): string[] {
   const matches = text.match(/[@#!][A-Z][a-zA-Z0-9_]*/g);
@@ -280,7 +307,7 @@ export function extractLocationMentions(text: string): string[] {
 }
 
 /**
- * Extract only reference mentions (!tags) - poses, compositions, styles
+ * Extract only look/reference mentions (!tags)
  */
 export function extractReferenceMentions(text: string): string[] {
   const matches = text.match(/![A-Z][a-zA-Z0-9_]*/g);
@@ -292,4 +319,46 @@ export function extractReferenceMentions(text: string): string[] {
  */
 export function hasMentions(text: string): boolean {
   return /[@#!][A-Z][a-zA-Z0-9_]*/.test(text);
+}
+
+/**
+ * Extract character mentions with their associated looks
+ * Example: "@Morgana !robeDeSoiree court vers @Kael !tenueRock"
+ * Returns: [
+ *   { character: "@Morgana", look: "!robeDeSoiree" },
+ *   { character: "@Kael", look: "!tenueRock" }
+ * ]
+ */
+export interface CharacterWithLook {
+  character: string;
+  look?: string;
+}
+
+export function extractCharactersWithLooks(text: string): CharacterWithLook[] {
+  const mentionRegex = /[@!][A-Z][a-zA-Z0-9_]*/g;
+  const results: CharacterWithLook[] = [];
+  let currentCharacter: string | null = null;
+  let match;
+
+  while ((match = mentionRegex.exec(text)) !== null) {
+    const ref = match[0];
+    if (ref.startsWith('@')) {
+      // New character - save previous if exists
+      if (currentCharacter) {
+        results.push({ character: currentCharacter });
+      }
+      currentCharacter = ref;
+    } else if (ref.startsWith('!') && currentCharacter) {
+      // Look for current character
+      results.push({ character: currentCharacter, look: ref });
+      currentCharacter = null; // Reset after associating
+    }
+  }
+
+  // Don't forget last character without look
+  if (currentCharacter) {
+    results.push({ character: currentCharacter });
+  }
+
+  return results;
 }

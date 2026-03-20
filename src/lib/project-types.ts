@@ -31,6 +31,13 @@ export const PROJECT_TYPES: ProjectTypeConfig[] = [
     simplified: false,
   },
   {
+    value: 'shorts_project',
+    label: 'Shorts',
+    description: 'Collection de vidéos courtes (YouTube Shorts, TikTok)',
+    defaultRatio: '9:16',
+    simplified: true,
+  },
+  {
     value: 'portfolio',
     label: 'Portfolio',
     description: 'Collection d\'images pour portfolio',
@@ -77,17 +84,29 @@ const SIMPLIFIED_NAVIGATION: NavigationItem[] = [
   { name: 'Rushes', href: '/rushes', icon: 'Archive' },
 ];
 
+// Shorts project navigation
+const SHORTS_NAVIGATION: NavigationItem[] = [
+  { name: 'Mes Shorts', href: '/shorts', icon: 'Play' },
+  { name: 'Bible', href: '/bible', icon: 'BookOpen' },
+];
+
 export function getNavigationForType(type: ProjectType): NavigationItem[] {
+  if (type === 'shorts_project') return SHORTS_NAVIGATION;
   return isSimplifiedProject(type) ? SIMPLIFIED_NAVIGATION : FULL_PIPELINE_NAVIGATION;
 }
 
 // Get the default landing page for a project type
 export function getDefaultPageForType(type: ProjectType): string {
+  if (type === 'shorts_project') return '/shorts';
   return isSimplifiedProject(type) ? '/quick-shot' : '/brainstorming';
 }
 
 // Get aspect ratios available for a project type
 export function getAspectRatiosForType(type: ProjectType): AspectRatio[] {
+  if (type === 'shorts_project') {
+    // Shorts can be vertical, square, or horizontal
+    return ['9:16', '1:1', '16:9'];
+  }
   const config = getProjectTypeConfig(type);
   if (config.simplified) {
     // Portfolio/photo projects can use portrait and landscape formats

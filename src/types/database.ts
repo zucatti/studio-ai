@@ -14,11 +14,12 @@ export type Json =
 export type ProjectStatus = 'draft' | 'in_progress' | 'completed';
 export type PipelineStep = 'brainstorming' | 'script' | 'decoupage' | 'storyboard' | 'preprod' | 'production';
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5' | '21:9' | '2:3';
-export type ProjectType = 'movie' | 'short' | 'music_video' | 'portfolio' | 'photo_series';
+export type ProjectType = 'movie' | 'short' | 'music_video' | 'portfolio' | 'photo_series' | 'shorts_project';
 export type ShotStatus = 'draft' | 'selected' | 'rush' | 'archived';
 export type ScriptElementType = 'action' | 'dialogue' | 'transition' | 'note';
 export type DialogueExtension = 'V.O.' | 'O.S.' | "CONT'D" | 'FILTERED' | 'PRE-LAP';
 export type GlobalAssetType = 'character' | 'location' | 'prop' | 'audio';
+// Note: ReferenceType kept for database compatibility (tables still exist)
 export type ReferenceType = 'pose' | 'composition' | 'style';
 export type SceneIntExt = 'INT' | 'EXT' | 'INT/EXT';
 export type TimeOfDay = 'JOUR' | 'NUIT' | 'AUBE' | 'CREPUSCULE';
@@ -182,6 +183,7 @@ export interface Database {
           location: string;
           time_of_day: TimeOfDay;
           description: string | null;
+          title: string | null;
           sort_order: number;
           created_at: string;
           updated_at: string;
@@ -194,6 +196,7 @@ export interface Database {
           location?: string;
           time_of_day?: TimeOfDay;
           description?: string | null;
+          title?: string | null;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -206,6 +209,7 @@ export interface Database {
           location?: string;
           time_of_day?: TimeOfDay;
           description?: string | null;
+          title?: string | null;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -233,6 +237,9 @@ export interface Database {
           generation_status: GenerationStatus;
           generation_error: string | null;
           status: ShotStatus;
+          duration: number | null;
+          frame_in: number | null;
+          frame_out: number | null;
           sort_order: number;
           created_at: string;
           updated_at: string;
@@ -258,6 +265,9 @@ export interface Database {
           generation_status?: GenerationStatus;
           generation_error?: string | null;
           status?: ShotStatus;
+          duration?: number | null;
+          frame_in?: number | null;
+          frame_out?: number | null;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -281,6 +291,9 @@ export interface Database {
           generation_status?: GenerationStatus;
           generation_error?: string | null;
           status?: ShotStatus;
+          duration?: number | null;
+          frame_in?: number | null;
+          frame_out?: number | null;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -645,7 +658,6 @@ export type Location = Tables<'locations'>;
 export type ScriptElement = Tables<'script_elements'>;
 export type GlobalAsset = Tables<'global_assets'>;
 export type ProjectAsset = Tables<'project_assets'>;
-export type GlobalReference = Tables<'global_references'>;
 export type ProjectReferenceLink = Tables<'project_reference_links'>;
 
 // Flattened project asset (from API join)

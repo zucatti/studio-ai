@@ -51,12 +51,21 @@ const PhotoSeriesIcon = ({ className }: IconProps) => (
   </svg>
 );
 
+// Shorts - Play button vertical
+const ShortsProjectIcon = ({ className }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="6" y="2" width="12" height="20" rx="2" />
+    <polygon points="10,8 16,12 10,16" />
+  </svg>
+);
+
 export const PROJECT_TYPE_ICONS: Record<ProjectType, React.FC<IconProps>> = {
   movie: MovieIcon,
   short: ShortIcon,
   music_video: MusicVideoIcon,
   portfolio: PortfolioIcon,
   photo_series: PhotoSeriesIcon,
+  shorts_project: ShortsProjectIcon,
 };
 
 // Fallback icon for unknown types

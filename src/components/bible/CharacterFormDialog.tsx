@@ -47,7 +47,10 @@ import {
   Search,
   Volume2,
   Pause,
+  Images,
 } from 'lucide-react';
+import { GalleryPicker } from '@/components/gallery/GalleryPicker';
+import { generateReferenceName, generateLookReferenceName } from '@/lib/reference-name';
 import { cn } from '@/lib/utils';
 
 interface CharacterFormDialogProps {
@@ -86,7 +89,14 @@ const STYLE_OPTIONS = [
 
 const MODEL_OPTIONS = [
   { value: 'fal-ai/nano-banana-2', label: 'Nano Banana 2' },
-  { value: 'fal-ai/flux-pro/v1.1', label: 'Flux Pro' },
+  { value: 'seedream-5', label: 'Seedream 5' },
+  { value: 'kling-o1', label: 'Kling O1' },
+] as const;
+
+const RESOLUTION_OPTIONS = [
+  { value: '1K', label: '1K' },
+  { value: '2K', label: '2K' },
+  { value: '4K', label: '4K' },
 ] as const;
 
 type ModelType = typeof MODEL_OPTIONS[number]['value'];
@@ -126,6 +136,7 @@ export function CharacterFormDialog({
   const [tags, setTags] = useState((character?.tags || []).join(', '));
   const [style, setStyle] = useState('photorealistic');
   const [selectedModel, setSelectedModel] = useState<ModelType>('fal-ai/nano-banana-2');
+  const [resolution, setResolution] = useState<'1K' | '2K' | '4K'>('2K');
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabType>('references');
@@ -149,6 +160,7 @@ export function CharacterFormDialog({
   const [newLookDescription, setNewLookDescription] = useState('');
   const [uploadingLook, setUploadingLook] = useState(false);
   const [generatingLook, setGeneratingLook] = useState(false);
+  const [showGalleryPicker, setShowGalleryPicker] = useState(false);
 
   // Audio state
   const [voiceId, setVoiceId] = useState((character?.data as CharacterData)?.voice_id || '');
@@ -386,6 +398,7 @@ export function CharacterFormDialog({
           viewType,
           style,
           model: selectedModel,
+          resolution,
         });
 
         if (result) {
@@ -447,6 +460,7 @@ export function CharacterFormDialog({
           viewType,
           style,
           model: selectedModel,
+          resolution,
         });
 
         if (result) {
@@ -514,6 +528,20 @@ export function CharacterFormDialog({
     setLooks((prev) => prev.filter((l) => l.id !== lookId));
   };
 
+  // Handle gallery image selection for look (two-step flow: image first, then name/description)
+  const handleGallerySelect = (imageUrl: string, _image: unknown, lookName?: string, lookDescription?: string) => {
+    if (!lookName?.trim()) return;
+
+    const newLook: LookVariation = {
+      id: crypto.randomUUID(),
+      name: lookName.trim(),
+      description: lookDescription?.trim() || '',
+      imageUrl: imageUrl,
+    };
+    setLooks((prev) => [...prev, newLook]);
+    setShowGalleryPicker(false);
+  };
+
   // Generate look with AI
   const handleGenerateLook = async () => {
     if (!character || !newLookDescription.trim()) return;
@@ -529,6 +557,7 @@ export function CharacterFormDialog({
           lookDescription: newLookDescription.trim(),
           style,
           model: selectedModel,
+          resolution,
         }),
       });
 
@@ -675,21 +704,53 @@ export function CharacterFormDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[90vw] max-w-[90vw] h-[90vh] p-0 bg-[#0d1520] border-white/10 flex flex-col overflow-hidden [&>button]:hidden">
         {/* Header */}
-        <DialogHeader className="px-8 py-5 border-b border-white/10 flex-shrink-0">
+        <DialogHeader className="px-8 py-4 border-b border-white/10 flex-shrink-0">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 rounded-xl bg-blue-500/20">
-                <User className="w-6 h-6 text-blue-400" />
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2 rounded-xl bg-blue-500/20">
+                  <User className="w-5 h-5 text-blue-400" />
+                </div>
+                <div>
+                  <DialogTitle className="text-lg font-semibold text-white">
+                    {isEditing ? 'Modifier le personnage' : 'Créer un personnage'}
+                  </DialogTitle>
+                  <DialogDescription className="text-xs text-slate-400 mt-0.5">
+                    {isEditing
+                      ? 'Informations et images de référence'
+                      : `Référence: @${name.replace(/\s+/g, '') || 'nom'}`}
+                  </DialogDescription>
+                </div>
               </div>
-              <div>
-                <DialogTitle className="text-xl font-semibold text-white">
-                  {isEditing ? 'Modifier le personnage' : 'Créer un personnage'}
-                </DialogTitle>
-                <DialogDescription className="text-sm text-slate-400 mt-0.5">
-                  {isEditing
-                    ? 'Modifiez les informations et les images de référence'
-                    : `Ajoutez un personnage à votre bibliothèque. Référence: @${name.replace(/\s+/g, '') || 'nom'}`}
-                </DialogDescription>
+
+              {/* Tab buttons in header */}
+              <div className="flex items-center gap-1 ml-4 pl-4 border-l border-white/10">
+                {TABS.map((tab) => {
+                  const Icon = tab.icon;
+                  return (
+                    <button
+                      key={tab.value}
+                      onClick={() => setActiveTab(tab.value)}
+                      className={cn(
+                        'flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                        activeTab === tab.value
+                          ? 'bg-blue-500/20 text-blue-400'
+                          : 'text-slate-400 hover:text-white hover:bg-white/5'
+                      )}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {tab.label}
+                      {tab.value === 'looks' && looks.length > 0 && (
+                        <span className="ml-0.5 px-1.5 py-0.5 text-xs bg-white/10 rounded">
+                          {looks.length}
+                        </span>
+                      )}
+                      {tab.value === 'audio' && voiceId && (
+                        <Check className="w-3 h-3 text-green-400" />
+                      )}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
@@ -697,23 +758,25 @@ export function CharacterFormDialog({
             <div className="flex items-center gap-3">
               <Button
                 variant="ghost"
+                size="sm"
                 onClick={() => onOpenChange(false)}
                 className="text-slate-400 hover:text-white hover:bg-white/5"
               >
-                <X className="w-4 h-4 mr-2" />
+                <X className="w-4 h-4 mr-1.5" />
                 Annuler
               </Button>
               <Button
+                size="sm"
                 onClick={handleSubmit}
                 disabled={!name.trim() || isSubmitting}
-                className="bg-blue-600 hover:bg-blue-700 min-w-[140px]"
+                className="bg-blue-600 hover:bg-blue-700"
               >
                 {isSubmitting ? (
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
                 ) : isEditing ? (
-                  <Save className="w-4 h-4 mr-2" />
+                  <Save className="w-4 h-4 mr-1.5" />
                 ) : (
-                  <Plus className="w-4 h-4 mr-2" />
+                  <Plus className="w-4 h-4 mr-1.5" />
                 )}
                 {isEditing ? 'Enregistrer' : 'Créer'}
               </Button>
@@ -724,7 +787,7 @@ export function CharacterFormDialog({
         {/* Main content - Two columns */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Left column - Information */}
-          <div className="w-[40%] border-r border-white/10 overflow-y-auto">
+          <div className="w-[40%] border-r border-white/10 overflow-y-auto scrollbar-none">
             <div className="p-8 space-y-6">
               <div>
                 <h3 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
@@ -852,75 +915,62 @@ export function CharacterFormDialog({
             </div>
           </div>
 
-          {/* Right column - Tabs */}
+          {/* Right column - Tab content */}
           <div className="w-[60%] flex flex-col overflow-hidden bg-[#0a0f16]">
-            {/* Tab buttons */}
-            <div className="flex items-center gap-1 px-8 py-4 border-b border-white/10">
-              {TABS.map((tab) => {
-                const Icon = tab.icon;
-                return (
-                  <button
-                    key={tab.value}
-                    onClick={() => setActiveTab(tab.value)}
-                    className={cn(
-                      'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
-                      activeTab === tab.value
-                        ? 'bg-blue-500/20 text-blue-400'
-                        : 'text-slate-400 hover:text-white hover:bg-white/5'
-                    )}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {tab.label}
-                    {tab.value === 'looks' && looks.length > 0 && (
-                      <span className="ml-1 px-1.5 py-0.5 text-xs bg-white/10 rounded">
-                        {looks.length}
-                      </span>
-                    )}
-                    {tab.value === 'audio' && voiceId && (
-                      <Check className="w-3 h-3 text-green-400" />
-                    )}
-                  </button>
-                );
-              })}
-
-              {/* Model + Style selectors - always visible on references tab */}
-              {activeTab === 'references' && (
-                <div className="ml-auto flex items-center gap-3">
-                  {/* Model toggle */}
-                  <div className="inline-flex rounded-md bg-white/5 p-0.5 border border-white/10">
-                    {MODEL_OPTIONS.map((model) => (
-                      <button
-                        key={model.value}
-                        onClick={() => setSelectedModel(model.value)}
-                        className={cn(
-                          'px-3 py-1.5 text-xs font-medium rounded transition-all',
-                          selectedModel === model.value
-                            ? 'bg-purple-500 text-white'
-                            : 'text-slate-400 hover:text-white'
-                        )}
-                      >
-                        {model.label}
-                      </button>
-                    ))}
-                  </div>
-                  <Select value={style} onValueChange={setStyle}>
-                    <SelectTrigger className="w-44 h-9 bg-white/5 border-white/10 text-white text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#1a2433] border-white/10">
-                      {STYLE_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value}>
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            {/* Model + Resolution + Style selectors - only visible on references tab */}
+            {activeTab === 'references' && (
+              <div className="flex items-center justify-end gap-3 px-8 py-3 border-b border-white/10">
+                {/* Model toggle */}
+                <div className="inline-flex rounded-md bg-white/5 p-0.5 border border-white/10">
+                  {MODEL_OPTIONS.map((model) => (
+                    <button
+                      key={model.value}
+                      onClick={() => setSelectedModel(model.value)}
+                      className={cn(
+                        'px-3 py-1.5 text-xs font-medium rounded transition-all',
+                        selectedModel === model.value
+                          ? 'bg-purple-500 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      )}
+                    >
+                      {model.label}
+                    </button>
+                  ))}
                 </div>
-              )}
-            </div>
+                {/* Resolution toggle */}
+                <div className="inline-flex rounded-md bg-white/5 p-0.5 border border-white/10">
+                  {RESOLUTION_OPTIONS.map((res) => (
+                    <button
+                      key={res.value}
+                      onClick={() => setResolution(res.value)}
+                      className={cn(
+                        'px-2.5 py-1.5 text-xs font-medium rounded transition-all',
+                        resolution === res.value
+                          ? 'bg-blue-500 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      )}
+                    >
+                      {res.label}
+                    </button>
+                  ))}
+                </div>
+                <Select value={style} onValueChange={setStyle}>
+                  <SelectTrigger className="w-40 h-8 bg-white/5 border-white/10 text-white text-sm">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#1a2433] border-white/10">
+                    {STYLE_OPTIONS.map((opt) => (
+                      <SelectItem key={opt.value} value={opt.value}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
             {/* Tab content */}
-            <div className="flex-1 overflow-y-auto p-8">
+            <div className="flex-1 overflow-y-auto scrollbar-none p-8">
               {/* References Tab */}
               {activeTab === 'references' && (
                 <div className="space-y-6">
@@ -1091,32 +1141,41 @@ export function CharacterFormDialog({
                           L'IA utilisera automatiquement les caractéristiques physiques du personnage (âge, morphologie...).
                         </p>
                       </div>
-                      <div className="flex gap-3">
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          onClick={() => setShowGalleryPicker(true)}
+                          disabled={uploadingLook || generatingLook}
+                          variant="outline"
+                          className="flex-1 min-w-[140px] border-purple-500/30 text-purple-300 hover:bg-purple-500/10 hover:border-purple-500/50"
+                        >
+                          <Images className="w-4 h-4 mr-2" />
+                          Depuis les Rushes
+                        </Button>
                         <Button
                           onClick={() => lookFileInputRef.current?.click()}
                           disabled={!newLookName.trim() || uploadingLook || generatingLook}
                           variant="outline"
-                          className="flex-1 border-white/20 text-slate-300 hover:bg-white/10 hover:border-white/30"
+                          className="flex-1 min-w-[140px] border-white/20 text-slate-300 hover:bg-white/10 hover:border-white/30"
                         >
                           {uploadingLook ? (
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                           ) : (
                             <Upload className="w-4 h-4 mr-2" />
                           )}
-                          Uploader une image
+                          Uploader
                         </Button>
                         {isEditing && (
                           <Button
                             onClick={handleGenerateLook}
                             disabled={!newLookDescription.trim() || uploadingLook || generatingLook}
-                            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                            className="flex-1 min-w-[140px] bg-purple-600 hover:bg-purple-700 text-white"
                           >
                             {generatingLook ? (
                               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                             ) : (
                               <Wand2 className="w-4 h-4 mr-2" />
                             )}
-                            Générer avec l'IA
+                            Générer
                           </Button>
                         )}
                       </div>
@@ -1139,6 +1198,19 @@ export function CharacterFormDialog({
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
                             <div className="absolute bottom-0 left-0 right-0 p-3">
                               <p className="text-sm font-medium text-white">{look.name}</p>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const charRef = generateReferenceName(name, '@');
+                                  const lookRef = generateLookReferenceName(look.name);
+                                  navigator.clipboard.writeText(`${charRef} ${lookRef}`);
+                                }}
+                                className="text-[10px] font-mono mt-0.5 flex items-center gap-1"
+                                title="Copier la référence"
+                              >
+                                <span className="text-blue-400">{generateReferenceName(name, '@')}</span>
+                                <span className="text-purple-400">{generateLookReferenceName(look.name)}</span>
+                              </button>
                               {look.description && (
                                 <p className="text-xs text-slate-300 mt-0.5 line-clamp-2">
                                   {look.description}
@@ -1223,7 +1295,7 @@ export function CharacterFormDialog({
                       <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
                     </div>
                   ) : filteredVoices.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto">
+                    <div className="grid grid-cols-2 gap-3 max-h-[400px] overflow-y-auto scrollbar-none">
                       {filteredVoices.map((voice) => (
                         <div
                           key={voice.id}
@@ -1317,6 +1389,15 @@ export function CharacterFormDialog({
         />
         <audio ref={audioRef} className="hidden" />
       </DialogContent>
+
+      {/* Gallery Picker for looks - two-step flow: select image, then enter name/description */}
+      <GalleryPicker
+        isOpen={showGalleryPicker}
+        onClose={() => setShowGalleryPicker(false)}
+        onSelect={handleGallerySelect}
+        title="Choisir une image pour le look"
+        requireLookInfo
+      />
     </Dialog>
   );
 }

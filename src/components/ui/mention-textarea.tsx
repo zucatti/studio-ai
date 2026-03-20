@@ -13,9 +13,19 @@ interface MentionTextareaProps {
 }
 
 // Parse text and extract mentions
-function parseMentions(text: string): Array<{ type: 'text' | 'mention'; content: string; prefix?: '@' | '#' | '!' }> {
-  const parts: Array<{ type: 'text' | 'mention'; content: string; prefix?: '@' | '#' | '!' }> = [];
-  const mentionRegex = /([@#!][a-zA-Z][a-zA-Z0-9]*)/g;
+// @ = characters (blue), # = locations/props (green), ! = looks (purple)
+function parseMentions(text: string): Array<{
+  type: 'text' | 'mention';
+  content: string;
+  prefix?: '@' | '#' | '!';
+}> {
+  const parts: Array<{
+    type: 'text' | 'mention';
+    content: string;
+    prefix?: '@' | '#' | '!';
+  }> = [];
+  // Match @Character, #Location, !Look separately
+  const mentionRegex = /([@#!][A-Z][a-zA-Z0-9_]*)/g;
   let lastIndex = 0;
   let match;
 
@@ -23,12 +33,16 @@ function parseMentions(text: string): Array<{ type: 'text' | 'mention'; content:
     if (match.index > lastIndex) {
       parts.push({ type: 'text', content: text.slice(lastIndex, match.index) });
     }
+
+    const fullMatch = match[0];
+    const prefix = fullMatch[0] as '@' | '#' | '!';
+
     parts.push({
       type: 'mention',
-      content: match[0],
-      prefix: match[0][0] as '@' | '#' | '!',
+      content: fullMatch,
+      prefix,
     });
-    lastIndex = match.index + match[0].length;
+    lastIndex = match.index + fullMatch.length;
   }
 
   if (lastIndex < text.length) {
@@ -47,8 +61,9 @@ function StyledMentions({ text }: { text: string }) {
       {parts.map((part, idx) => {
         if (part.type === 'mention') {
           const isCharacter = part.prefix === '@';
-          const isReference = part.prefix === '!';
-          const Icon = isCharacter ? AtSign : isReference ? ImageIcon : Hash;
+          const isLook = part.prefix === '!';
+          const Icon = isCharacter ? AtSign : isLook ? ImageIcon : Hash;
+
           return (
             <span
               key={idx}
@@ -56,7 +71,7 @@ function StyledMentions({ text }: { text: string }) {
                 'inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded text-sm font-medium',
                 isCharacter
                   ? 'bg-blue-500/20 text-blue-400'
-                  : isReference
+                  : isLook
                   ? 'bg-purple-500/20 text-purple-400'
                   : 'bg-green-500/20 text-green-400'
               )}

@@ -245,6 +245,15 @@
     background: hsl(var(--muted-foreground) / 0.5);
   }
 
+  /* Hide scrollbar utility */
+  .scrollbar-none {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;  /* Chrome, Safari and Opera */
+  }
+
   /* Animation utilities */
   .animate-glow {
     animation: glow 2s ease-in-out infinite alternate;

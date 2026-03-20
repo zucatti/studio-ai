@@ -4,8 +4,8 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { uploadFile, getSignedFileUrl, parseStorageUrl, STORAGE_BUCKET } from '@/lib/storage';
 import { fal } from '@fal-ai/client';
 import Anthropic from '@anthropic-ai/sdk';
-import { generateReferenceName } from '@/lib/reference-name';
 import { logFalUsage, logClaudeUsage } from '@/lib/ai/log-api-usage';
+import { generateReferenceName } from '@/lib/reference-name';
 import { createSSEStream, createSSEHeaders, type GenerationProgressEvent } from '@/lib/sse';
 import type { AspectRatio } from '@/types/database';
 
@@ -26,6 +26,7 @@ interface EntityWithImage {
   type: 'character' | 'prop' | 'location';
 }
 
+// Reference system has been removed - keeping interface for type compatibility
 interface ReferenceImage {
   id: string;
   reference: string;
@@ -121,41 +122,12 @@ async function fetchEntitiesWithImages(
   return entities;
 }
 
-// Fetch all references (pose, composition, style) linked to the project
+// Reference system has been removed - returns empty array
 async function fetchReferences(
-  supabase: ReturnType<typeof createServerSupabaseClient>,
-  projectId: string
+  _supabase: ReturnType<typeof createServerSupabaseClient>,
+  _projectId: string
 ): Promise<ReferenceImage[]> {
-  const { data: links } = await supabase
-    .from('project_reference_links')
-    .select(`
-      global_reference:global_references (
-        id, name, type, image_url, description
-      )
-    `)
-    .eq('project_id', projectId);
-
-  if (!links) return [];
-
-  return links
-    .filter(link => link.global_reference)
-    .map(link => {
-      const ref = link.global_reference as unknown as {
-        id: string;
-        name: string;
-        type: string;
-        image_url: string;
-        description: string | null;
-      };
-      return {
-        id: ref.id,
-        reference: generateReferenceName(ref.name, '!'),
-        name: ref.name,
-        image_url: ref.image_url,
-        type: ref.type as 'pose' | 'composition' | 'style',
-        description: ref.description,
-      };
-    });
+  return [];
 }
 
 // Find mentioned references (!Pose, !Style, etc) in prompt

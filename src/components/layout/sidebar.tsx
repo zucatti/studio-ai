@@ -20,6 +20,8 @@ import {
   Zap,
   Grid3X3,
   Archive,
+  Play,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -71,6 +73,15 @@ const simplifiedNavigation: NavSection = {
   ],
 };
 
+// Shorts project navigation
+const shortsNavigation: NavSection = {
+  title: 'PROJET',
+  items: [
+    { name: 'Mes Shorts', href: '/shorts', icon: Play },
+    { name: 'Bible', href: '/bible', icon: BookOpen },
+  ],
+};
+
 export function Sidebar() {
   const pathname = usePathname();
   const [searchQuery, setSearchQuery] = useState('');
@@ -113,7 +124,9 @@ export function Sidebar() {
   }, [projectId]);
 
   // Get the appropriate navigation based on project type
-  const projectNavigation = projectType && isSimplifiedProject(projectType)
+  const projectNavigation = projectType === 'shorts_project'
+    ? shortsNavigation
+    : projectType && isSimplifiedProject(projectType)
     ? simplifiedNavigation
     : fullPipelineNavigation;
 

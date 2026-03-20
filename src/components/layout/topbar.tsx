@@ -2,7 +2,7 @@
 
 import { useUser } from '@auth0/nextjs-auth0';
 import { usePathname } from 'next/navigation';
-import { Menu, LayoutGrid, Zap, LogOut, User, ChevronDown } from 'lucide-react';
+import { Menu, LogOut, User, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -15,6 +15,7 @@ import {
 import { useEffect, useState } from 'react';
 import { useSidebarStore } from '@/store/sidebar-store';
 import { BibleToggleButton } from '@/components/bible/BibleSidebar';
+import { GalleryToggleButton } from '@/components/gallery/GlobalGallery';
 
 interface Project {
   id: string;
@@ -109,20 +110,8 @@ export function Topbar() {
         {/* Bible toggle - always available for global library */}
         <BibleToggleButton />
 
-        <Button
-          variant="ghost"
-          size="icon"
-          className="w-8 h-8 text-slate-400 hover:text-white hover:bg-white/5"
-        >
-          <LayoutGrid className="w-4 h-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="w-8 h-8 text-slate-400 hover:text-white hover:bg-white/5"
-        >
-          <Zap className="w-4 h-4" />
-        </Button>
+        {/* Gallery/Rushes toggle */}
+        <GalleryToggleButton />
 
         {/* User Menu */}
         <DropdownMenu>

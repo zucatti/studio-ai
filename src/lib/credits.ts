@@ -59,7 +59,7 @@ export const PROVIDERS: Record<DashboardProvider, ProviderConfig> = {
     displayName: 'PiAPI',
     color: '#EC4899',
     dashboardUrl: 'https://piapi.ai/workspace/billing',
-    description: 'Midjourney API',
+    description: 'Midjourney + Video (Kling, Sora, Veo)',
   },
   elevenlabs: {
     name: 'elevenlabs',
@@ -124,6 +124,14 @@ export const FAL_PRICES: Record<string, number> = {
   // Image generation - Ideogram (character consistency)
   'fal-ai/ideogram/character': 0.08,
   'fal-ai/ideogram/v2': 0.08,
+  // Image generation - Seedream 5
+  'fal-ai/bytedance/seedream/v5/lite': 0.03,
+  'fal-ai/bytedance/seedream/v5/lite/edit': 0.04,
+  'seedream-5': 0.03,
+  'seedream-5-edit': 0.04,
+  // Image generation - Kling O1
+  'fal-ai/kling-image/o1': 0.05,
+  'kling-o1': 0.05,
   // Image utilities
   'fal-ai/image-apps-v2/perspective': 0.02,
   // Video generation
@@ -136,14 +144,23 @@ export const FAL_PRICES: Record<string, number> = {
 
 /**
  * PiAPI pricing per request (in USD)
- * Midjourney-style API
+ * Midjourney-style API + Video generation models
  */
 export const PIAPI_PRICES: Record<string, number> = {
+  // Image generation
   'midjourney-imagine': 0.04,
   'midjourney-upscale': 0.02,
   'midjourney-variation': 0.03,
   'midjourney-describe': 0.01,
   'stable-diffusion': 0.002,
+  // Video generation (per 5s)
+  'seedance-2': 0.15,      // ByteDance Seedance 2
+  'kling-omni': 0.25,      // Kuaishou Kling Omni (latest)
+  'kling-2': 0.20,         // Kuaishou Kling 2.0
+  'sora-2': 0.30,          // OpenAI Sora 2 (latest)
+  'veo-3': 0.25,           // Google Veo 3 (latest)
+  'wan-2.1': 0.10,         // Alibaba Wan 2.1
+  'hunyuan': 0.10,         // Tencent Hunyuan
   default: 0.04,
 };
 

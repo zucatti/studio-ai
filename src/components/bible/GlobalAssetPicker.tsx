@@ -131,7 +131,7 @@ export function GlobalAssetPicker({
         </div>
 
         {/* Content */}
-        <div className="max-h-[400px] overflow-y-auto">
+        <div className="max-h-[400px] overflow-y-auto scrollbar-none">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />

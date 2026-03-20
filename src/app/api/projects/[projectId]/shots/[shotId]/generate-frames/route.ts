@@ -92,6 +92,60 @@ export async function POST(request: Request, { params }: RouteParams) {
       .select('name, visual_description, reference_images')
       .eq('project_id', projectId);
 
+    // Get global assets (Bible) imported to this project - for character looks
+    const { data: projectAssets } = await supabase
+      .from('project_assets')
+      .select(`
+        global_asset_id,
+        global_assets (
+          name,
+          asset_type,
+          data,
+          reference_images
+        )
+      `)
+      .eq('project_id', projectId);
+
+    // Extract characters with looks AND reference_images from global assets (Bible)
+    interface LookData {
+      name: string;
+      description: string;
+    }
+    interface CharacterWithLooks {
+      name: string;
+      visual_description: string;
+      reference_images: string[];
+      looks?: LookData[];
+    }
+
+    const globalCharactersWithLooks: CharacterWithLooks[] = [];
+    for (const pa of projectAssets || []) {
+      // Supabase returns the joined object directly (not an array for many-to-one)
+      const ga = pa.global_assets as unknown as {
+        name: string;
+        asset_type: string;
+        data: Record<string, unknown>;
+        reference_images: string[];
+      } | null;
+      if (!ga || ga.asset_type !== 'character') continue;
+
+      const data = ga.data || {};
+      const looks = data.looks as Array<{ name: string; description: string }> | undefined;
+
+      // Get reference images from global asset
+      const refImages = ga.reference_images || [];
+      console.log(`Bible character "${ga.name}": ${refImages.length} reference images`);
+
+      globalCharactersWithLooks.push({
+        name: ga.name,
+        visual_description: (data.visual_description as string) || '',
+        reference_images: refImages,
+        looks: looks?.map(l => ({ name: l.name, description: l.description })),
+      });
+    }
+
+    console.log(`Found ${globalCharactersWithLooks.length} Bible characters with reference images`);
+
     // Check API key
     if (!process.env.AI_FAL_KEY) {
       return NextResponse.json({ error: 'AI_FAL_KEY not configured' }, { status: 500 });
@@ -173,8 +227,10 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Find characters present in this shot (from dialogues, actions, and description)
     // Supports @LeLapin (PascalCase reference) or "Le lapin" (full name)
-    const findCharactersInShot = (): typeof characters => {
-      const matchedCharacters: typeof characters = [];
+    // Searches BOTH project characters AND Bible characters (global assets)
+    const findCharactersInShot = (): Array<{ name: string; visual_description: string; reference_images: string[] }> => {
+      const matchedCharacters: Array<{ name: string; visual_description: string; reference_images: string[] }> = [];
+      const seenNames = new Set<string>();
 
       // Combine all text sources
       const allText = [
@@ -183,10 +239,30 @@ export async function POST(request: Request, { params }: RouteParams) {
         ...context.actions.map((a: any) => a.content || ''),
       ].join(' ');
 
+      // First, check Bible characters (global assets) - they have priority
+      for (const char of globalCharactersWithLooks) {
+        if (hasReference(allText, char.name) && char.reference_images.length > 0) {
+          matchedCharacters.push({
+            name: char.name,
+            visual_description: char.visual_description,
+            reference_images: char.reference_images,
+          });
+          seenNames.add(char.name.toLowerCase());
+          console.log(`Found Bible character: ${char.name} (${generateReferenceName(char.name)}) - ${char.reference_images.length} refs`);
+        }
+      }
+
+      // Then check project-specific characters (if not already found in Bible)
       for (const char of characters || []) {
-        if (hasReference(allText, char.name) && getRefImages(char.reference_images).length > 0) {
-          matchedCharacters.push(char);
-          console.log(`Found character: ${char.name} (${generateReferenceName(char.name)})`);
+        if (seenNames.has(char.name.toLowerCase())) continue;
+        const refImages = getRefImages(char.reference_images);
+        if (hasReference(allText, char.name) && refImages.length > 0) {
+          matchedCharacters.push({
+            name: char.name,
+            visual_description: char.visual_description,
+            reference_images: refImages,
+          });
+          console.log(`Found project character: ${char.name} (${generateReferenceName(char.name)})`);
         }
       }
 
@@ -292,11 +368,52 @@ export async function POST(request: Request, { params }: RouteParams) {
     console.log(`Total character poses available: ${allCharacterRefImages.length}`);
 
     // Combine all entities for reference replacement
-    const allEntities = [
-      ...(characters || []).map(c => ({ name: c.name, visual_description: c.visual_description })),
-      ...(props || []).map(p => ({ name: p.name, visual_description: p.visual_description })),
-      ...(locations || []).map(l => ({ name: l.name, visual_description: l.visual_description })),
-    ];
+    // Include looks from global assets for @Character!Look syntax
+    const seenCharNames = new Set<string>();
+    const allEntities: Array<{
+      name: string;
+      visual_description: string;
+      asset_type?: 'character' | 'location' | 'prop';
+      looks?: LookData[];
+    }> = [];
+
+    // Add global characters with looks first (Bible characters)
+    for (const gc of globalCharactersWithLooks) {
+      seenCharNames.add(gc.name.toLowerCase());
+      allEntities.push({
+        name: gc.name,
+        visual_description: gc.visual_description,
+        asset_type: 'character',
+        looks: gc.looks,
+      });
+    }
+
+    // Add project-specific characters (if not already from Bible)
+    for (const c of characters || []) {
+      if (!seenCharNames.has(c.name.toLowerCase())) {
+        allEntities.push({
+          name: c.name,
+          visual_description: c.visual_description,
+          asset_type: 'character',
+        });
+      }
+    }
+
+    // Add props and locations
+    for (const p of props || []) {
+      allEntities.push({
+        name: p.name,
+        visual_description: p.visual_description,
+        asset_type: 'prop',
+      });
+    }
+    for (const l of locations || []) {
+      allEntities.push({
+        name: l.name,
+        visual_description: l.visual_description,
+        asset_type: 'location',
+      });
+    }
 
     // Sanitize prompt to avoid triggering known cartoon characters
     // Replace generic animal terms with neutral descriptions

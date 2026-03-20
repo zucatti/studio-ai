@@ -2,11 +2,68 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
+// Default expiration buffer (5 minutes before actual expiry)
+const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+
+// Default expiry: 6 hours for better caching
+const DEFAULT_EXPIRES = 6 * 60 * 60; // 6 hours in seconds
+
+// LocalStorage key for persistent cache
+const CACHE_STORAGE_KEY = 'signed-url-cache';
+
 // Cache for signed URLs (in-memory, persists across re-renders)
 const urlCache = new Map<string, { signedUrl: string; expiresAt: number }>();
 
-// Default expiration buffer (5 minutes before actual expiry)
-const EXPIRY_BUFFER_MS = 5 * 60 * 1000;
+// Load cache from localStorage on init
+function loadCacheFromStorage(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const stored = localStorage.getItem(CACHE_STORAGE_KEY);
+    if (stored) {
+      const data = JSON.parse(stored) as Record<string, { signedUrl: string; expiresAt: number }>;
+      const now = Date.now();
+      // Only load non-expired entries
+      for (const [url, entry] of Object.entries(data)) {
+        if (entry.expiresAt > now) {
+          urlCache.set(url, entry);
+        }
+      }
+    }
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
+// Save cache to localStorage (debounced)
+let saveTimeout: NodeJS.Timeout | null = null;
+function saveCacheToStorage(): void {
+  if (typeof window === 'undefined') return;
+  if (saveTimeout) clearTimeout(saveTimeout);
+  saveTimeout = setTimeout(() => {
+    try {
+      const data: Record<string, { signedUrl: string; expiresAt: number }> = {};
+      const now = Date.now();
+      // Only save non-expired entries
+      for (const [url, entry] of urlCache.entries()) {
+        if (entry.expiresAt > now) {
+          data[url] = entry;
+        }
+      }
+      localStorage.setItem(CACHE_STORAGE_KEY, JSON.stringify(data));
+    } catch (e) {
+      // Ignore storage errors (quota exceeded, etc.)
+    }
+  }, 1000); // Debounce saves by 1 second
+}
+
+// Initialize cache from storage
+let cacheInitialized = false;
+function ensureCacheInitialized(): void {
+  if (!cacheInitialized && typeof window !== 'undefined') {
+    cacheInitialized = true;
+    loadCacheFromStorage();
+  }
+}
 
 /**
  * Check if a URL is a B2 storage URL that needs signing
@@ -33,9 +90,11 @@ export function useSignedUrl(
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const expires = options?.expires ?? 3600;
+  const expires = options?.expires ?? DEFAULT_EXPIRES;
 
   useEffect(() => {
+    ensureCacheInitialized();
+
     if (!url) {
       setSignedUrl(null);
       return;
@@ -72,6 +131,7 @@ export function useSignedUrl(
             signedUrl: signed,
             expiresAt: Date.now() + expires * 1000 - EXPIRY_BUFFER_MS,
           });
+          saveCacheToStorage();
           setSignedUrl(signed);
         } else {
           setError(new Error('Failed to get signed URL'));
@@ -104,12 +164,13 @@ export function useSignedUrls(
   const [signedUrls, setSignedUrls] = useState<Record<string, string>>({});
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
-  const expires = options?.expires ?? 3600;
+  const expires = options?.expires ?? DEFAULT_EXPIRES;
 
   // Use ref to track last processed URLs
   const lastUrlsRef = useRef<string>('');
 
   useEffect(() => {
+    ensureCacheInitialized();
     const validUrls = urls.filter((u): u is string => !!u);
     const urlsKey = validUrls.sort().join('|');
 
@@ -175,6 +236,7 @@ export function useSignedUrls(
           });
           newSignedUrls[originalUrl] = signedUrl as string;
         }
+        saveCacheToStorage();
 
         setSignedUrls(newSignedUrls);
       })
@@ -197,8 +259,10 @@ export function useSignedUrls(
  */
 export async function getSignedUrl(
   url: string,
-  expires: number = 3600
+  expires: number = DEFAULT_EXPIRES
 ): Promise<string> {
+  ensureCacheInitialized();
+
   // If not a B2 URL, return as-is
   if (!isB2Url(url)) {
     return url;
@@ -226,6 +290,7 @@ export async function getSignedUrl(
       signedUrl,
       expiresAt: Date.now() + expires * 1000 - EXPIRY_BUFFER_MS,
     });
+    saveCacheToStorage();
     return signedUrl;
   }
 
@@ -237,4 +302,20 @@ export async function getSignedUrl(
  */
 export function clearUrlCache(): void {
   urlCache.clear();
+  if (typeof window !== 'undefined') {
+    localStorage.removeItem(CACHE_STORAGE_KEY);
+  }
+}
+
+/**
+ * Preload images into browser cache
+ * This fetches the actual images so they're cached by the browser
+ */
+export function preloadImages(urls: string[]): void {
+  for (const url of urls) {
+    if (url && typeof window !== 'undefined') {
+      const img = new window.Image();
+      img.src = url;
+    }
+  }
 }

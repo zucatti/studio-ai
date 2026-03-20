@@ -2,8 +2,9 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { GlobalAsset, ProjectAssetFlat, GlobalAssetType } from '@/types/database';
 import type { GenericCharacter } from '@/lib/generic-characters';
+import { invalidateMentionCache } from '@/components/ui/mention-input';
 
-export type BibleTab = 'characters' | 'locations' | 'props' | 'audio' | 'references';
+export type BibleTab = 'characters' | 'locations' | 'props' | 'audio';
 
 // Imported generic character (with project link ID)
 export interface ImportedGenericCharacter extends GenericCharacter {
@@ -38,6 +39,26 @@ export interface CharacterData {
   voice_name?: string;
 }
 
+// Audio types
+export type AudioType = 'music' | 'sfx' | 'dialogue' | 'ambiance' | 'foley' | 'voiceover';
+
+export interface AudioData {
+  description?: string;
+  audioType?: AudioType;
+  fileUrl?: string;
+  fileName?: string;
+  duration?: number; // seconds
+  format?: string; // mp3, wav, etc.
+  fileSize?: number; // bytes
+  waveformUrl?: string; // optional waveform image
+}
+
+export interface CreateAudioInput {
+  name: string;
+  data: AudioData;
+  tags?: string[];
+}
+
 export interface CreateCharacterInput {
   name: string;
   data: CharacterData;
@@ -51,6 +72,7 @@ export interface GenerateImagesInput {
   style?: string;
   viewType?: CharacterImageType;
   model?: string;
+  resolution?: '1K' | '2K' | '4K';
 }
 
 interface BibleStore {
@@ -95,6 +117,11 @@ interface BibleStore {
   // Character image generation
   generateCharacterImages: (assetId: string, input: GenerateImagesInput) => Promise<ReferenceImage[] | null>;
   uploadCharacterImage: (assetId: string, file: File, imageType: CharacterImageType) => Promise<string | null>;
+
+  // Audio CRUD
+  createAudio: (input: CreateAudioInput) => Promise<GlobalAsset | null>;
+  updateAudio: (assetId: string, input: Partial<CreateAudioInput>) => Promise<GlobalAsset | null>;
+  deleteAudio: (assetId: string) => Promise<boolean>;
 
   // Helpers
   getAssetsByType: (type: GlobalAssetType) => GlobalAsset[];
@@ -195,6 +222,8 @@ export const useBibleStore = create<BibleStore>()(
           });
 
           if (res.ok) {
+            // Invalidate mention cache so MentionInput shows the new asset
+            invalidateMentionCache(projectId);
             // Refresh all project assets to get the flattened format
             await get().fetchProjectAssets(projectId);
             const newAsset = get().projectAssets.find((pa) => pa.id === globalAssetId);
@@ -214,6 +243,8 @@ export const useBibleStore = create<BibleStore>()(
           });
 
           if (res.ok) {
+            // Invalidate mention cache so MentionInput no longer shows the removed asset
+            invalidateMentionCache(projectId);
             set((state) => ({
               projectAssets: state.projectAssets.filter((a) => a.project_asset_id !== projectAssetId),
             }));
@@ -461,6 +492,80 @@ export const useBibleStore = create<BibleStore>()(
         } catch (error) {
           console.error('Error uploading image:', error);
           return null;
+        }
+      },
+
+      // Audio CRUD
+      createAudio: async (input: CreateAudioInput) => {
+        try {
+          const res = await fetch('/api/global-assets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              asset_type: 'audio',
+              name: input.name,
+              data: input.data,
+              tags: input.tags || [],
+              reference_images: [],
+            }),
+          });
+
+          if (res.ok) {
+            const { asset } = await res.json();
+            set((state) => ({
+              globalAssets: [asset, ...state.globalAssets],
+            }));
+            return asset;
+          }
+          return null;
+        } catch (error) {
+          console.error('Error creating audio:', error);
+          return null;
+        }
+      },
+
+      updateAudio: async (assetId: string, input: Partial<CreateAudioInput>) => {
+        try {
+          const res = await fetch(`/api/global-assets/${assetId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              name: input.name,
+              data: input.data,
+              tags: input.tags,
+            }),
+          });
+
+          if (res.ok) {
+            const { asset } = await res.json();
+            set((state) => ({
+              globalAssets: state.globalAssets.map((a) => (a.id === assetId ? asset : a)),
+            }));
+            return asset;
+          }
+          return null;
+        } catch (error) {
+          console.error('Error updating audio:', error);
+          return null;
+        }
+      },
+
+      deleteAudio: async (assetId: string) => {
+        try {
+          const res = await fetch(`/api/global-assets/${assetId}`, {
+            method: 'DELETE',
+          });
+
+          if (res.ok) {
+            set((state) => ({
+              globalAssets: state.globalAssets.filter((a) => a.id !== assetId),
+            }));
+            return true;
+          }
+          return false;
+        } catch (error) {
+          console.error('Error deleting audio:', error);
+          return false;
         }
       },
 

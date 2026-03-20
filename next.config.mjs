@@ -24,6 +24,11 @@ const nextConfig = {
         protocol: 'https',
         hostname: '**.replicate.delivery',
       },
+      {
+        // Backblaze B2 storage
+        protocol: 'https',
+        hostname: '**.backblazeb2.com',
+      },
     ],
   },
 };
