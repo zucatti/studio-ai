@@ -240,6 +240,11 @@ export interface Database {
           duration: number | null;
           frame_in: number | null;
           frame_out: number | null;
+          animation_prompt: string | null;
+          has_dialogue: boolean | null;
+          dialogue_text: string | null;
+          dialogue_character_id: string | null;
+          dialogue_audio_url: string | null;
           sort_order: number;
           created_at: string;
           updated_at: string;
@@ -268,6 +273,11 @@ export interface Database {
           duration?: number | null;
           frame_in?: number | null;
           frame_out?: number | null;
+          animation_prompt?: string | null;
+          has_dialogue?: boolean | null;
+          dialogue_text?: string | null;
+          dialogue_character_id?: string | null;
+          dialogue_audio_url?: string | null;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -294,6 +304,11 @@ export interface Database {
           duration?: number | null;
           frame_in?: number | null;
           frame_out?: number | null;
+          animation_prompt?: string | null;
+          has_dialogue?: boolean | null;
+          dialogue_text?: string | null;
+          dialogue_character_id?: string | null;
+          dialogue_audio_url?: string | null;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -693,7 +708,7 @@ export type ProjectWithScenes = Project & {
 // Enums for credit management
 export type BudgetPeriod = 'daily' | 'weekly' | 'monthly';
 // Note: 'claude' is used internally but not shown in dashboard
-export type ApiProvider = 'claude' | 'replicate' | 'fal' | 'piapi' | 'elevenlabs' | 'creatomate' | 'global';
+export type ApiProvider = 'claude' | 'fal' | 'wavespeed' | 'runway' | 'modelslab' | 'elevenlabs' | 'creatomate' | 'global';
 export type ApiCallStatus = 'success' | 'failed' | 'blocked';
 
 // Credit allocation types

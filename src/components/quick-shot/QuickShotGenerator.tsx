@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { MentionInput } from '@/components/ui/mention-input';
 import { Label } from '@/components/ui/label';
 import { GeneratingPlaceholder } from '@/components/ui/generating-placeholder';
 import { PromptWizard } from './PromptWizard';
 import { useGeneration } from '@/contexts/generation-context';
-import { Sparkles, Loader2, Minus, Plus, ChevronDown, Wand2, Layers } from 'lucide-react';
+import { Sparkles, Loader2, Minus, Plus, ChevronDown, Wand2, Layers, Lock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AspectRatio, Shot } from '@/types/database';
 import type { GenerationProgressEvent, GenerationStatus } from '@/lib/sse';
@@ -23,6 +23,20 @@ interface QuickShotGeneratorProps {
   projectId: string;
   defaultAspectRatio: AspectRatio;
   onShotsGenerated: (shots: Shot[]) => void;
+  /** Custom API endpoint (defaults to /api/projects/{projectId}/quick-shots) */
+  apiEndpoint?: string;
+  /** Custom title for the generator */
+  title?: string;
+  /** Custom description */
+  description?: string;
+  /** Lock aspect ratio to project setting (cannot be changed by user) */
+  lockAspectRatio?: boolean;
+  /** Show placeholder cards during generation (default: true) */
+  showPlaceholders?: boolean;
+  /** Show serial mode toggle (default: true) */
+  showSerialMode?: boolean;
+  /** Called when generation starts - useful for switching views */
+  onGenerationStart?: () => void;
 }
 
 const ASPECT_RATIO_OPTIONS: { value: AspectRatio; label: string }[] = [
@@ -45,7 +59,15 @@ export function QuickShotGenerator({
   projectId,
   defaultAspectRatio,
   onShotsGenerated,
+  apiEndpoint,
+  title = 'Quick Shot Generator',
+  description,
+  lockAspectRatio = false,
+  showPlaceholders = true,
+  showSerialMode = true,
+  onGenerationStart,
 }: QuickShotGeneratorProps) {
+  const effectiveApiEndpoint = apiEndpoint || `/api/projects/${projectId}/quick-shots`;
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(defaultAspectRatio);
   const [selectedModel, setSelectedModel] = useState<ModelType>('fal-ai/nano-banana-2');
@@ -62,12 +84,20 @@ export function QuickShotGenerator({
   const { addJob, updateJob } = useGeneration();
   const jobIdRef = useRef<string | null>(null);
 
+  // Sync aspect ratio when defaultAspectRatio changes (e.g., after API fetch)
+  useEffect(() => {
+    setAspectRatio(defaultAspectRatio);
+  }, [defaultAspectRatio]);
+
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim()) return;
 
     setIsGenerating(true);
     setError(null);
     setStatusMessage('Demarrage...');
+
+    // Notify parent that generation started
+    onGenerationStart?.();
 
     // Initialize placeholders
     setPlaceholders(Array(count).fill(null).map(() => ({ status: 'queued' as GenerationStatus })));
@@ -85,7 +115,7 @@ export function QuickShotGenerator({
     });
 
     try {
-      const res = await fetch(`/api/projects/${projectId}/quick-shots`, {
+      const res = await fetch(effectiveApiEndpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -226,7 +256,7 @@ export function QuickShotGenerator({
       setIsGenerating(false);
       jobIdRef.current = null;
     }
-  }, [prompt, aspectRatio, selectedModel, count, resolution, optimizePrompt, serialMode, projectId, onShotsGenerated, addJob, updateJob]);
+  }, [prompt, aspectRatio, selectedModel, count, resolution, optimizePrompt, serialMode, projectId, onShotsGenerated, addJob, updateJob, effectiveApiEndpoint, onGenerationStart]);
 
   return (
     <div className="bg-[#0d1829] border border-white/10 rounded-xl p-6 space-y-6">
@@ -235,9 +265,11 @@ export function QuickShotGenerator({
           <Sparkles className="w-5 h-5 text-blue-400" />
         </div>
         <div>
-          <h2 className="text-lg font-semibold text-white">Quick Shot Generator</h2>
+          <h2 className="text-lg font-semibold text-white">{title}</h2>
           <p className="text-sm text-slate-500">
-            Utilisez <span className="text-blue-400">@Personnage</span> <span className="text-green-400">#Lieu</span> <span className="text-purple-400">!Référence</span> dans la description
+            {description || (
+              <>Utilisez <span className="text-blue-400">@Personnage</span> <span className="text-green-400">#Lieu</span> <span className="text-purple-400">!Référence</span> dans la description</>
+            )}
           </p>
         </div>
       </div>
@@ -282,18 +314,27 @@ export function QuickShotGenerator({
         <div className="flex items-center gap-2">
           <span className="text-sm text-slate-400">Format</span>
           <div className="relative">
-            <select
-              value={aspectRatio}
-              onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
-              className="h-9 pl-3 pr-8 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-blue-500/50 focus:outline-none appearance-none cursor-pointer hover:bg-white/10 transition-colors"
-            >
-              {ASPECT_RATIO_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value} className="bg-[#1a2433]">
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-            <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+            {lockAspectRatio ? (
+              <div className="h-9 px-3 rounded-lg bg-white/5 border border-white/10 text-white text-sm flex items-center gap-2 opacity-70">
+                <span>{ASPECT_RATIO_OPTIONS.find(o => o.value === aspectRatio)?.label || aspectRatio}</span>
+                <Lock className="w-3 h-3 text-slate-500" />
+              </div>
+            ) : (
+              <>
+                <select
+                  value={aspectRatio}
+                  onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
+                  className="h-9 pl-3 pr-8 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-blue-500/50 focus:outline-none appearance-none cursor-pointer hover:bg-white/10 transition-colors"
+                >
+                  {ASPECT_RATIO_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value} className="bg-[#1a2433]">
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 pointer-events-none" />
+              </>
+            )}
           </div>
         </div>
 
@@ -384,19 +425,21 @@ export function QuickShotGenerator({
         </button>
 
         {/* Serial Mode toggle */}
-        <button
-          type="button"
-          onClick={() => setSerialMode(!serialMode)}
-          className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all',
-            serialMode
-              ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
-              : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-300 hover:border-white/20'
-          )}
-        >
-          <Layers className="w-4 h-4" />
-          <span className="text-sm font-medium">Série</span>
-        </button>
+        {showSerialMode && (
+          <button
+            type="button"
+            onClick={() => setSerialMode(!serialMode)}
+            className={cn(
+              'flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all',
+              serialMode
+                ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
+                : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-300 hover:border-white/20'
+            )}
+          >
+            <Layers className="w-4 h-4" />
+            <span className="text-sm font-medium">Série</span>
+          </button>
+        )}
 
         {/* Generate Button */}
         <div className="flex-1 flex justify-end">
@@ -428,7 +471,7 @@ export function QuickShotGenerator({
       )}
 
       {/* Generation Progress - Placeholder Cards */}
-      {isGenerating && placeholders.length > 0 && (
+      {showPlaceholders && isGenerating && placeholders.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <Loader2 className="w-4 h-4 animate-spin" />

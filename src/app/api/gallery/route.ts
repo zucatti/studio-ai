@@ -5,13 +5,14 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 export interface GalleryImage {
   id: string;
   url: string;
-  type: 'storyboard' | 'first_frame' | 'last_frame';
+  type: 'storyboard' | 'first_frame' | 'last_frame' | 'rush';
   shotNumber: number;
   sceneNumber: number | null;
   description: string;
   projectId: string;
   projectName: string;
   createdAt: string;
+  aspectRatio?: string;
 }
 
 export interface GalleryProject {
@@ -109,6 +110,26 @@ export async function GET() {
     const images: GalleryImage[] = [];
     const projectImageCounts = new Map<string, number>();
 
+    // Track seen URLs to avoid duplicates
+    const seenUrls = new Set<string>();
+
+    // Helper to check if URL is a video (not an image)
+    const isVideoUrl = (url: string): boolean => {
+      const lower = url.toLowerCase();
+      return (
+        lower.includes('/videos/') ||
+        lower.endsWith('.mp4') ||
+        lower.endsWith('.webm') ||
+        lower.endsWith('.mov') ||
+        lower.endsWith('.avi')
+      );
+    };
+
+    // Helper to check if URL is valid for gallery (image only)
+    const isValidImageUrl = (url: string | null): url is string => {
+      return !!url && !isVideoUrl(url);
+    };
+
     for (const shot of typedShots) {
       const project = projectMap.get(shot.project_id);
       if (!project) continue;
@@ -116,7 +137,9 @@ export async function GET() {
       const sceneData = Array.isArray(shot.scenes) ? shot.scenes[0] : shot.scenes;
       const sceneNumber = sceneData?.scene_number ?? null;
 
-      if (shot.storyboard_image_url) {
+      // Add storyboard image (primary) - skip video URLs
+      if (isValidImageUrl(shot.storyboard_image_url) && !seenUrls.has(shot.storyboard_image_url)) {
+        seenUrls.add(shot.storyboard_image_url);
         images.push({
           id: `${shot.id}-storyboard`,
           url: shot.storyboard_image_url,
@@ -131,7 +154,9 @@ export async function GET() {
         projectImageCounts.set(shot.project_id, (projectImageCounts.get(shot.project_id) || 0) + 1);
       }
 
-      if (shot.first_frame_url) {
+      // Add first frame only if different from storyboard - skip video URLs
+      if (isValidImageUrl(shot.first_frame_url) && !seenUrls.has(shot.first_frame_url)) {
+        seenUrls.add(shot.first_frame_url);
         images.push({
           id: `${shot.id}-first`,
           url: shot.first_frame_url,
@@ -146,7 +171,9 @@ export async function GET() {
         projectImageCounts.set(shot.project_id, (projectImageCounts.get(shot.project_id) || 0) + 1);
       }
 
-      if (shot.last_frame_url) {
+      // Add last frame only if different from others - skip video URLs
+      if (isValidImageUrl(shot.last_frame_url) && !seenUrls.has(shot.last_frame_url)) {
+        seenUrls.add(shot.last_frame_url);
         images.push({
           id: `${shot.id}-last`,
           url: shot.last_frame_url,
@@ -161,6 +188,43 @@ export async function GET() {
         projectImageCounts.set(shot.project_id, (projectImageCounts.get(shot.project_id) || 0) + 1);
       }
     }
+
+    // Fetch rush images
+    const { data: rushImages, error: rushError } = await supabase
+      .from('rush_images')
+      .select('id, url, prompt, aspect_ratio, project_id, created_at')
+      .in('project_id', projectIds)
+      .order('created_at', { ascending: false });
+
+    if (!rushError && rushImages) {
+      for (const rush of rushImages) {
+        const project = projectMap.get(rush.project_id);
+        if (!project) continue;
+
+        // Skip video URLs and duplicates
+        if (!isValidImageUrl(rush.url)) continue;
+        if (seenUrls.has(rush.url)) continue;
+        seenUrls.add(rush.url);
+
+        images.push({
+          id: `rush-${rush.id}`,
+          url: rush.url,
+          type: 'rush',
+          shotNumber: 0,
+          sceneNumber: null,
+          description: rush.prompt || '',
+          projectId: rush.project_id,
+          projectName: project.name,
+          createdAt: rush.created_at,
+          aspectRatio: rush.aspect_ratio || undefined,
+        });
+        projectImageCounts.set(rush.project_id, (projectImageCounts.get(rush.project_id) || 0) + 1);
+      }
+    }
+
+
+    // Sort all images by created_at desc
+    images.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
     // Build projects list with image counts
     const galleryProjects: GalleryProject[] = typedProjects

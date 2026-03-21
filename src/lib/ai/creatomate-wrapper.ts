@@ -197,6 +197,254 @@ export class CreatomateWrapper {
 
     return response.json();
   }
+
+  /**
+   * Merge video and audio into a single video file
+   * Uses Creatomate's source-based rendering (no template needed)
+   */
+  async mergeVideoAudio(options: {
+    videoUrl: string;
+    audioUrl: string;
+    width: number;
+    height: number;
+    duration?: number;
+  }): Promise<CreatomateWrapperResult<RenderResult>> {
+    const estimatedCost = calculateCreatomateCost('video-render', 1);
+
+    // Check budget
+    try {
+      await ensureCredit(
+        this.creditService,
+        this.userId,
+        'creatomate',
+        estimatedCost
+      );
+    } catch (error) {
+      if (isCreditError(error)) {
+        await this.creditService.logUsage(this.userId, {
+          provider: 'creatomate',
+          model: 'video-merge',
+          operation: this.operation,
+          project_id: this.projectId,
+          estimated_cost: estimatedCost,
+          status: 'blocked',
+          error_message: formatCreditError(error),
+        });
+      }
+      throw error;
+    }
+
+    // Create source-based render request
+    const source = {
+      output_format: 'mp4',
+      width: options.width,
+      height: options.height,
+      duration: options.duration,
+      elements: [
+        {
+          type: 'video',
+          source: options.videoUrl,
+          // Fill the frame
+          x: '50%',
+          y: '50%',
+          width: '100%',
+          height: '100%',
+          fit: 'cover',
+          // IMPORTANT: Mute original video audio to avoid multiple tracks
+          volume: 0,
+        },
+        {
+          type: 'audio',
+          source: options.audioUrl,
+          // Start from beginning
+          time: 0,
+          // Full volume for dialogue
+          volume: 1,
+        },
+      ],
+    };
+
+    let result: RenderResult;
+    try {
+      const response = await fetch(`${this.baseUrl}/renders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({ source }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Creatomate merge error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      result = Array.isArray(data) ? data[0] : data;
+    } catch (error) {
+      await this.creditService.logUsage(this.userId, {
+        provider: 'creatomate',
+        model: 'video-merge',
+        operation: this.operation,
+        project_id: this.projectId,
+        estimated_cost: 0,
+        status: 'failed',
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw error;
+    }
+
+    // Log success
+    await this.creditService.logUsage(this.userId, {
+      provider: 'creatomate',
+      model: 'video-merge',
+      operation: this.operation,
+      project_id: this.projectId,
+      estimated_cost: estimatedCost,
+      status: 'success',
+      metadata: { renderId: result.id },
+    });
+
+    return {
+      result,
+      cost: estimatedCost,
+      renderId: result.id,
+    };
+  }
+
+  /**
+   * Concatenate multiple videos into one
+   * Videos are placed sequentially on a timeline
+   */
+  async concatenateVideos(options: {
+    videoUrls: string[];
+    width: number;
+    height: number;
+  }): Promise<CreatomateWrapperResult<RenderResult>> {
+    const estimatedCost = calculateCreatomateCost('video-render', 1);
+
+    // Check budget
+    try {
+      await ensureCredit(
+        this.creditService,
+        this.userId,
+        'creatomate',
+        estimatedCost
+      );
+    } catch (error) {
+      if (isCreditError(error)) {
+        await this.creditService.logUsage(this.userId, {
+          provider: 'creatomate',
+          model: 'video-concat',
+          operation: this.operation,
+          project_id: this.projectId,
+          estimated_cost: estimatedCost,
+          status: 'blocked',
+          error_message: formatCreditError(error),
+        });
+      }
+      throw error;
+    }
+
+    // Create video elements on the same track - they play in sequence
+    const videoElements = options.videoUrls.map((url, index) => ({
+      type: 'video' as const,
+      track: 1,
+      source: url,
+      // Add a short crossfade transition between clips (except for first)
+      ...(index > 0 ? {
+        animations: [{
+          time: 'start',
+          duration: 0.3,
+          transition: true,
+          type: 'fade',
+        }],
+      } : {}),
+    }));
+
+    const source = {
+      output_format: 'mp4',
+      width: options.width,
+      height: options.height,
+      elements: videoElements,
+    };
+
+    let result: RenderResult;
+    try {
+      const payload = { source };
+      console.log('[Creatomate] Concatenation payload:', JSON.stringify(payload, null, 2));
+
+      const response = await fetch(`${this.baseUrl}/renders`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('[Creatomate] API error:', response.status, errorText);
+        throw new Error(`Creatomate concat error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      console.log('[Creatomate] Render started:', data);
+      result = Array.isArray(data) ? data[0] : data;
+    } catch (error) {
+      await this.creditService.logUsage(this.userId, {
+        provider: 'creatomate',
+        model: 'video-concat',
+        operation: this.operation,
+        project_id: this.projectId,
+        estimated_cost: 0,
+        status: 'failed',
+        error_message: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw error;
+    }
+
+    // Log success
+    await this.creditService.logUsage(this.userId, {
+      provider: 'creatomate',
+      model: 'video-concat',
+      operation: this.operation,
+      project_id: this.projectId,
+      estimated_cost: estimatedCost,
+      status: 'success',
+      metadata: { renderId: result.id, videoCount: options.videoUrls.length },
+    });
+
+    return {
+      result,
+      cost: estimatedCost,
+      renderId: result.id,
+    };
+  }
+
+  /**
+   * Poll for render completion
+   */
+  async waitForRender(renderId: string, maxAttempts = 60, intervalMs = 2000): Promise<RenderResult> {
+    for (let i = 0; i < maxAttempts; i++) {
+      const result = await this.getRender(renderId);
+
+      if (result.status === 'succeeded') {
+        return result;
+      }
+
+      if (result.status === 'failed') {
+        throw new Error(`Render failed: ${result.error || 'Unknown error'}`);
+      }
+
+      // Wait before next poll
+      await new Promise(resolve => setTimeout(resolve, intervalMs));
+    }
+
+    throw new Error('Render timeout');
+  }
 }
 
 export function createCreatomateWrapper(options: CreatomateWrapperOptions): CreatomateWrapper {

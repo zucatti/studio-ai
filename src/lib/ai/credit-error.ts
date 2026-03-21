@@ -68,9 +68,10 @@ export function formatCreditError(error: CreditError): string {
 
   const providerNames: Record<string, string> = {
     claude: 'Claude',
-    replicate: 'Replicate',
     fal: 'fal.ai',
-    piapi: 'PiAPI',
+    wavespeed: 'WaveSpeed',
+    runway: 'Runway',
+    modelslab: 'ModelsLab',
     elevenlabs: 'ElevenLabs',
     creatomate: 'Creatomate',
     global: 'Global',

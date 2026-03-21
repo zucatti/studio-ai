@@ -40,14 +40,21 @@ const MODEL_CONFIG: Record<string, {
     description: 'ByteDance - Excellente consistance de personnage',
     supportsReference: true,
     aspectRatioParam: 'aspect_ratio',
-    falEndpoint: 'fal-ai/bytedance/seedream/v5/lite',
+    falEndpoint: 'fal-ai/bytedance/seedream/v5/lite/text-to-image',
   },
-  'kling-o1': {
-    name: 'Kling O1',
-    description: 'Kling - Haute qualité avec éléments de référence',
-    supportsReference: true,
-    aspectRatioParam: 'aspect_ratio',
-    falEndpoint: 'fal-ai/kling-image/o1',
+  'flux-2-pro': {
+    name: 'Flux 2 Pro',
+    description: 'Black Forest Labs - Qualité studio, photoréalisme',
+    supportsReference: false,
+    aspectRatioParam: 'image_size',
+    falEndpoint: 'fal-ai/flux-2-pro',
+  },
+  'gpt-image-1.5': {
+    name: 'GPT Image 1.5',
+    description: 'OpenAI - Flagship, haute fidélité',
+    supportsReference: false,
+    aspectRatioParam: 'image_size',
+    falEndpoint: 'fal-ai/gpt-image-1.5',
   },
   'fal-ai/ideogram/character': {
     name: 'Ideogram Character',
@@ -276,6 +283,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       lookName, // Name of the look being generated
       model, // Optional: 'fal-ai/nano-banana-2' | 'fal-ai/flux-pro/v1.1'
       resolution = '2K', // Optional: '1K' | '2K' | '4K' for Nano Banana 2
+      visualDescription: overrideVisualDescription, // Override the saved description
     } = body;
 
     // Determine which model to use (default to Nano Banana 2)
@@ -306,7 +314,8 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const assetData = asset.data as Record<string, unknown>;
-    const visualDescription = (assetData.visual_description as string) || (assetData.description as string) || '';
+    // Use override from request if provided, otherwise fall back to saved data
+    const visualDescription = overrideVisualDescription || (assetData.visual_description as string) || (assetData.description as string) || '';
     const existingReferenceImages: ReferenceImage[] =
       (assetData.reference_images_metadata as ReferenceImage[] | undefined) || [];
     const hasFrontImage = existingReferenceImages.some(img => img.type === 'front');
@@ -319,6 +328,19 @@ export async function POST(request: Request, { params }: RouteParams) {
     // Allow generation if we have a description OR if we have a front image to use as reference
     if (!visualDescription && mode !== 'generate_variations' && !(mode === 'generate_single' && hasFrontImage)) {
       return NextResponse.json({ error: 'No visual description provided for this asset' }, { status: 400 });
+    }
+
+    // If visual description was overridden, save it to the database
+    if (overrideVisualDescription && overrideVisualDescription !== assetData.visual_description) {
+      const updatedAssetData = {
+        ...assetData,
+        visual_description: overrideVisualDescription,
+      };
+      await supabase
+        .from('global_assets')
+        .update({ data: updatedAssetData })
+        .eq('id', assetId);
+      console.log(`[Generate] Updated visual_description for asset ${assetId}`);
     }
 
     // Check API key
@@ -420,11 +442,20 @@ export async function POST(request: Request, { params }: RouteParams) {
           num_images: 1,
           output_format: 'png',
         };
-      } else if (textToImageModel === 'kling-o1') {
-        // Kling O1 uses aspect_ratio
+      } else if (textToImageModel === 'flux-2-pro') {
+        // Flux 2 Pro uses image_size
         return {
           prompt,
-          aspect_ratio: '3:4', // Portrait format
+          image_size: 'portrait_4_3', // Portrait format
+          output_format: 'png',
+        };
+      } else if (textToImageModel === 'gpt-image-1.5') {
+        // GPT Image 1.5 uses image_size with specific dimensions
+        return {
+          prompt,
+          image_size: '1024x1536', // Portrait format
+          quality: 'high',
+          output_format: 'png',
           num_images: 1,
         };
       } else {

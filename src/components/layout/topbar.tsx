@@ -16,6 +16,7 @@ import { useEffect, useState } from 'react';
 import { useSidebarStore } from '@/store/sidebar-store';
 import { BibleToggleButton } from '@/components/bible/BibleSidebar';
 import { GalleryToggleButton } from '@/components/gallery/GlobalGallery';
+import { QueueBadge } from '@/components/queue/QueuePanel';
 
 interface Project {
   id: string;
@@ -107,6 +108,9 @@ export function Topbar() {
 
       {/* Right side */}
       <div className="flex items-center gap-2 ml-auto">
+        {/* Queue badge */}
+        <QueueBadge />
+
         {/* Bible toggle - always available for global library */}
         <BibleToggleButton />
 
@@ -116,7 +120,10 @@ export function Topbar() {
         {/* User Menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors">
+            <button
+              className="flex items-center gap-2 pl-3 pr-2 py-1.5 rounded-lg hover:bg-white/5 transition-colors"
+              suppressHydrationWarning
+            >
               <Avatar className="h-7 w-7">
                 <AvatarImage src={user?.picture || ''} alt={user?.name || ''} />
                 <AvatarFallback className="bg-blue-500/20 text-blue-400 text-xs">

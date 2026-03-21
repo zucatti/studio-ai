@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useCallback, useRef, ReactNode } from 'react';
+import { createContext, useContext, useCallback, useRef, useMemo, ReactNode } from 'react';
 import { isB2Url } from '@/hooks/use-signed-url';
 
 // Default expiration buffer (5 minutes before actual expiry)
@@ -217,8 +217,15 @@ export function SignedUrlProvider({ children }: { children: ReactNode }) {
     }
   }, [getSignedUrl]);
 
+  // Memoize context value to prevent infinite re-renders in consumers
+  const contextValue = useMemo(() => ({
+    getSignedUrl,
+    preloadUrls,
+    preloadImages,
+  }), [getSignedUrl, preloadUrls, preloadImages]);
+
   return (
-    <SignedUrlContext.Provider value={{ getSignedUrl, preloadUrls, preloadImages }}>
+    <SignedUrlContext.Provider value={contextValue}>
       {children}
     </SignedUrlContext.Provider>
   );

@@ -225,16 +225,18 @@ function ImageCard({
   showProject: boolean;
   onClick: () => void;
 }) {
-  const typeLabels = {
+  const typeLabels: Record<string, string> = {
     storyboard: 'Storyboard',
     first_frame: 'Frame debut',
     last_frame: 'Frame fin',
+    rush: 'Rush',
   };
 
-  const typeColors = {
+  const typeColors: Record<string, string> = {
     storyboard: 'bg-blue-500/20 text-blue-300',
     first_frame: 'bg-green-500/20 text-green-300',
     last_frame: 'bg-orange-500/20 text-orange-300',
+    rush: 'bg-purple-500/20 text-purple-300',
   };
 
   return (

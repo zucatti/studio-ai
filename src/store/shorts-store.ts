@@ -19,6 +19,8 @@ export interface Plan {
   sort_order: number;
   frame_in: number; // 0-100 percentage
   frame_out: number; // 0-100 percentage
+  // Animation prompt for video generation (supports &in/&out)
+  animation_prompt: string | null;
   // Dialogue (lip-sync)
   has_dialogue: boolean;
   dialogue_text: string | null;
@@ -213,6 +215,8 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           sort_order: data.plan.sort_order || 0,
           frame_in: data.plan.frame_in ?? 0,
           frame_out: data.plan.frame_out ?? 100,
+          // Animation prompt
+          animation_prompt: data.plan.animation_prompt ?? null,
           // Dialogue fields
           has_dialogue: data.plan.has_dialogue ?? false,
           dialogue_text: data.plan.dialogue_text ?? null,

@@ -61,14 +61,15 @@ function setCachedSuggestions(key: string, data: MentionSuggestion[]): void {
 
 // Parse text and render with styled mentions
 // IMPORTANT: This must render text EXACTLY like the textarea to avoid cursor drift
-// @ = characters (blue), # = locations/props (green), ! = looks (purple)
+// @ = characters (blue), # = locations/props (green), ! = looks (purple), &in/&out = frame refs (orange)
 function StyledMentionOverlay({ text }: { text: string }) {
-  // Match @Character, #Location, !Look separately
-  const mentionRegex = /[@#!][A-Z][a-zA-Z0-9_]*/g;
+  // Match @Character, #Location, !Look, and &in/&out
+  const mentionRegex = /([@#!][A-Z][a-zA-Z0-9_]*|&in\b|&out\b)/gi;
   const parts: {
     text: string;
     isMention: boolean;
-    prefix?: '@' | '#' | '!';
+    prefix?: '@' | '#' | '!' | '&';
+    isFrameRef?: boolean;
   }[] = [];
 
   let lastIndex = 0;
@@ -80,13 +81,24 @@ function StyledMentionOverlay({ text }: { text: string }) {
     }
 
     const fullMatch = match[0];
-    const prefix = fullMatch[0] as '@' | '#' | '!';
+    const lowerMatch = fullMatch.toLowerCase();
 
-    parts.push({
-      text: fullMatch,
-      isMention: true,
-      prefix,
-    });
+    // Check for frame references
+    if (lowerMatch === '&in' || lowerMatch === '&out') {
+      parts.push({
+        text: fullMatch,
+        isMention: true,
+        prefix: '&',
+        isFrameRef: true,
+      });
+    } else {
+      const prefix = fullMatch[0] as '@' | '#' | '!';
+      parts.push({
+        text: fullMatch,
+        isMention: true,
+        prefix,
+      });
+    }
     lastIndex = match.index + fullMatch.length;
   }
 
@@ -99,6 +111,15 @@ function StyledMentionOverlay({ text }: { text: string }) {
       {parts.map((part, idx) => {
         if (!part.isMention) {
           return <span key={idx}>{part.text}</span>;
+        }
+
+        // Frame references (&in, &out)
+        if (part.isFrameRef) {
+          return (
+            <span key={idx} className="text-orange-400">
+              {part.text}
+            </span>
+          );
         }
 
         const isCharacter = part.prefix === '@';
@@ -576,10 +597,11 @@ export function MentionInput({
       {isOpen && typeof document !== 'undefined' && createPortal(
         <div
           ref={dropdownRef}
-          className="fixed z-50 w-72 max-h-64 overflow-y-auto bg-[#1a2433] border border-white/10 rounded-lg shadow-xl"
+          className="fixed z-[99999] w-72 max-h-64 overflow-y-auto bg-[#1a2433] border border-white/10 rounded-lg shadow-xl"
           style={{
             top: dropdownPosition.top,
             left: dropdownPosition.left,
+            pointerEvents: 'auto',
           }}
         >
           {/* Header */}

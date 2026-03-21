@@ -32,9 +32,10 @@ interface BudgetEditorProps {
 
 const PROVIDER_LABELS: Record<ApiProvider, string> = {
   claude: 'Claude (interne)',
-  replicate: 'Replicate',
   fal: 'fal.ai',
-  piapi: 'PiAPI',
+  wavespeed: 'WaveSpeed',
+  runway: 'Runway ML',
+  modelslab: 'ModelsLab',
   elevenlabs: 'ElevenLabs',
   creatomate: 'Creatomate',
   global: 'Budget Global',

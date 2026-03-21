@@ -22,9 +22,49 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const supabase = createServerSupabaseClient();
 
-    // Check if monthly summary is requested
+    // Check if summary is requested
     const summaryType = searchParams.get('summary');
     const months = parseInt(searchParams.get('months') || '6', 10);
+
+    // Current month spending per provider
+    if (summaryType === 'current') {
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+      const { data, error } = await supabase
+        .from('api_usage_logs')
+        .select('provider, estimated_cost')
+        .eq('user_id', session.user.sub)
+        .eq('status', 'success')
+        .gte('created_at', startOfMonth.toISOString());
+
+      if (error) {
+        console.error('Error fetching current spending:', error);
+        return NextResponse.json(
+          { error: 'Failed to fetch current spending' },
+          { status: 500 }
+        );
+      }
+
+      // Aggregate by provider
+      const spending: Record<string, number> = {};
+      let total = 0;
+
+      (data || []).forEach((log) => {
+        const cost = log.estimated_cost || 0;
+        spending[log.provider] = (spending[log.provider] || 0) + cost;
+        total += cost;
+      });
+
+      return NextResponse.json({
+        spending,
+        total,
+        period: {
+          start: startOfMonth.toISOString(),
+          end: now.toISOString(),
+        },
+      });
+    }
 
     if (summaryType === 'monthly') {
       // Calculate start date for monthly history

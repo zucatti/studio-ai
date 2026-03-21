@@ -314,7 +314,7 @@ export function BibleAssetCard({
                   <DropdownMenuContent align="end" className="bg-[#1a2433] border-white/10">
                     {onEdit && (
                       <DropdownMenuItem
-                        onClick={onEdit}
+                        onClick={(e) => { e.stopPropagation(); onEdit(); }}
                         className="text-slate-300 focus:text-white focus:bg-white/5"
                       >
                         <Edit className="w-4 h-4 mr-2" />
@@ -325,7 +325,7 @@ export function BibleAssetCard({
                       <>
                         <DropdownMenuSeparator className="bg-white/10" />
                         <DropdownMenuItem
-                          onClick={onDelete}
+                          onClick={(e) => { e.stopPropagation(); onDelete(); }}
                           className="text-red-400 focus:text-red-300 focus:bg-red-500/10"
                         >
                           <Trash2 className="w-4 h-4 mr-2" />
@@ -500,7 +500,7 @@ export function BibleAssetCard({
             <DropdownMenuContent align="end" className="bg-[#1a2433] border-white/10">
               {onEdit && (
                 <DropdownMenuItem
-                  onClick={onEdit}
+                  onClick={(e) => { e.stopPropagation(); onEdit(); }}
                   className="text-slate-300 focus:text-white focus:bg-white/5"
                 >
                   <Edit className="w-4 h-4 mr-2" />
@@ -521,7 +521,7 @@ export function BibleAssetCard({
                         return (
                           <DropdownMenuItem
                             key={option.value}
-                            onClick={() => onGenerate(option.value)}
+                            onClick={(e) => { e.stopPropagation(); onGenerate(option.value); }}
                             disabled={isGenerating}
                             className="text-slate-300 focus:text-white focus:bg-white/5"
                           >
@@ -542,7 +542,7 @@ export function BibleAssetCard({
                 <>
                   <DropdownMenuSeparator className="bg-white/10" />
                   <DropdownMenuItem
-                    onClick={onDelete}
+                    onClick={(e) => { e.stopPropagation(); onDelete(); }}
                     className="text-red-400 focus:text-red-300 focus:bg-red-500/10"
                   >
                     <Trash2 className="w-4 h-4 mr-2" />

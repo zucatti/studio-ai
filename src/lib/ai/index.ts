@@ -24,16 +24,6 @@ export {
   type ClaudeWrapperResult,
 } from './claude-wrapper';
 
-// Replicate
-export {
-  ReplicateWrapper,
-  createReplicateWrapper,
-  REPLICATE_MODELS,
-  type ReplicateWrapperOptions,
-  type ReplicateRunOptions,
-  type ReplicateWrapperResult,
-} from './replicate-wrapper';
-
 // fal.ai
 export {
   FalWrapper,
@@ -47,15 +37,41 @@ export {
   type FalVideoOutput,
 } from './fal-wrapper';
 
-// PiAPI (Midjourney)
+// WaveSpeedAI
 export {
-  PiapiWrapper,
-  createPiapiWrapper,
-  type PiapiWrapperOptions,
-  type PiapiWrapperResult,
-  type MidjourneyImagineInput,
-  type MidjourneyTaskResult,
-} from './piapi-wrapper';
+  WavespeedWrapper,
+  createWavespeedWrapper,
+  type WavespeedWrapperOptions,
+  type WavespeedWrapperResult,
+  type WavespeedTaskResult,
+  type WavespeedModel,
+  type ImageGenerationInput as WavespeedImageInput,
+  type VideoGenerationInput as WavespeedVideoInput,
+} from './wavespeed-wrapper';
+
+// Runway ML
+export {
+  RunwayWrapper,
+  createRunwayWrapper,
+  type RunwayWrapperOptions,
+  type RunwayWrapperResult,
+  type RunwayTaskResult,
+  type RunwayModel,
+  type VideoGenerationInput as RunwayVideoInput,
+  type ImageGenerationInput as RunwayImageInput,
+} from './runway-wrapper';
+
+// ModelsLab
+export {
+  ModelslabWrapper,
+  createModelslabWrapper,
+  type ModelslabWrapperOptions,
+  type ModelslabWrapperResult,
+  type ModelslabTaskResult,
+  type ModelslabModel,
+  type ImageGenerationInput as ModelslabImageInput,
+  type VideoGenerationInput as ModelslabVideoInput,
+} from './modelslab-wrapper';
 
 // ElevenLabs
 export {
@@ -82,7 +98,9 @@ export {
 export {
   logApiUsage,
   logFalUsage,
-  logReplicateUsage,
+  logWavespeedUsage,
+  logRunwayUsage,
+  logModelslabUsage,
   logElevenLabsUsage,
   logClaudeUsage,
 } from './log-api-usage';

@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { cleanupShotStorage } from '@/lib/storage/b2-utils';
 
 interface RouteParams {
   params: Promise<{ projectId: string; shotId: string }>;
@@ -84,11 +85,20 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       'last_frame_url',
       'first_frame_prompt',
       'last_frame_prompt',
+      'storyboard_image_url',
       'suggested_duration',
+      'duration',
       'video_provider',
       'video_duration',
       'generation_status',
       'status', // Shot status: draft, selected, rush, archived
+      // Animation prompt for video generation
+      'animation_prompt',
+      // Dialogue fields
+      'has_dialogue',
+      'dialogue_text',
+      'dialogue_character_id',
+      'dialogue_audio_url',
       // Audio timeline fields
       'start_time',
       'end_time',
@@ -150,6 +160,35 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // Get shot data to retrieve file URLs for cleanup
+    const { data: shot } = await supabase
+      .from('shots')
+      .select('storyboard_image_url, first_frame_url, last_frame_url, generated_video_url, dialogue_audio_url')
+      .eq('id', shotId)
+      .single();
+
+    // Clean up S3/B2 storage files
+    if (shot) {
+      try {
+        const deletedCount = await cleanupShotStorage(
+          session.user.sub,
+          projectId,
+          shotId,
+          {
+            storyboardImageUrl: shot.storyboard_image_url,
+            firstFrameUrl: shot.first_frame_url,
+            lastFrameUrl: shot.last_frame_url,
+            generatedVideoUrl: shot.generated_video_url,
+            dialogueAudioUrl: shot.dialogue_audio_url,
+          }
+        );
+        console.log(`[Shot Delete] Cleaned up ${deletedCount} files from S3`);
+      } catch (storageError) {
+        // Log but don't fail - DB deletion is more important
+        console.error('[Shot Delete] Storage cleanup error:', storageError);
+      }
     }
 
     // Delete related data first (dialogues, actions)

@@ -2,7 +2,7 @@
  * Credit Management Service
  *
  * Handles budget verification, usage logging, and spending tracking
- * for all API providers (Replicate, fal.ai, PiAPI, ElevenLabs, Creatomate)
+ * for all API providers (fal.ai, WaveSpeed, Runway, ModelsLab, ElevenLabs, Creatomate)
  */
 
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -16,6 +16,11 @@ import {
   ApiUsageLogInsert,
 } from '@/types/database';
 import { CreditError } from '@/lib/ai/credit-error';
+import {
+  getPrice as getPriceFromDB,
+  calculateCost as calculateCostFromDB,
+  calculateClaudeCost as calculateClaudeCostFromDB,
+} from '@/lib/pricing-service';
 
 // ============================================================================
 // Provider Configuration
@@ -30,7 +35,7 @@ export interface ProviderConfig {
 }
 
 // Dashboard providers
-export type DashboardProvider = 'claude' | 'replicate' | 'fal' | 'piapi' | 'elevenlabs' | 'creatomate';
+export type DashboardProvider = 'claude' | 'fal' | 'wavespeed' | 'runway' | 'modelslab' | 'elevenlabs' | 'creatomate';
 
 export const PROVIDERS: Record<DashboardProvider, ProviderConfig> = {
   claude: {
@@ -40,13 +45,6 @@ export const PROVIDERS: Record<DashboardProvider, ProviderConfig> = {
     dashboardUrl: 'https://platform.claude.com/settings/billing',
     description: 'Scripts, prompts IA',
   },
-  replicate: {
-    name: 'replicate',
-    displayName: 'Replicate',
-    color: '#3B82F6',
-    dashboardUrl: 'https://replicate.com/users/zucatti/settings/billing/add-credit?next=/account/billing',
-    description: 'Image generation (Flux, SDXL)',
-  },
   fal: {
     name: 'fal',
     displayName: 'fal.ai',
@@ -54,12 +52,26 @@ export const PROVIDERS: Record<DashboardProvider, ProviderConfig> = {
     dashboardUrl: 'https://fal.ai/dashboard/usage-billing/credits',
     description: 'Images (Nano Banana 2, Ideogram) & vidéos (Kling)',
   },
-  piapi: {
-    name: 'piapi',
-    displayName: 'PiAPI',
+  wavespeed: {
+    name: 'wavespeed',
+    displayName: 'WaveSpeed',
+    color: '#3B82F6',
+    dashboardUrl: 'https://wavespeed.ai/dashboard',
+    description: 'Images (FLUX, SD 3.5) & vidéos (Kling, Luma, MiniMax)',
+  },
+  runway: {
+    name: 'runway',
+    displayName: 'Runway ML',
     color: '#EC4899',
-    dashboardUrl: 'https://piapi.ai/workspace/billing',
-    description: 'Midjourney + Video (Kling, Sora, Veo)',
+    dashboardUrl: 'https://dev.runwayml.com/organization/d06cfd54-cddc-4b7b-931d-7342064714f6/usage',
+    description: 'Vidéos (Gen-4, Gen-4.5)',
+  },
+  modelslab: {
+    name: 'modelslab',
+    displayName: 'ModelsLab',
+    color: '#06B6D4',
+    dashboardUrl: 'https://modelslab.com/dashboard',
+    description: 'Images (FLUX, SDXL, SD 3.5) & vidéos',
   },
   elevenlabs: {
     name: 'elevenlabs',
@@ -83,86 +95,209 @@ export const PROVIDERS: Record<DashboardProvider, ProviderConfig> = {
 
 /**
  * Claude pricing per 1M tokens (in USD) - used internally
+ * https://platform.claude.com/docs/en/about-claude/pricing - Updated March 2026
  */
 export const CLAUDE_PRICES: Record<string, { input: number; output: number }> = {
+  // Opus 4.6 / 4.5: $5 / $25
+  'claude-opus-4-6-20260301': { input: 5, output: 25 },
+  'claude-opus-4-5-20251101': { input: 5, output: 25 },
+  'claude-opus-4.6': { input: 5, output: 25 },
+  'claude-opus-4.5': { input: 5, output: 25 },
+  // Opus 4.1 / 4: $15 / $75
+  'claude-opus-4-1-20250514': { input: 15, output: 75 },
   'claude-opus-4-20250514': { input: 15, output: 75 },
+  'claude-opus-4.1': { input: 15, output: 75 },
+  'claude-opus-4': { input: 15, output: 75 },
+  // Sonnet 4.6 / 4.5 / 4: $3 / $15
+  'claude-sonnet-4-6-20260301': { input: 3, output: 15 },
+  'claude-sonnet-4-5-20251022': { input: 3, output: 15 },
   'claude-sonnet-4-20250514': { input: 3, output: 15 },
+  'claude-sonnet-4.6': { input: 3, output: 15 },
+  'claude-sonnet-4.5': { input: 3, output: 15 },
+  'claude-sonnet-4': { input: 3, output: 15 },
   'claude-3-5-sonnet-20241022': { input: 3, output: 15 },
+  // Haiku 4.5: $1 / $5
+  'claude-haiku-4-5-20251022': { input: 1, output: 5 },
+  'claude-haiku-4.5': { input: 1, output: 5 },
+  // Haiku 3.5: $0.80 / $4
   'claude-3-5-haiku-20241022': { input: 0.8, output: 4 },
+  // Haiku 3: $0.25 / $1.25
   'claude-3-haiku-20240307': { input: 0.25, output: 1.25 },
+  // Opus 3: $15 / $75
+  'claude-3-opus-20240229': { input: 15, output: 75 },
   default: { input: 3, output: 15 },
 };
 
 /**
- * Replicate pricing per prediction (in USD)
+ * WaveSpeedAI pricing per request (in USD)
+ * https://wavespeed.ai/pricing - Updated March 2026
  */
-export const REPLICATE_PRICES: Record<string, number> = {
-  'flux-1.1-pro': 0.04,
-  'flux-pro': 0.055,
-  'flux-dev': 0.025,
-  'flux-schnell': 0.003,
-  'sdxl': 0.002,
-  'ideogram-v2': 0.08,
-  default: 0.03,
+export const WAVESPEED_PRICES: Record<string, number> = {
+  // Image generation
+  'flux-dev': 0.005, // Flux Dev Ultra Fast
+  'flux-schnell': 0.005,
+  'flux-pro': 0.005,
+  'z-image': 0.005,
+  'nano-banana-pro': 0.14,
+  'seedream-v4.5': 0.04,
+  'sd-3.5-large': 0.02,
+  'sd-3.5-turbo': 0.01,
+
+  // Video generation - Kling models (per generation, not per second)
+  'kling-o3-pro': 0.02,
+  'kling-o3-std': 0.015,
+  'kwaivgi/kling-video-o3-pro/image-to-video': 0.02,
+  'kwaivgi/kling-video-o3-std/image-to-video': 0.015,
+  'kling-1.6': 0.07,
+
+  // Video generation - Sora
+  'sora-2': 0.10,
+  'sora-2-pro': 0.15,
+  'openai/sora-2/image-to-video': 0.10,
+  'openai/sora-2-pro/image-to-video': 0.15,
+
+  // Video generation - Veo
+  'veo-3.1': 0.40,
+  'google/veo3.1/image-to-video': 0.40,
+
+  // Video generation - Seedance
+  'seedance-2': 0.03,
+  'seedance-1.5': 0.025,
+  'bytedance/seedance-v2.0/image-to-video': 0.03,
+  'bytedance/seedance-v1.5-pro/image-to-video': 0.025,
+
+  // Video generation - WAN
+  'wan-2.6': 0.02,
+  'wan-2.5': 0.05,
+  'wan-2.2': 0.01, // Wan 2.2 Ultra Fast
+  'alibaba/wan-2.6/image-to-video': 0.02,
+  'alibaba/wan-2.5/image-to-video': 0.05,
+
+  // Video generation - OmniHuman
+  'omnihuman-1.5': 0.05,
+  'bytedance/omnihuman-1.5/image-to-video': 0.05,
+
+  // Video generation - Other
+  'infinitetalk': 0.03,
+  'luma-ray2': 0.10,
+  'minimax-video': 0.05,
+
+  default: 0.02,
+};
+
+/**
+ * Runway ML pricing per second of video (in USD)
+ * https://docs.dev.runwayml.com/guides/pricing/ - Updated March 2026
+ * Credits cost $0.01 each
+ */
+export const RUNWAY_PRICES: Record<string, number> = {
+  // Gen-4.5: 12 credits/second = $0.12/second
+  'gen4.5': 0.12,
+  'gen-4.5': 0.12,
+  // Gen-4 Turbo: 5 credits/second = $0.05/second
+  'gen4': 0.05,
+  'gen-4': 0.05,
+  'gen4-turbo': 0.05,
+  'gen-4-turbo': 0.05,
+  // Gen-4 Aleph (video-to-video): 15 credits/second = $0.15/second
+  'gen4-aleph': 0.15,
+  'gen-4-aleph': 0.15,
+  // Veo 3: 40 credits/second = $0.40/second
+  'veo-3': 0.40,
+  // Veo 3.1: 10-40 credits/second (avg 25) = $0.25/second
+  'veo-3.1': 0.25,
+  // Gen-4 Image: 5 credits = $0.05/image (720p)
+  'gen4-image': 0.05,
+  'gen-4-image': 0.05,
+  // Gen-4 Image Turbo: 2 credits = $0.02/image
+  'gen4-image-turbo': 0.02,
+  default: 0.05,
+};
+
+/**
+ * ModelsLab pricing per request (in USD)
+ * https://modelslab.com/pricing - Updated March 2026
+ */
+export const MODELSLAB_PRICES: Record<string, number> = {
+  // Image generation - Flux models
+  'flux-pro': 0.07,
+  'flux-pro-1.1': 0.06,
+  'flux-pro-1.1-ultra': 0.08,
+  'flux-2-pro': 0.054,
+  'flux-2-max': 0.08,
+  'flux-kontext-pro': 0.044,
+  'flux-kontext-dev': 0.0047,
+  'flux-2-dev': 0.0047,
+  'flux': 0.054,
+  'flux-schnell': 0.0047,
+  // Other image models
+  'qwen-image-2.0-pro': 0.075,
+  'seedream-4.0': 0.033,
+  'stable-diffusion': 0.01,
+  'sdxl': 0.02,
+  'sd-3.5': 0.03,
+  // Video generation (per second for Seedance, per request for others)
+  'seedance': 0.04, // ~$0.031-0.055/second avg
+  'omnihuman': 0.168,
+  'wan-2.5': 0.05,
+  'text2video': 0.10,
+  'img2video': 0.12,
+  'video2video': 0.15,
+  default: 0.05,
 };
 
 /**
  * fal.ai pricing per request (in USD)
+ * https://fal.ai/pricing - Updated March 2026
  */
 export const FAL_PRICES: Record<string, number> = {
-  // Image generation - Nano Banana 2 (Google Gemini 3.1 Flash)
-  'fal-ai/nano-banana-2': 0.08, // Base price at 1K resolution
-  'fal-ai/nano-banana-2/0.5K': 0.06, // 0.75x rate
-  'fal-ai/nano-banana-2/1K': 0.08, // Standard rate
-  'fal-ai/nano-banana-2/2K': 0.12, // 1.5x rate
-  'fal-ai/nano-banana-2/4K': 0.16, // 2x rate
+  // Image generation - Nano Banana / Nanobanana
+  'fal-ai/nano-banana-2': 0.04,
+  'fal-ai/nanobanana': 0.04,
+  'nanobanana': 0.04,
+  // Image generation - Seedream
+  'fal-ai/seedream-v4': 0.03,
+  'seedream-v4': 0.03,
+  'seedream-5': 0.03,
   // Image generation - Flux
   'fal-ai/flux/schnell': 0.003,
-  'fal-ai/flux/dev': 0.025,
-  'fal-ai/flux-pro': 0.05,
+  'fal-ai/flux/dev': 0.01,
+  'fal-ai/flux-pro': 0.04,
+  'fal-ai/flux-kontext-pro': 0.04,
   'fal-ai/flux-pro/v1.1': 0.04,
+  // Image generation - Qwen
+  'fal-ai/qwen': 0.02, // per megapixel
+  'qwen': 0.02,
   // Image generation - Ideogram (character consistency)
-  'fal-ai/ideogram/character': 0.08,
-  'fal-ai/ideogram/v2': 0.08,
-  // Image generation - Seedream 5
-  'fal-ai/bytedance/seedream/v5/lite': 0.03,
-  'fal-ai/bytedance/seedream/v5/lite/edit': 0.04,
-  'seedream-5': 0.03,
-  'seedream-5-edit': 0.04,
+  'fal-ai/ideogram/character': 0.06,
+  'fal-ai/ideogram/v2': 0.06,
+  // Image generation - Flux 2 Pro
+  'fal-ai/flux-2-pro': 0.03,
+  'flux-2-pro': 0.03,
+  // Image generation - GPT Image 1.5 (OpenAI)
+  'fal-ai/gpt-image-1.5': 0.15,
+  'gpt-image-1.5': 0.15,
   // Image generation - Kling O1
   'fal-ai/kling-image/o1': 0.05,
   'kling-o1': 0.05,
   // Image utilities
   'fal-ai/image-apps-v2/perspective': 0.02,
-  // Video generation
-  'fal-ai/kling-video/v1/standard/image-to-video': 0.10,
-  'fal-ai/kling-video/v1/pro/image-to-video': 0.35,
-  'fal-ai/minimax-video/image-to-video': 0.30,
-  'fal-ai/hunyuan-video': 0.50,
-  default: 0.05,
-};
-
-/**
- * PiAPI pricing per request (in USD)
- * Midjourney-style API + Video generation models
- */
-export const PIAPI_PRICES: Record<string, number> = {
-  // Image generation
-  'midjourney-imagine': 0.04,
-  'midjourney-upscale': 0.02,
-  'midjourney-variation': 0.03,
-  'midjourney-describe': 0.01,
-  'stable-diffusion': 0.002,
-  // Video generation (per 5s)
-  'seedance-2': 0.15,      // ByteDance Seedance 2
-  'kling-omni': 0.25,      // Kuaishou Kling Omni (latest)
-  'kling-2': 0.20,         // Kuaishou Kling 2.0
-  'sora-2': 0.30,          // OpenAI Sora 2 (latest)
-  'veo-3': 0.25,           // Google Veo 3 (latest)
-  'wan-2.1': 0.10,         // Alibaba Wan 2.1
-  'hunyuan': 0.10,         // Tencent Hunyuan
+  // Video generation (per second)
+  'fal-ai/wan-2.5': 0.05,
+  'wan-2.5': 0.05,
+  'fal-ai/kling-2.5-turbo-pro': 0.07,
+  'kling-2.5': 0.07,
+  'fal-ai/veo-3': 0.40,
+  'veo-3': 0.40,
+  'fal-ai/ovi': 0.20, // per video
+  'ovi': 0.20,
+  'fal-ai/kling-video/v1/standard/image-to-video': 0.07,
+  'fal-ai/kling-video/v1/pro/image-to-video': 0.10,
+  'fal-ai/minimax-video/image-to-video': 0.15,
+  'fal-ai/hunyuan-video': 0.30,
   default: 0.04,
 };
+
 
 /**
  * ElevenLabs pricing per 1000 characters (in USD)
@@ -203,18 +338,41 @@ export function calculateClaudeCost(
   return inputCost + outputCost;
 }
 
-export function calculateReplicateCost(model: string, count: number = 1): number {
-  const price = REPLICATE_PRICES[model] || REPLICATE_PRICES.default;
-  return price * count;
-}
-
 export function calculateFalCost(endpoint: string, count: number = 1): number {
   const price = FAL_PRICES[endpoint] || FAL_PRICES.default;
   return price * count;
 }
 
-export function calculatePiapiCost(operation: string, count: number = 1): number {
-  const price = PIAPI_PRICES[operation] || PIAPI_PRICES.default;
+export function calculateWavespeedCost(model: string, count: number = 1, durationSeconds?: number): number {
+  const price = WAVESPEED_PRICES[model] || WAVESPEED_PRICES.default;
+  // Most WaveSpeed video models are priced per generation (not per second)
+  // Only legacy models like kling-1.6, luma-ray2 were priced per 5s segment
+  const legacyPerSecondModels = ['kling-1.6', 'luma-ray2'];
+  if (durationSeconds && legacyPerSecondModels.some(m => model.includes(m))) {
+    const segments = Math.ceil(durationSeconds / 5);
+    return price * segments;
+  }
+  return price * count;
+}
+
+export function calculateRunwayCost(model: string, durationSeconds: number = 5): number {
+  const price = RUNWAY_PRICES[model] || RUNWAY_PRICES.default;
+  // Gen-4 image is per-image
+  if (model === 'gen4-image') {
+    return price;
+  }
+  // Video models are priced per second
+  return price * durationSeconds;
+}
+
+export function calculateModelslabCost(model: string, count: number = 1, frames?: number): number {
+  const price = MODELSLAB_PRICES[model] || MODELSLAB_PRICES.default;
+  // Video models may scale with frames
+  if (frames && ['text2video', 'img2video', 'video2video'].includes(model)) {
+    // Rough scaling: base price + small increment per extra 25 frames
+    const extraSegments = Math.max(0, Math.floor((frames - 25) / 25));
+    return price + (extraSegments * 0.02);
+  }
   return price * count;
 }
 
@@ -239,17 +397,21 @@ export function calculateCost(
     imagesCount?: number;
     videoDuration?: number;
     requestCount?: number;
+    frames?: number;
   }
 ): number {
   switch (provider) {
-    case 'replicate':
-      return calculateReplicateCost(model, metrics.requestCount || metrics.imagesCount || 1);
-
     case 'fal':
       return calculateFalCost(model, metrics.requestCount || 1);
 
-    case 'piapi':
-      return calculatePiapiCost(model, metrics.requestCount || metrics.imagesCount || 1);
+    case 'wavespeed':
+      return calculateWavespeedCost(model, metrics.imagesCount || 1, metrics.videoDuration);
+
+    case 'runway':
+      return calculateRunwayCost(model, metrics.videoDuration || 5);
+
+    case 'modelslab':
+      return calculateModelslabCost(model, metrics.imagesCount || 1, metrics.frames);
 
     case 'elevenlabs':
       return calculateElevenLabsCost(model, metrics.characters || 0);
@@ -260,6 +422,141 @@ export function calculateCost(
     default:
       return 0;
   }
+}
+
+// ============================================================================
+// Async Cost Calculation (Database-backed with fallback to hardcoded)
+// ============================================================================
+
+/**
+ * Async cost calculation - tries database first, falls back to hardcoded
+ */
+export async function calculateCostAsync(
+  provider: ApiProvider,
+  model: string,
+  metrics: {
+    count?: number;
+    durationSeconds?: number;
+    characters?: number;
+    inputTokens?: number;
+    outputTokens?: number;
+  }
+): Promise<number> {
+  try {
+    // Try database-backed pricing service first
+    const dbCost = await calculateCostFromDB(provider, model, metrics);
+    if (dbCost > 0) {
+      return dbCost;
+    }
+  } catch (error) {
+    console.warn(`[Credits] DB pricing failed for ${provider}/${model}, using fallback`);
+  }
+
+  // Fall back to hardcoded prices
+  return calculateCost(provider, model, {
+    requestCount: metrics.count,
+    videoDuration: metrics.durationSeconds,
+    characters: metrics.characters,
+    imagesCount: metrics.count,
+  });
+}
+
+/**
+ * Async WaveSpeed cost calculation
+ */
+export async function calculateWavespeedCostAsync(
+  model: string,
+  count: number = 1,
+  durationSeconds?: number
+): Promise<number> {
+  try {
+    const dbPrice = await getPriceFromDB('wavespeed', model);
+    if (dbPrice) {
+      if (dbPrice.unitType === 'per_second' && durationSeconds) {
+        return dbPrice.pricePerUnit * durationSeconds;
+      }
+      return dbPrice.pricePerUnit * count;
+    }
+  } catch (error) {
+    console.warn(`[Credits] DB pricing failed for wavespeed/${model}, using fallback`);
+  }
+
+  return calculateWavespeedCost(model, count, durationSeconds);
+}
+
+/**
+ * Async fal.ai cost calculation
+ */
+export async function calculateFalCostAsync(endpoint: string, count: number = 1): Promise<number> {
+  try {
+    const dbPrice = await getPriceFromDB('fal', endpoint);
+    if (dbPrice) {
+      return dbPrice.pricePerUnit * count;
+    }
+  } catch (error) {
+    console.warn(`[Credits] DB pricing failed for fal/${endpoint}, using fallback`);
+  }
+
+  return calculateFalCost(endpoint, count);
+}
+
+/**
+ * Async Runway cost calculation
+ */
+export async function calculateRunwayCostAsync(model: string, durationSeconds: number = 5): Promise<number> {
+  try {
+    const dbPrice = await getPriceFromDB('runway', model);
+    if (dbPrice) {
+      if (dbPrice.unitType === 'per_second') {
+        return dbPrice.pricePerUnit * durationSeconds;
+      }
+      return dbPrice.pricePerUnit;
+    }
+  } catch (error) {
+    console.warn(`[Credits] DB pricing failed for runway/${model}, using fallback`);
+  }
+
+  return calculateRunwayCost(model, durationSeconds);
+}
+
+/**
+ * Async ElevenLabs cost calculation
+ */
+export async function calculateElevenLabsCostAsync(model: string, characters: number): Promise<number> {
+  try {
+    const dbPrice = await getPriceFromDB('elevenlabs', model);
+    if (dbPrice) {
+      if (dbPrice.unitType === 'per_character') {
+        return dbPrice.pricePerUnit * characters;
+      }
+      // per 1000 characters
+      return (dbPrice.pricePerUnit * characters) / 1000;
+    }
+  } catch (error) {
+    console.warn(`[Credits] DB pricing failed for elevenlabs/${model}, using fallback`);
+  }
+
+  return calculateElevenLabsCost(model, characters);
+}
+
+/**
+ * Async Claude cost calculation
+ */
+export async function calculateClaudeCostAsync(
+  model: string,
+  inputTokens: number,
+  outputTokens: number
+): Promise<number> {
+  try {
+    const dbCost = await calculateClaudeCostFromDB(model, inputTokens, outputTokens);
+    if (dbCost > 0) {
+      return dbCost;
+    }
+  } catch (error) {
+    console.warn(`[Credits] DB pricing failed for claude/${model}, using fallback`);
+  }
+
+  return calculateClaudeCost(model, inputTokens, outputTokens);
 }
 
 // ============================================================================

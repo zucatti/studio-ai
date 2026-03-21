@@ -21,6 +21,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { PlanCard } from './PlanCard';
 import { Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { Plan } from '@/store/shorts-store';
 
 interface SortablePlanItemProps {
@@ -29,9 +30,10 @@ interface SortablePlanItemProps {
   onSelect: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  compact?: boolean;
 }
 
-function SortablePlanItem({ plan, isSelected, onSelect, onEdit, onDelete }: SortablePlanItemProps) {
+function SortablePlanItem({ plan, isSelected, onSelect, onEdit, onDelete, compact }: SortablePlanItemProps) {
   const {
     attributes,
     listeners,
@@ -56,6 +58,7 @@ function SortablePlanItem({ plan, isSelected, onSelect, onEdit, onDelete }: Sort
         onEdit={onEdit}
         onDelete={onDelete}
         dragHandleProps={listeners}
+        compact={compact}
       />
     </div>
   );
@@ -69,6 +72,7 @@ interface PlanTimelineProps {
   onDeletePlan: (planId: string) => void;
   onReorder: (orderedIds: string[]) => void;
   onAddPlan: () => void;
+  compact?: boolean;
 }
 
 export function PlanTimeline({
@@ -79,6 +83,7 @@ export function PlanTimeline({
   onDeletePlan,
   onReorder,
   onAddPlan,
+  compact,
 }: PlanTimelineProps) {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -106,7 +111,7 @@ export function PlanTimeline({
   );
 
   return (
-    <div className="space-y-3">
+    <div className={cn("space-y-2", compact && "space-y-1.5")}>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}
@@ -121,6 +126,7 @@ export function PlanTimeline({
               onSelect={() => onSelectPlan(plan.id)}
               onEdit={() => onEditPlan(plan)}
               onDelete={() => onDeletePlan(plan.id)}
+              compact={compact}
             />
           ))}
         </SortableContext>
@@ -129,11 +135,15 @@ export function PlanTimeline({
       {/* Add plan button */}
       <Button
         variant="outline"
-        className="w-full border-dashed border-white/20 text-slate-400 hover:text-white hover:border-white/40"
+        size={compact ? "sm" : "default"}
+        className={cn(
+          "w-full border-dashed border-white/20 text-slate-400 hover:text-white hover:border-white/40",
+          compact && "text-xs h-8"
+        )}
         onClick={onAddPlan}
       >
-        <Plus className="w-4 h-4 mr-2" />
-        Ajouter un plan
+        <Plus className={cn("mr-2", compact ? "w-3 h-3" : "w-4 h-4")} />
+        {compact ? "Ajouter" : "Ajouter un plan"}
       </Button>
     </div>
   );

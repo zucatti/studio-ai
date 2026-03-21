@@ -41,9 +41,10 @@ interface UsageHistoryData {
 
 const PROVIDER_LABELS: Record<ApiProvider, string> = {
   claude: 'Claude',
-  replicate: 'Replicate',
   fal: 'fal.ai',
-  piapi: 'PiAPI',
+  wavespeed: 'WaveSpeed',
+  runway: 'Runway',
+  modelslab: 'ModelsLab',
   elevenlabs: 'ElevenLabs',
   creatomate: 'Creatomate',
   global: 'Global',
@@ -112,9 +113,10 @@ export function UsageHistory() {
               <SelectContent className="bg-slate-800 border-white/10">
                 <SelectItem value="all">Tous</SelectItem>
                 <SelectItem value="claude">Claude</SelectItem>
-                <SelectItem value="replicate">Replicate</SelectItem>
                 <SelectItem value="fal">fal.ai</SelectItem>
-                <SelectItem value="piapi">PiAPI</SelectItem>
+                <SelectItem value="wavespeed">WaveSpeed</SelectItem>
+                <SelectItem value="runway">Runway</SelectItem>
+                <SelectItem value="modelslab">ModelsLab</SelectItem>
                 <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
                 <SelectItem value="creatomate">Creatomate</SelectItem>
               </SelectContent>

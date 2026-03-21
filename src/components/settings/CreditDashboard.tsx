@@ -6,26 +6,13 @@ import { Button } from '@/components/ui/button';
 import {
   Loader2,
   RefreshCw,
-  ExternalLink,
   TrendingUp,
   Calendar,
   ArrowUpRight,
   ArrowDownRight,
-  Wallet,
-  Settings,
 } from 'lucide-react';
-import { BudgetEditor } from './BudgetEditor';
-import { ApiProvider, ProviderSpending } from '@/types/database';
+import { ProviderSpending } from '@/types/database';
 import { PROVIDERS, type DashboardProvider } from '@/lib/credits';
-
-// Warning triangle icon for API issues
-const WarningIcon: React.FC<{ className?: string }> = ({ className }) => (
-  <svg className={className} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M12 2L1 21h22L12 2z" fill="currentColor" fillOpacity="0.15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-    <path d="M12 9v4" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-    <circle cx="12" cy="16" r="1" fill="currentColor"/>
-  </svg>
-);
 
 // SVG Icons for each provider
 const ProviderIcons: Record<DashboardProvider, React.FC<{ className?: string; style?: React.CSSProperties }>> = {
@@ -34,19 +21,25 @@ const ProviderIcons: Record<DashboardProvider, React.FC<{ className?: string; st
       <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" fill="currentColor"/>
     </svg>
   ),
-  replicate: ({ className, style }) => (
-    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z" fill="currentColor"/>
-    </svg>
-  ),
   fal: ({ className, style }) => (
     <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M7 2v11h3v9l7-12h-4l4-8H7z" fill="currentColor"/>
     </svg>
   ),
-  piapi: ({ className, style }) => (
+  wavespeed: ({ className, style }) => (
     <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M7.5 5.6L10 7 8.6 4.5 10 2 7.5 3.4 5 2l1.4 2.5L5 7zm12 9.8L17 14l1.4 2.5L17 19l2.5-1.4L22 19l-1.4-2.5L22 14zM22 2l-2.5 1.4L17 2l1.4 2.5L17 7l2.5-1.4L22 7l-1.4-2.5zm-7.63 5.29a.996.996 0 00-1.41 0L1.29 18.96a.996.996 0 000 1.41l2.34 2.34c.39.39 1.02.39 1.41 0L16.7 11.05a.996.996 0 000-1.41l-2.33-2.35zm-1.03 5.49l-2.12-2.12 2.44-2.44 2.12 2.12-2.44 2.44z" fill="currentColor"/>
+      <path d="M3 12h2l2-6 3 12 3-8 2 4h2l2-4h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+    </svg>
+  ),
+  runway: ({ className, style }) => (
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
+    </svg>
+  ),
+  modelslab: ({ className, style }) => (
+    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M12 2L2 7v10l10 5 10-5V7l-10-5z" stroke="currentColor" strokeWidth="2" fill="none"/>
+      <path d="M12 22V12M2 7l10 5 10-5" stroke="currentColor" strokeWidth="2"/>
     </svg>
   ),
   elevenlabs: ({ className, style }) => (
@@ -68,14 +61,15 @@ interface MonthlyData {
 }
 
 // Provider order for display
-const PROVIDER_ORDER: DashboardProvider[] = ['claude', 'replicate', 'fal', 'piapi', 'elevenlabs', 'creatomate'];
+const PROVIDER_ORDER: DashboardProvider[] = ['claude', 'fal', 'wavespeed', 'runway', 'modelslab', 'elevenlabs', 'creatomate'];
 
 // Per-provider state
 interface ProviderState {
   loading: boolean;
-  spent: number;
+  spent: number; // Spending from app logs (for donut chart & histogram)
+  apiSpent?: number; // Spending from provider API (for provider cards)
   budget: number; // Manual budget set by user
-  balance?: number; // Credit balance from API (PiAPI)
+  balance?: number; // Credit balance from API
   characterCount?: number; // For ElevenLabs
   characterLimit?: number; // For ElevenLabs
   status: 'connected' | 'error' | 'not_configured' | 'loading';
@@ -93,267 +87,202 @@ function formatNumber(num: number): string {
   return num.toString();
 }
 
-function formatMonth(monthStr: string): string {
+function formatMonthShort(monthStr: string): string {
   const [year, month] = monthStr.split('-');
   const date = new Date(parseInt(year), parseInt(month) - 1);
-  return date.toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
+  return date.toLocaleDateString('fr-FR', { month: 'short' });
 }
 
-// Mini bar chart component
-function MiniBarChart({ data, maxHeight = 60 }: { data: MonthlyData[]; maxHeight?: number }) {
-  const maxValue = Math.max(...data.map(d => d.total), 1);
+function formatMonthFull(monthStr: string): string {
+  const [year, month] = monthStr.split('-');
+  const date = new Date(parseInt(year), parseInt(month) - 1);
+  return date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+}
+
+// Generate calendar year data (Jan to Dec) including empty months
+function generateYearData(data: MonthlyData[], currentMonthTotal: number): MonthlyData[] {
+  const result: MonthlyData[] = [];
+  const dataMap = new Map(data.map(d => [d.month, d]));
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonthIndex = now.getMonth(); // 0-indexed (0=Jan, 2=Mar)
+
+  // January to December of current year
+  for (let month = 0; month < 12; month++) {
+    const monthKey = `${currentYear}-${String(month + 1).padStart(2, '0')}`;
+
+    // For current month (by index), use live spending total
+    if (month === currentMonthIndex) {
+      result.push({ month: monthKey, providers: {}, total: currentMonthTotal });
+    } else if (dataMap.has(monthKey)) {
+      result.push(dataMap.get(monthKey)!);
+    } else {
+      result.push({ month: monthKey, providers: {}, total: 0 });
+    }
+  }
+
+  return result;
+}
+
+// Yearly bar chart component
+function YearlyBarChart({ data, currentMonthTotal }: { data: MonthlyData[]; currentMonthTotal: number }) {
+  const yearData = generateYearData(data, currentMonthTotal);
+  const maxValue = Math.max(...yearData.map(d => d.total), 1);
+  const currentMonth = new Date().toISOString().slice(0, 7);
 
   return (
-    <div className="flex items-end gap-1 h-16">
-      {data.map((item) => {
-        const height = Math.max(4, (item.total / maxValue) * maxHeight);
-        return (
-          <div key={item.month} className="flex flex-col items-center flex-1">
-            <div
-              className="w-full bg-gradient-to-t from-blue-600 to-blue-400 rounded-t transition-all hover:from-blue-500 hover:to-blue-300"
-              style={{ height: `${height}px` }}
-              title={`${formatMonth(item.month)}: ${formatCurrency(item.total)}`}
-            />
-            <span className="text-[10px] text-slate-500 mt-1">
-              {formatMonth(item.month)}
+    <div className="space-y-1">
+      {/* Value labels */}
+      <div className="flex gap-0.5">
+        {yearData.map((item) => (
+          <div key={item.month} className="flex-1 text-center">
+            <span className={`text-[9px] font-medium ${item.total > 0 ? 'text-white' : 'text-slate-600'}`}>
+              {item.total > 0 ? `$${item.total.toFixed(0)}` : ''}
             </span>
           </div>
-        );
-      })}
+        ))}
+      </div>
+
+      {/* Bars */}
+      <div className="flex items-end gap-0.5 h-16">
+        {yearData.map((item) => {
+          const isCurrentMonth = item.month === currentMonth;
+          const hasData = item.total > 0;
+          // Calculate pixel height based on container height (64px = h-16)
+          const barHeight = hasData ? Math.max(6, (item.total / maxValue) * 64) : 4;
+
+          return (
+            <div
+              key={item.month}
+              className="flex-1 flex items-end group relative"
+            >
+              {/* Tooltip on hover */}
+              <div className="absolute bottom-full mb-1 left-1/2 -translate-x-1/2 hidden group-hover:block z-10">
+                <div className="bg-slate-900 border border-slate-700 rounded px-2 py-1 shadow-xl text-center whitespace-nowrap">
+                  <div className="text-[10px] text-slate-400">{formatMonthFull(item.month)}</div>
+                  <div className="text-xs font-semibold text-white">{formatCurrency(item.total)}</div>
+                </div>
+              </div>
+
+              {/* Bar */}
+              <div
+                className={`w-full rounded-t transition-all duration-300 ${
+                  hasData
+                    ? isCurrentMonth
+                      ? 'bg-gradient-to-t from-emerald-600 to-emerald-400 group-hover:from-emerald-500 group-hover:to-emerald-300'
+                      : 'bg-gradient-to-t from-blue-600 to-blue-400 group-hover:from-blue-500 group-hover:to-blue-300'
+                    : 'bg-slate-700/30'
+                }`}
+                style={{ height: `${barHeight}px` }}
+              />
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Month labels */}
+      <div className="flex gap-0.5">
+        {yearData.map((item) => (
+          <div key={item.month} className="flex-1 text-center">
+            <span className="text-[8px] text-slate-500">
+              {formatMonthShort(item.month).slice(0, 3)}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// Provider card component with loading state
-function ProviderCard({
+// Compact provider card - small and elegant
+function CompactCard({
   provider,
   state,
+  type,
   onOpenDashboard,
-  onEditBudget,
 }: {
   provider: DashboardProvider;
   state: ProviderState;
+  type: 'balance' | 'spent';
   onOpenDashboard: () => void;
-  onEditBudget: () => void;
 }) {
   const config = PROVIDERS[provider];
   const IconComponent = ProviderIcons[provider];
-  const { loading, spent, budget, balance, characterCount, characterLimit, status, message, hasBalanceApi } = state;
+  const { loading, spent, apiSpent, balance, characterCount, characterLimit, status } = state;
 
-  const hasWarning = status === 'connected' && message;
+  const isElevenLabs = provider === 'elevenlabs';
+  const displaySpent = apiSpent !== undefined ? apiSpent : spent;
 
-  const statusColor = loading ? 'bg-blue-500 animate-pulse' :
-                      hasWarning ? 'bg-orange-500' :
-                      status === 'connected' ? 'bg-green-500' :
-                      status === 'error' ? 'bg-red-500' : 'bg-slate-500';
-
-  // Calculate progress
-  let progressPercent = 0;
+  // Calculate ElevenLabs remaining characters
   let remaining = 0;
-  let showProgress = false;
-  let isOverBudget = false;
-
-  if (provider === 'elevenlabs' && characterLimit && characterLimit > 0) {
-    // ElevenLabs: character-based
-    progressPercent = ((characterCount || 0) / characterLimit) * 100;
+  if (isElevenLabs && characterLimit && characterLimit > 0) {
     remaining = characterLimit - (characterCount || 0);
-    showProgress = true;
-  } else if (hasBalanceApi && balance !== undefined) {
-    // PiAPI: has balance from API
-    remaining = balance;
-    // If user set a budget (initial deposit), we can show progress
-    if (budget > 0) {
-      const spentAmount = Math.max(0, budget - balance); // Can't be negative (bonus credits case)
-      progressPercent = (spentAmount / budget) * 100;
-      isOverBudget = balance < 0;
-      showProgress = true;
-    }
-  } else if (budget > 0) {
-    // Manual budget set by user
-    progressPercent = (spent / budget) * 100;
-    remaining = budget - spent;
-    isOverBudget = spent > budget;
-    showProgress = true;
   }
 
-  const getProgressColor = () => {
-    if (isOverBudget) return 'bg-red-500';
-    if (progressPercent > 80) return 'bg-orange-500';
-    return 'bg-green-500';
-  };
+  // Determine what to display
+  let displayValue: string;
+  let subtitle: string = '';
+
+  if (loading) {
+    displayValue = '...';
+  } else if (type === 'balance') {
+    if (isElevenLabs && characterLimit) {
+      displayValue = formatNumber(remaining);
+      subtitle = 'chars';
+    } else if (balance !== undefined) {
+      displayValue = formatCurrency(balance);
+    } else {
+      displayValue = '—';
+    }
+  } else {
+    displayValue = formatCurrency(displaySpent);
+  }
+
+  const statusColor = loading ? 'bg-blue-500 animate-pulse' :
+                      status === 'connected' ? 'bg-emerald-500' :
+                      status === 'error' ? 'bg-red-500' : 'bg-slate-500';
 
   return (
-    <Card className="bg-slate-800/50 border-white/10 hover:border-white/20 transition-colors h-full">
-      <CardContent className="p-4 h-full flex flex-col">
-        {/* Header */}
-        <div className="flex items-start gap-3 mb-3">
+    <button
+      onClick={onOpenDashboard}
+      className="flex-1 min-w-0 bg-slate-800/60 hover:bg-slate-700/60 border border-white/5 hover:border-white/10 rounded-xl px-4 py-3 transition-all duration-200 cursor-pointer group"
+    >
+      <div className="flex items-center justify-between gap-3">
+        {/* Left: Icon + Name */}
+        <div className="flex items-center gap-2.5 min-w-0">
           <div className="relative flex-shrink-0">
             <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center"
-              style={{ backgroundColor: `${config.color}20` }}
+              className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ backgroundColor: `${config.color}15` }}
             >
-              <IconComponent className="w-5 h-5" style={{ color: config.color }} />
+              <IconComponent className="w-4 h-4" style={{ color: config.color }} />
             </div>
             <div
-              className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ${statusColor} border-2 border-slate-800`}
-              title={loading ? 'Chargement...' : status === 'connected' ? 'Connecté' : status === 'error' ? 'Erreur' : 'Non configuré'}
+              className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full ${statusColor} border border-slate-800`}
             />
           </div>
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1.5">
-              <h3 className="font-semibold text-white text-sm">{config.displayName}</h3>
-              {!loading && hasWarning && (
-                <WarningIcon className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-sm text-slate-300 group-hover:text-white transition-colors truncate">
+            {config.displayName}
+          </span>
+        </div>
+
+        {/* Right: Amount */}
+        <div className="flex items-baseline gap-1 flex-shrink-0">
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+          ) : (
+            <>
+              <span className="text-lg font-bold text-white">
+                {displayValue}
+              </span>
+              {subtitle && (
+                <span className="text-[10px] text-slate-500">{subtitle}</span>
               )}
-            </div>
-            <p className="text-[11px] text-slate-400 leading-tight">{config.description}</p>
-          </div>
-        </div>
-
-        {/* Main content - grows to fill space */}
-        <div className="flex-1">
-          {/* Amount display */}
-          <div className="mb-3">
-            {loading ? (
-              <div className="flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-                <span className="text-sm text-slate-400">Chargement...</span>
-              </div>
-            ) : hasWarning ? (
-              /* API error/warning - don't show budget */
-              <div className="text-sm text-slate-400">
-                Données indisponibles
-              </div>
-            ) : (
-              <>
-                {/* ElevenLabs - show characters */}
-                {provider === 'elevenlabs' && characterLimit ? (
-                  <>
-                    <div className="text-2xl font-bold text-white">
-                      {formatNumber(remaining)}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      caractères restants sur {formatNumber(characterLimit)}
-                    </div>
-                  </>
-                ) : hasBalanceApi && balance !== undefined ? (
-                  /* PiAPI - has balance from API */
-                  <>
-                    <div className="flex items-center gap-2">
-                      <Wallet className="w-4 h-4 text-green-400" />
-                      <span className="text-2xl font-bold text-white">{formatCurrency(balance)}</span>
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      {budget > 0 ? `restant sur ${formatCurrency(budget)} déposé` : 'solde disponible'}
-                    </div>
-                  </>
-                ) : budget > 0 ? (
-                  /* Manual budget set - show remaining */
-                  <>
-                    <div className={`text-2xl font-bold ${isOverBudget ? 'text-red-400' : 'text-white'}`}>
-                      {formatCurrency(remaining)}
-                    </div>
-                    <div className="text-xs text-slate-400">
-                      restant sur {formatCurrency(budget)} alloués
-                    </div>
-                  </>
-                ) : (
-                  /* No budget set - show spending */
-                  <>
-                    <div className="text-2xl font-bold text-white">
-                      {formatCurrency(spent)}
-                    </div>
-                    <div className="text-xs text-slate-400">dépensé (30j)</div>
-                  </>
-                )}
-              </>
-            )}
-          </div>
-
-          {/* Progress bar */}
-          {!loading && showProgress && !hasWarning && (
-            <div className="mb-3">
-              <div className="h-1.5 bg-slate-700 rounded-full overflow-hidden">
-                <div
-                  className={`h-full rounded-full transition-all duration-500 ${getProgressColor()}`}
-                  style={{ width: `${Math.max(0, Math.min(100, progressPercent))}%` }}
-                />
-              </div>
-              <div className="flex justify-between mt-1">
-                {provider === 'elevenlabs' ? (
-                  <>
-                    <span className="text-[10px] text-slate-500">{formatNumber(characterCount || 0)} utilisés</span>
-                    <span className="text-[10px] text-slate-500">{formatNumber(characterLimit || 0)}</span>
-                  </>
-                ) : hasBalanceApi && balance !== undefined ? (
-                  <>
-                    <span className="text-[10px] text-slate-500">{formatCurrency(Math.max(0, budget - balance))} dépensé</span>
-                    <span className={`text-[10px] ${isOverBudget ? 'text-red-400' : 'text-slate-500'}`}>
-                      {formatCurrency(budget)}
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span className="text-[10px] text-slate-500">{formatCurrency(spent)} dépensé</span>
-                    <span className={`text-[10px] ${isOverBudget ? 'text-red-400' : 'text-slate-500'}`}>
-                      {formatCurrency(budget)}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Warning/Error messages */}
-          {!loading && hasWarning && (
-            <div className="mb-3 p-2 bg-orange-500/10 border border-orange-500/20 rounded-lg text-[11px] text-orange-400">
-              {message}
-            </div>
-          )}
-
-          {!loading && status === 'not_configured' && (
-            <div className="mb-3 p-2 bg-slate-700/50 rounded-lg text-[11px] text-slate-400">
-              Clé API non configurée
-            </div>
-          )}
-
-          {/* No budget hint */}
-          {!loading && status === 'connected' && budget === 0 && provider !== 'elevenlabs' && (
-            <div className="mb-3 p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg text-[11px] text-blue-400">
-              {hasBalanceApi
-                ? 'Définir le montant déposé pour voir la progression'
-                : 'Définir le budget alloué pour voir la progression'
-              }
-            </div>
+            </>
           )}
         </div>
-
-        {/* Footer - always at bottom */}
-        <div className="flex gap-2 mt-auto pt-3 border-t border-white/5">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="flex-1 text-xs text-slate-300 hover:text-white hover:bg-white/5 h-8"
-            onClick={onOpenDashboard}
-          >
-            <ExternalLink className="w-3.5 h-3.5 mr-1.5" />
-            Dashboard
-          </Button>
-          {/* Show budget button for providers that need manual budget (excludes ElevenLabs which has built-in quota) */}
-          {provider !== 'elevenlabs' && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="text-xs text-slate-400 hover:text-white hover:bg-white/5 h-8 px-2"
-              onClick={onEditBudget}
-              title="Définir le budget"
-            >
-              <Settings className="w-3.5 h-3.5" />
-            </Button>
-          )}
-        </div>
-      </CardContent>
-    </Card>
+      </div>
+    </button>
   );
 }
 
@@ -455,7 +384,7 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
         spent: 0,
         budget: 0,
         status: 'loading',
-        hasBalanceApi: p === 'piapi',
+        hasBalanceApi: false,
       };
     });
     return initial as Record<DashboardProvider, ProviderState>;
@@ -464,7 +393,6 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
   const [monthlyHistory, setMonthlyHistory] = useState<MonthlyData[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<ApiProvider | null>(null);
   const [hasFetched, setHasFetched] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -493,8 +421,32 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
     }
   }, []);
 
-  // Fetch provider usage data
-  const fetchProviderUsage = useCallback(async (signal?: AbortSignal) => {
+  // Fetch current month spending from usage logs
+  const fetchCurrentSpending = useCallback(async (signal?: AbortSignal) => {
+    try {
+      const res = await fetch('/api/settings/usage-logs?summary=current', { signal });
+      if (!res.ok) return;
+      const data = await res.json();
+      const spending: Record<string, number> = data.spending || {};
+
+      setProviderStates(prev => {
+        const next = { ...prev };
+        PROVIDER_ORDER.forEach(p => {
+          next[p] = {
+            ...next[p],
+            spent: spending[p] || 0,
+          };
+        });
+        return next;
+      });
+    } catch (e) {
+      if ((e as Error).name === 'AbortError') return;
+      console.error('Error fetching current spending:', e);
+    }
+  }, []);
+
+  // Fetch provider status (connected, not_configured, error) and API spending
+  const fetchProviderStatus = useCallback(async (signal?: AbortSignal) => {
     try {
       const res = await fetch('/api/settings/usage', { signal });
       if (!res.ok) return;
@@ -503,39 +455,64 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
       setProviderStates(prev => {
         const next = { ...prev };
 
-        // Claude
+        // Claude - has usage API with totalCost
         if (data.claude) {
           next.claude = {
             ...next.claude,
             loading: false,
-            spent: data.claude.usage?.totalCost || 0,
+            apiSpent: data.claude.usage?.totalCost,
             status: data.claude.status as ProviderState['status'],
             message: data.claude.error,
-            hasBalanceApi: false,
+            hasBalanceApi: !!data.claude.usage?.totalCost,
           };
         }
 
-        // Replicate
-        if (data.replicate) {
-          next.replicate = {
-            ...next.replicate,
-            loading: false,
-            spent: data.replicate.stats?.estimatedCost || 0,
-            status: data.replicate.status as ProviderState['status'],
-            message: data.replicate.error,
-            hasBalanceApi: false,
-          };
-        }
-
-        // fal.ai
+        // fal.ai - has usage API with totalCost and balance
         if (data.fal) {
           next.fal = {
             ...next.fal,
             loading: false,
-            spent: data.fal.usage?.totalCost || 0,
+            apiSpent: data.fal.usage?.totalCost,
+            balance: data.fal.usage?.currentBalance,
             status: data.fal.status as ProviderState['status'],
             message: data.fal.error,
-            hasBalanceApi: false,
+            hasBalanceApi: data.fal.usage?.currentBalance !== undefined,
+          };
+        }
+
+        // WaveSpeed - has balance API
+        if (data.wavespeed) {
+          next.wavespeed = {
+            ...next.wavespeed,
+            loading: false,
+            balance: data.wavespeed.usage?.currentBalance,
+            status: data.wavespeed.status as ProviderState['status'],
+            message: data.wavespeed.error,
+            hasBalanceApi: data.wavespeed.usage?.currentBalance !== undefined,
+          };
+        }
+
+        // Runway - has balance API via organization endpoint
+        if (data.runway) {
+          next.runway = {
+            ...next.runway,
+            loading: false,
+            balance: data.runway.usage?.currentBalance,
+            status: data.runway.status as ProviderState['status'],
+            message: data.runway.error,
+            hasBalanceApi: data.runway.usage?.currentBalance !== undefined,
+          };
+        }
+
+        // ModelsLab - has wallet balance API
+        if (data.modelslab) {
+          next.modelslab = {
+            ...next.modelslab,
+            loading: false,
+            balance: data.modelslab.usage?.currentBalance,
+            status: data.modelslab.status as ProviderState['status'],
+            message: data.modelslab.error,
+            hasBalanceApi: data.modelslab.usage?.currentBalance !== undefined,
           };
         }
 
@@ -544,28 +521,16 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
           next.elevenlabs = {
             ...next.elevenlabs,
             loading: false,
-            spent: data.elevenlabs.usage?.estimatedCost || 0,
+            apiSpent: data.elevenlabs.usage?.estimatedCost,
             characterCount: data.elevenlabs.usage?.characterCount,
             characterLimit: data.elevenlabs.usage?.characterLimit,
             status: data.elevenlabs.status as ProviderState['status'],
             message: data.elevenlabs.error,
-            hasBalanceApi: false,
-          };
-        }
-
-        // PiAPI - has balance API
-        if (data.piapi) {
-          next.piapi = {
-            ...next.piapi,
-            loading: false,
-            balance: data.piapi.balance,
-            status: data.piapi.status as ProviderState['status'],
-            message: data.piapi.error,
             hasBalanceApi: true,
           };
         }
 
-        // Creatomate
+        // Creatomate - no usage API, will use logs
         if (data.creatomate) {
           next.creatomate = {
             ...next.creatomate,
@@ -579,10 +544,9 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
         return next;
       });
     } catch (e) {
-      // Don't log or update state if request was aborted
       if ((e as Error).name === 'AbortError') return;
 
-      console.error('Error fetching usage:', e);
+      console.error('Error fetching provider status:', e);
       setProviderStates(prev => {
         const next = { ...prev };
         PROVIDER_ORDER.forEach(p => {
@@ -593,10 +557,10 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
     }
   }, []);
 
-  // Fetch monthly history
+  // Fetch monthly history (12 months)
   const fetchHistory = useCallback(async () => {
     try {
-      const res = await fetch('/api/settings/usage-logs?summary=monthly&months=6');
+      const res = await fetch('/api/settings/usage-logs?summary=monthly&months=12');
       if (res.ok) {
         const data = await res.json();
         setMonthlyHistory(data.monthly || []);
@@ -630,7 +594,8 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
       try {
         await Promise.all([
           fetchBudgets(),
-          fetchProviderUsage(signal),
+          fetchCurrentSpending(signal),
+          fetchProviderStatus(signal),
           fetchHistory(),
         ]);
         if (!signal.aborted) {
@@ -650,7 +615,7 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
         abortControllerRef.current.abort();
       }
     };
-  }, [isActive, hasFetched, fetchBudgets, fetchProviderUsage, fetchHistory]);
+  }, [isActive, hasFetched, fetchBudgets, fetchCurrentSpending, fetchProviderStatus, fetchHistory]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -664,18 +629,19 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
 
     // Create new abort controller for refresh
     abortControllerRef.current = new AbortController();
-    await Promise.all([fetchBudgets(), fetchProviderUsage(abortControllerRef.current.signal), fetchHistory()]);
+    const signal = abortControllerRef.current.signal;
+    await Promise.all([
+      fetchBudgets(),
+      fetchCurrentSpending(signal),
+      fetchProviderStatus(signal),
+      fetchHistory(),
+    ]);
     setRefreshing(false);
   };
 
   const handleOpenDashboard = (provider: DashboardProvider) => {
     const config = PROVIDERS[provider];
     window.open(config.dashboardUrl, '_blank');
-  };
-
-  const handleBudgetSave = async () => {
-    setEditingProvider(null);
-    await fetchBudgets();
   };
 
   // Calculate totals
@@ -740,7 +706,7 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
 
             {/* Stats */}
             <div className="space-y-4">
-              <div>
+              <div className="mb-6">
                 <div className="text-3xl font-bold text-white">
                   {allLoading ? (
                     <span className="flex items-center gap-2">
@@ -750,7 +716,7 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
                     formatCurrency(totalSpent)
                   )}
                 </div>
-                <div className="text-sm text-slate-400 flex items-center gap-2">
+                <div className="text-sm text-slate-400 flex items-center gap-2 mt-1">
                   <Calendar className="w-4 h-4" />
                   Dépensé ce mois
                   {change > 0 && (
@@ -794,65 +760,59 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
               </div>
             </div>
 
-            {/* Monthly History */}
+            {/* Yearly History */}
             <div>
-              <div className="text-sm font-medium text-slate-300 mb-3">
-                <TrendingUp className="w-4 h-4 inline mr-1" />
-                Historique 6 mois
+              <div className="text-sm font-medium text-slate-300 mb-4 flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" />
+                Historique {new Date().getFullYear()}
               </div>
-              {historyLoading ? (
+              {(historyLoading || allLoading) ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
                 </div>
-              ) : monthlyHistory.length > 0 ? (
-                <MiniBarChart data={monthlyHistory} />
               ) : (
-                <div className="text-sm text-slate-500 text-center py-8">
-                  Pas encore de données
-                </div>
+                <YearlyBarChart data={monthlyHistory} currentMonthTotal={totalSpent} />
               )}
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Provider Cards Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
-        {PROVIDER_ORDER.map(provider => (
-          <ProviderCard
-            key={provider}
-            provider={provider}
-            state={providerStates[provider]}
-            onOpenDashboard={() => handleOpenDashboard(provider)}
-            onEditBudget={() => setEditingProvider(provider)}
-          />
-        ))}
+      {/* Crédits disponibles - fal.ai, WaveSpeed, Runway ML, ElevenLabs */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
+          Crédits disponibles
+        </h3>
+        <div className="flex gap-3">
+          {(['fal', 'wavespeed', 'runway', 'elevenlabs'] as DashboardProvider[]).map(provider => (
+            <CompactCard
+              key={provider}
+              provider={provider}
+              state={providerStates[provider]}
+              type="balance"
+              onOpenDashboard={() => handleOpenDashboard(provider)}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Budget Editor Dialog */}
-      {editingProvider && (
-        <BudgetEditor
-          provider={editingProvider}
-          allocation={providerStates[editingProvider as DashboardProvider]?.budget > 0 ? {
-            id: '',
-            user_id: '',
-            provider: editingProvider,
-            budget_amount: providerStates[editingProvider as DashboardProvider].budget,
-            budget_period: 'monthly',
-            alert_threshold_50: true,
-            alert_threshold_80: true,
-            alert_threshold_100: true,
-            block_on_limit: false,
-            current_period_spent: 0,
-            period_start_date: new Date().toISOString(),
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          } : undefined}
-          open={true}
-          onOpenChange={(open) => !open && setEditingProvider(null)}
-          onSave={handleBudgetSave}
-        />
-      )}
+      {/* Dépensés - Claude, Creatomate, ModelsLab */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
+          Dépensés
+        </h3>
+        <div className="flex gap-3">
+          {(['claude', 'creatomate', 'modelslab'] as DashboardProvider[]).map(provider => (
+            <CompactCard
+              key={provider}
+              provider={provider}
+              state={providerStates[provider]}
+              type="spent"
+              onOpenDashboard={() => handleOpenDashboard(provider)}
+            />
+          ))}
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useRef, useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { AtSign, Hash, Image as ImageIcon } from 'lucide-react';
+import { AtSign, Hash, Image as ImageIcon, Play, Square } from 'lucide-react';
 
 interface MentionTextareaProps {
   value: string;
@@ -13,19 +13,21 @@ interface MentionTextareaProps {
 }
 
 // Parse text and extract mentions
-// @ = characters (blue), # = locations/props (green), ! = looks (purple)
+// @ = characters (blue), # = locations/props (green), ! = looks (purple), &in/&out = frame refs (orange)
 function parseMentions(text: string): Array<{
-  type: 'text' | 'mention';
+  type: 'text' | 'mention' | 'frameRef';
   content: string;
-  prefix?: '@' | '#' | '!';
+  prefix?: '@' | '#' | '!' | '&';
+  frameType?: 'in' | 'out';
 }> {
   const parts: Array<{
-    type: 'text' | 'mention';
+    type: 'text' | 'mention' | 'frameRef';
     content: string;
-    prefix?: '@' | '#' | '!';
+    prefix?: '@' | '#' | '!' | '&';
+    frameType?: 'in' | 'out';
   }> = [];
-  // Match @Character, #Location, !Look separately
-  const mentionRegex = /([@#!][A-Z][a-zA-Z0-9_]*)/g;
+  // Match @Character, #Location, !Look, and &in/&out
+  const mentionRegex = /([@#!][A-Z][a-zA-Z0-9_]*|&in\b|&out\b)/gi;
   let lastIndex = 0;
   let match;
 
@@ -35,13 +37,24 @@ function parseMentions(text: string): Array<{
     }
 
     const fullMatch = match[0];
-    const prefix = fullMatch[0] as '@' | '#' | '!';
+    const lowerMatch = fullMatch.toLowerCase();
 
-    parts.push({
-      type: 'mention',
-      content: fullMatch,
-      prefix,
-    });
+    // Check for frame references
+    if (lowerMatch === '&in' || lowerMatch === '&out') {
+      parts.push({
+        type: 'frameRef',
+        content: fullMatch,
+        prefix: '&',
+        frameType: lowerMatch === '&in' ? 'in' : 'out',
+      });
+    } else {
+      const prefix = fullMatch[0] as '@' | '#' | '!';
+      parts.push({
+        type: 'mention',
+        content: fullMatch,
+        prefix,
+      });
+    }
     lastIndex = match.index + fullMatch.length;
   }
 
@@ -59,6 +72,25 @@ function StyledMentions({ text }: { text: string }) {
   return (
     <span className="whitespace-pre-wrap">
       {parts.map((part, idx) => {
+        if (part.type === 'frameRef') {
+          const isIn = part.frameType === 'in';
+          const Icon = isIn ? Play : Square;
+
+          return (
+            <span
+              key={idx}
+              className={cn(
+                'inline-flex items-center gap-0.5 px-1.5 py-0.5 mx-0.5 rounded text-sm font-medium',
+                isIn
+                  ? 'bg-green-500/20 text-green-400'
+                  : 'bg-red-500/20 text-red-400'
+              )}
+            >
+              <Icon className="w-3 h-3" />
+              {isIn ? 'in' : 'out'}
+            </span>
+          );
+        }
         if (part.type === 'mention') {
           const isCharacter = part.prefix === '@';
           const isLook = part.prefix === '!';

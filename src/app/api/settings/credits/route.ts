@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     } = body;
 
     // Validate provider
-    const validProviders: ApiProvider[] = ['claude', 'replicate', 'fal', 'piapi', 'elevenlabs', 'creatomate', 'global'];
+    const validProviders: ApiProvider[] = ['claude', 'fal', 'wavespeed', 'runway', 'modelslab', 'elevenlabs', 'creatomate', 'global'];
     if (!provider || !validProviders.includes(provider)) {
       return NextResponse.json(
         { error: 'Invalid provider' },

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
 import { BibleSidebar } from '@/components/bible/BibleSidebar';
+import { QueueProvider } from '@/components/queue/QueueProvider';
 import { checkUserAccess } from '@/lib/user-access';
 
 export default async function DashboardLayout({
@@ -24,16 +25,18 @@ export default async function DashboardLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden bg-[#0a0f16]">
-      <Sidebar />
-      <div className="flex flex-col flex-1 overflow-hidden">
-        <Topbar />
-        <main className="flex-1 overflow-auto p-6 bg-[#0d1520]">
-          {children}
-        </main>
+    <QueueProvider>
+      <div className="flex h-screen overflow-hidden bg-[#0a0f16]">
+        <Sidebar />
+        <div className="flex flex-col flex-1 overflow-hidden">
+          <Topbar />
+          <main className="flex-1 overflow-auto p-6 bg-[#0d1520]">
+            {children}
+          </main>
+        </div>
+        {/* Bible Générale - available globally */}
+        <BibleSidebar />
       </div>
-      {/* Bible Générale - available globally */}
-      <BibleSidebar />
-    </div>
+    </QueueProvider>
   );
 }

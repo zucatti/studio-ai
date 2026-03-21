@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronLeft, ChevronRight, X, Download, Trash2, ArrowLeft, Info, Copy, Check } from 'lucide-react';
-import { StorageImg } from '@/components/ui/storage-image';
+import { StorageMedia } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import type { GenerationMetadata } from '@/types/database';
@@ -227,12 +227,16 @@ export function Lightbox({
           </button>
         )}
 
-        {/* Image */}
+        {/* Image/Video */}
         <div className="relative max-w-full max-h-full">
-          <StorageImg
+          <StorageMedia
             src={currentImage.url}
-            alt={currentImage.description || 'Image'}
+            alt={currentImage.description || 'Media'}
             className="max-h-[calc(100vh-200px)] max-w-full object-contain rounded-lg"
+            controls={true}
+            autoPlay={true}
+            muted={false}
+            loop={true}
           />
         </div>
 
@@ -379,10 +383,14 @@ export function Lightbox({
                     : 'border-white/10 hover:border-white/30 opacity-60 hover:opacity-100'
                 )}
               >
-                <StorageImg
+                <StorageMedia
                   src={image.url}
                   alt=""
                   className="w-full h-full object-cover"
+                  controls={false}
+                  autoPlay={false}
+                  muted={true}
+                  loop={false}
                 />
               </button>
             ))}

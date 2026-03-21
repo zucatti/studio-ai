@@ -48,10 +48,13 @@ import {
   Volume2,
   Pause,
   Images,
+  Download,
+  Clock,
 } from 'lucide-react';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { generateReferenceName, generateLookReferenceName } from '@/lib/reference-name';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 interface CharacterFormDialogProps {
   open: boolean;
@@ -90,7 +93,8 @@ const STYLE_OPTIONS = [
 const MODEL_OPTIONS = [
   { value: 'fal-ai/nano-banana-2', label: 'Nano Banana 2' },
   { value: 'seedream-5', label: 'Seedream 5' },
-  { value: 'kling-o1', label: 'Kling O1' },
+  { value: 'flux-2-pro', label: 'Flux 2 Pro' },
+  { value: 'gpt-image-1.5', label: 'GPT Image 1.5' },
 ] as const;
 
 const RESOLUTION_OPTIONS = [
@@ -119,6 +123,7 @@ export function CharacterFormDialog({
     createCharacter,
     updateCharacter,
     generateCharacterImages,
+    queueCharacterImageGeneration,
     uploadCharacterImage,
     isGenerating,
   } = useBibleStore();
@@ -137,6 +142,7 @@ export function CharacterFormDialog({
   const [style, setStyle] = useState('photorealistic');
   const [selectedModel, setSelectedModel] = useState<ModelType>('fal-ai/nano-banana-2');
   const [resolution, setResolution] = useState<'1K' | '2K' | '4K'>('2K');
+  const [useQueue, setUseQueue] = useState(true); // Queue mode enabled
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabType>('references');
@@ -336,7 +342,7 @@ export function CharacterFormDialog({
     // If no character exists, create one first
     if (!characterId) {
       if (!name.trim()) {
-        console.error('Character name is required');
+        toast.error('Le nom du personnage est requis');
         return;
       }
 
@@ -365,7 +371,7 @@ export function CharacterFormDialog({
         });
 
         if (!newCharacter) {
-          console.error('Failed to create character');
+          toast.error('Erreur lors de la création du personnage');
           setGeneratingView(null);
           return;
         }
@@ -391,36 +397,37 @@ export function CharacterFormDialog({
         if (uploadedImages.length > 0) {
           setReferenceImages(uploadedImages);
         }
-
-        // Now generate the requested view
-        const result = await generateCharacterImages(characterId, {
-          mode: 'generate_single',
-          viewType,
-          style,
-          model: selectedModel,
-          resolution,
-        });
-
-        if (result) {
-          // Merge with local state to preserve any images not yet synced
-          setReferenceImages(prev => {
-            const merged = [...prev];
-            for (const newImg of result) {
-              const idx = merged.findIndex(img => img.type === newImg.type);
-              if (idx >= 0) {
-                merged[idx] = newImg;
-              } else {
-                merged.push(newImg);
-              }
-            }
-            return merged;
-          });
-        }
-      } finally {
+      } catch (error) {
+        console.error('Error creating character:', error);
         setGeneratingView(null);
+        return;
+      }
+    }
+
+    // Now generate the image (either queue or synchronous)
+    if (useQueue) {
+      // Queue mode - submit job and return immediately
+      const jobId = await queueCharacterImageGeneration({
+        assetId: characterId,
+        assetName: name,
+        viewType,
+        style,
+        model: selectedModel,
+        resolution,
+        visualDescription,
+      });
+
+      setGeneratingView(null);
+
+      if (jobId) {
+        toast.success(`Génération de "${viewType}" ajoutée à la file d'attente`, {
+          description: 'Vous pouvez continuer à travailler pendant la génération.',
+        });
+      } else {
+        toast.error('Erreur lors de la mise en file d\'attente');
       }
     } else {
-      // Character already exists
+      // Synchronous mode - wait for result
       setGeneratingView(viewType);
       try {
         // Upload any pending files first (images with blob URLs)
@@ -461,6 +468,7 @@ export function CharacterFormDialog({
           style,
           model: selectedModel,
           resolution,
+          visualDescription,
         });
 
         if (result) {
@@ -477,6 +485,7 @@ export function CharacterFormDialog({
             }
             return merged;
           });
+          toast.success('Image générée avec succès');
         }
       } finally {
         setGeneratingView(null);
@@ -966,6 +975,20 @@ export function CharacterFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
+                {/* Queue toggle */}
+                <button
+                  onClick={() => setUseQueue(!useQueue)}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-medium rounded-md border transition-all flex items-center gap-1.5',
+                    useQueue
+                      ? 'bg-green-500/20 border-green-500/30 text-green-400'
+                      : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+                  )}
+                  title={useQueue ? 'Mode file d\'attente activé' : 'Mode synchrone'}
+                >
+                  <Clock className="w-3.5 h-3.5" />
+                  {useQueue ? 'File' : 'Sync'}
+                </button>
               </div>
             )}
 
@@ -1014,8 +1037,27 @@ export function CharacterFormDialog({
                                     className="h-10 w-10 text-white hover:bg-white/20 rounded-lg"
                                     onClick={(e) => {
                                       e.stopPropagation();
+                                      const filename = `${name.replace(/\s+/g, '-').toLowerCase()}-${imageType.value}.webp`;
+                                      const downloadUrl = `/api/download?url=${encodeURIComponent(existingImage.url)}&filename=${encodeURIComponent(filename)}`;
+                                      const iframe = document.createElement('iframe');
+                                      iframe.style.display = 'none';
+                                      iframe.src = downloadUrl;
+                                      document.body.appendChild(iframe);
+                                      setTimeout(() => document.body.removeChild(iframe), 5000);
+                                    }}
+                                    title="Télécharger"
+                                  >
+                                    <Download className="w-5 h-5" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-10 w-10 text-white hover:bg-white/20 rounded-lg"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
                                       triggerUpload(imageType.value);
                                     }}
+                                    title="Remplacer"
                                   >
                                     <RefreshCw className="w-5 h-5" />
                                   </Button>
@@ -1029,6 +1071,7 @@ export function CharacterFormDialog({
                                         handleGenerateSingle(imageType.value);
                                       }}
                                       disabled={isGenerating}
+                                      title="Régénérer avec IA"
                                     >
                                       <Wand2 className="w-5 h-5" />
                                     </Button>
@@ -1041,6 +1084,7 @@ export function CharacterFormDialog({
                                       e.stopPropagation();
                                       removeImage(imageType.value);
                                     }}
+                                    title="Supprimer"
                                   >
                                     <Trash2 className="w-5 h-5" />
                                   </Button>
@@ -1218,14 +1262,35 @@ export function CharacterFormDialog({
                               )}
                             </div>
                           </div>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="absolute top-2 right-2 h-8 w-8 bg-black/50 text-white hover:bg-red-500/80 opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={() => removeLook(look.id)}
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
+                          <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 bg-black/50 text-white hover:bg-white/20"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const filename = `${name.replace(/\s+/g, '-').toLowerCase()}-${look.name.replace(/\s+/g, '-').toLowerCase()}.webp`;
+                                const downloadUrl = `/api/download?url=${encodeURIComponent(look.imageUrl)}&filename=${encodeURIComponent(filename)}`;
+                                const iframe = document.createElement('iframe');
+                                iframe.style.display = 'none';
+                                iframe.src = downloadUrl;
+                                document.body.appendChild(iframe);
+                                setTimeout(() => document.body.removeChild(iframe), 5000);
+                              }}
+                              title="Télécharger"
+                            >
+                              <Download className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 bg-black/50 text-white hover:bg-red-500/80"
+                              onClick={() => removeLook(look.id)}
+                              title="Supprimer"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
                         </div>
                       ))}
                     </div>

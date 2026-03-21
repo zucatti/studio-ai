@@ -10,24 +10,6 @@ interface CachedClaudeUsage {
 let claudeUsageCache: CachedClaudeUsage | null = null;
 const CLAUDE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-interface ReplicateAccount {
-  type: string;
-  username: string;
-  name: string;
-  github_url?: string;
-}
-
-interface ReplicatePrediction {
-  id: string;
-  model: string;
-  status: string;
-  created_at: string;
-  completed_at?: string;
-  metrics?: {
-    predict_time?: number;
-  };
-}
-
 interface ClaudeUsageData {
   totalInputTokens: number;
   totalOutputTokens: number;
@@ -38,6 +20,7 @@ interface ClaudeUsageData {
 interface FalUsageData {
   totalCost: number;
   totalRequests: number;
+  currentBalance?: number;
   byEndpoint: Record<string, { requests: number; cost: number }>;
 }
 
@@ -46,6 +29,12 @@ interface ElevenLabsUsageData {
   characterLimit: number;
   nextResetUnix: number;
   estimatedCost: number;
+}
+
+interface ProviderUsageData {
+  status: 'connected' | 'error' | 'not_configured';
+  usage?: { totalCost?: number; totalRequests?: number; currentBalance?: number };
+  error?: string;
 }
 
 interface UsageData {
@@ -60,29 +49,12 @@ interface UsageData {
     usage?: FalUsageData;
     error?: string;
   };
-  replicate: {
-    status: 'connected' | 'error' | 'not_configured';
-    account?: ReplicateAccount;
-    recentPredictions?: ReplicatePrediction[];
-    stats?: {
-      totalPredictions: number;
-      successfulPredictions: number;
-      failedPredictions: number;
-      totalGpuTime: number;
-      estimatedCost: number;
-      byModel: Record<string, { count: number; cost: number; gpuTime: number }>;
-    };
-    error?: string;
-  };
+  wavespeed: ProviderUsageData;
+  runway: ProviderUsageData;
+  modelslab: ProviderUsageData;
   elevenlabs: {
     status: 'connected' | 'error' | 'not_configured';
     usage?: ElevenLabsUsageData;
-    error?: string;
-  };
-  piapi: {
-    status: 'connected' | 'error' | 'not_configured';
-    balance?: number;
-    plan?: string;
     error?: string;
   };
   creatomate: {
@@ -91,25 +63,30 @@ interface UsageData {
   };
 }
 
-// Claude model pricing (per 1M tokens)
+// Claude model pricing (per 1M tokens) - Updated March 2026
+// https://platform.claude.com/docs/en/about-claude/pricing
 const CLAUDE_PRICES: Record<string, { input: number; output: number }> = {
+  // Opus 4.6 / 4.5: $5 / $25
+  'claude-opus-4-6-20260301': { input: 5, output: 25 },
+  'claude-opus-4-5-20251101': { input: 5, output: 25 },
+  // Opus 4.1 / 4: $15 / $75
+  'claude-opus-4-1-20250514': { input: 15, output: 75 },
   'claude-opus-4-20250514': { input: 15, output: 75 },
+  // Sonnet 4.x: $3 / $15
+  'claude-sonnet-4-6-20260301': { input: 3, output: 15 },
+  'claude-sonnet-4-5-20251022': { input: 3, output: 15 },
   'claude-sonnet-4-20250514': { input: 3, output: 15 },
   'claude-3-5-sonnet-20241022': { input: 3, output: 15 },
+  // Haiku 4.5: $1 / $5
+  'claude-haiku-4-5-20251022': { input: 1, output: 5 },
+  // Haiku 3.5: $0.80 / $4
   'claude-3-5-haiku-20241022': { input: 0.8, output: 4 },
+  // Haiku 3: $0.25 / $1.25
   'claude-3-haiku-20240307': { input: 0.25, output: 1.25 },
-  'claude-3-sonnet-20240229': { input: 3, output: 15 },
+  // Opus 3: $15 / $75
   'claude-3-opus-20240229': { input: 15, output: 75 },
 };
 
-// Replicate model pricing (per image/prediction)
-const REPLICATE_PRICES: Record<string, number> = {
-  'flux-1.1-pro': 0.04,
-  'flux-pro': 0.055,
-  'flux-dev': 0.025,
-  'flux-schnell': 0.003,
-  'sdxl': 0.002,
-};
 
 export async function GET(request: Request) {
   try {
@@ -129,9 +106,10 @@ export async function GET(request: Request) {
     const usage: UsageData = {
       claude: { status: 'not_configured', hasAdminKey: false },
       fal: { status: 'not_configured' },
-      replicate: { status: 'not_configured' },
+      wavespeed: { status: 'not_configured' },
+      runway: { status: 'not_configured' },
+      modelslab: { status: 'not_configured' },
       elevenlabs: { status: 'not_configured' },
-      piapi: { status: 'not_configured' },
       creatomate: { status: 'not_configured' },
     };
 
@@ -286,16 +264,26 @@ export async function GET(request: Request) {
         const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
         const endDate = new Date().toISOString();
 
-        const url = new URL('https://api.fal.ai/v1/models/usage');
-        url.searchParams.set('start', startDate);
-        url.searchParams.set('end', endDate);
-        url.searchParams.append('expand', 'summary');
+        const usageUrl = new URL('https://api.fal.ai/v1/models/usage');
+        usageUrl.searchParams.set('start', startDate);
+        usageUrl.searchParams.set('end', endDate);
+        usageUrl.searchParams.append('expand', 'summary');
 
-        const usageRes = await fetch(url.toString(), {
-          headers: {
-            Authorization: `Key ${adminKey}`,
-          },
-        });
+        // Fetch both usage and billing in parallel
+        const [usageRes, billingRes] = await Promise.all([
+          fetch(usageUrl.toString(), {
+            headers: { Authorization: `Key ${adminKey}` },
+          }),
+          fetch('https://api.fal.ai/v1/account/billing?expand=credits', {
+            headers: { Authorization: `Key ${adminKey}` },
+          }),
+        ]);
+
+        let currentBalance: number | undefined;
+        if (billingRes.ok) {
+          const billingData = await billingRes.json();
+          currentBalance = billingData.credits?.current_balance;
+        }
 
         if (usageRes.ok) {
           const data = await usageRes.json();
@@ -314,11 +302,12 @@ export async function GET(request: Request) {
 
           usage.fal = {
             status: 'connected',
-            usage: totalRequests > 0 ? {
+            usage: {
               totalCost: Math.round(totalCost * 100) / 100,
               totalRequests,
+              currentBalance,
               byEndpoint,
-            } : undefined,
+            },
           };
         } else if (usageRes.status === 403) {
           // Key works but no admin permissions for usage API
@@ -344,88 +333,124 @@ export async function GET(request: Request) {
       }
     }
 
-    // ========== REPLICATE ==========
-    if (process.env.AI_REPLICATE_KEY) {
+    // ========== WAVESPEED ==========
+    if (process.env.AI_WAVESPEED) {
       try {
-        // Get account info
-        const accountRes = await fetch('https://api.replicate.com/v1/account', {
+        // WaveSpeed balance endpoint: GET /api/v3/balance
+        // Docs: https://wavespeed.ai/docs/docs-common-api/balance
+        const balanceRes = await fetch('https://api.wavespeed.ai/api/v3/balance', {
+          method: 'GET',
           headers: {
-            Authorization: `Bearer ${process.env.AI_REPLICATE_KEY}`,
+            'Authorization': `Bearer ${process.env.AI_WAVESPEED}`,
+            'Content-Type': 'application/json',
           },
         });
 
-        if (accountRes.ok) {
-          const account = await accountRes.json();
-
-          // Get recent predictions (last 100)
-          const predictionsRes = await fetch('https://api.replicate.com/v1/predictions?limit=100', {
-            headers: {
-              Authorization: `Bearer ${process.env.AI_REPLICATE_KEY}`,
-            },
-          });
-
-          let recentPredictions: ReplicatePrediction[] = [];
-          let stats = {
-            totalPredictions: 0,
-            successfulPredictions: 0,
-            failedPredictions: 0,
-            totalGpuTime: 0,
-            estimatedCost: 0,
-            byModel: {} as Record<string, { count: number; cost: number; gpuTime: number }>,
-          };
-
-          if (predictionsRes.ok) {
-            const data = await predictionsRes.json();
-            recentPredictions = data.results || [];
-
-            // Calculate stats
-            for (const pred of recentPredictions) {
-              stats.totalPredictions++;
-
-              if (pred.status === 'succeeded') {
-                stats.successfulPredictions++;
-              } else if (pred.status === 'failed') {
-                stats.failedPredictions++;
-              }
-
-              const gpuTime = pred.metrics?.predict_time || 0;
-              stats.totalGpuTime += gpuTime;
-
-              // Get model name
-              let modelName = pred.model.split('/').pop() || pred.model;
-              modelName = modelName.split(':')[0];
-
-              // Calculate cost
-              const price = getReplicatePrice(modelName);
-              stats.estimatedCost += price;
-
-              if (!stats.byModel[modelName]) {
-                stats.byModel[modelName] = { count: 0, cost: 0, gpuTime: 0 };
-              }
-              stats.byModel[modelName].count++;
-              stats.byModel[modelName].cost += price;
-              stats.byModel[modelName].gpuTime += gpuTime;
-            }
-
-            stats.estimatedCost = Math.round(stats.estimatedCost * 100) / 100;
-            stats.totalGpuTime = Math.round(stats.totalGpuTime * 10) / 10;
-          }
-
-          usage.replicate = {
+        if (balanceRes.ok) {
+          const data = await balanceRes.json();
+          console.log('[WaveSpeed] Balance response:', JSON.stringify(data));
+          // Response format: { data: { balance: number } } or { balance: number }
+          const balance = data.data?.balance ?? data.balance;
+          usage.wavespeed = {
             status: 'connected',
-            account,
-            recentPredictions,
-            stats,
+            usage: balance !== undefined ? {
+              currentBalance: typeof balance === 'number' ? balance : parseFloat(balance),
+            } : undefined,
+          };
+        } else if (balanceRes.status === 401) {
+          usage.wavespeed = {
+            status: 'error',
+            error: 'Clé API invalide',
           };
         } else {
-          const error = await accountRes.text();
-          usage.replicate = {
-            status: 'error',
-            error: `API error: ${accountRes.status} - ${error}`,
-          };
+          const errorText = await balanceRes.text();
+          console.log('[WaveSpeed] Error response:', balanceRes.status, errorText);
+          usage.wavespeed = { status: 'connected' };
         }
       } catch (e) {
-        usage.replicate = {
+        console.error('[WaveSpeed] Exception:', e);
+        usage.wavespeed = {
+          status: 'error',
+          error: String(e),
+        };
+      }
+    }
+
+    // ========== RUNWAY ==========
+    if (process.env.AI_RUNWAY_ML) {
+      try {
+        // Fetch organization info including credit balance
+        const orgRes = await fetch('https://api.dev.runwayml.com/v1/organization', {
+          headers: {
+            Authorization: `Bearer ${process.env.AI_RUNWAY_ML}`,
+            'X-Runway-Version': '2024-11-06',
+          },
+        });
+
+        if (orgRes.ok) {
+          const data = await orgRes.json();
+          console.log('[Runway] Organization data:', JSON.stringify(data));
+          // Runway returns credits, 1 credit = $0.01
+          const creditBalance = data.creditBalance;
+          const balanceInDollars = typeof creditBalance === 'number' ? creditBalance * 0.01 : undefined;
+          usage.runway = {
+            status: 'connected',
+            usage: balanceInDollars !== undefined ? {
+              currentBalance: Math.round(balanceInDollars * 100) / 100,
+            } : undefined,
+          };
+        } else if (orgRes.status === 401) {
+          usage.runway = {
+            status: 'error',
+            error: 'Clé API invalide',
+          };
+        } else {
+          const errorText = await orgRes.text();
+          console.log('[Runway] Error response:', orgRes.status, errorText);
+          usage.runway = { status: 'connected' };
+        }
+      } catch (e) {
+        console.error('[Runway] Exception:', e);
+        usage.runway = {
+          status: 'error',
+          error: String(e),
+        };
+      }
+    }
+
+    // ========== MODELSLAB ==========
+    if (process.env.AI_MODELS_LAB) {
+      try {
+        // ModelsLab v6 API doesn't have a balance endpoint for regular API keys
+        // The wallet endpoint (/api/agents/v1/wallet/balance) requires a separate agent token
+        // We verify the key by making a test fetch request
+        const testRes = await fetch('https://modelslab.com/api/v6/images/fetch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            key: process.env.AI_MODELS_LAB,
+            request_id: 'test-connection-check',
+          }),
+        });
+
+        const testData = await testRes.json();
+        console.log('[ModelsLab] Test response:', JSON.stringify(testData));
+
+        // If key is invalid, we get a specific error message
+        if (testData.status === 'error' &&
+            (testData.message?.toLowerCase().includes('invalid') ||
+             testData.message?.toLowerCase().includes('api key'))) {
+          usage.modelslab = {
+            status: 'error',
+            error: 'Clé API invalide',
+          };
+        } else {
+          // Key is valid - no balance API available for v6 keys
+          usage.modelslab = { status: 'connected' };
+        }
+      } catch (e) {
+        console.error('[ModelsLab] Exception:', e);
+        usage.modelslab = {
           status: 'error',
           error: String(e),
         };
@@ -486,48 +511,6 @@ export async function GET(request: Request) {
       }
     }
 
-    // ========== PIAPI ==========
-    if (process.env.AI_PIAPI_KEY) {
-      try {
-        // Get account info including balance
-        const accountRes = await fetch('https://api.piapi.ai/account/info', {
-          headers: {
-            'X-API-Key': process.env.AI_PIAPI_KEY,
-          },
-        });
-
-        if (accountRes.ok) {
-          const data = await accountRes.json();
-          if (data.code === 200 && data.data) {
-            const balance = data.data.equivalent_in_usd || 0;
-            usage.piapi = {
-              status: 'connected',
-              balance,
-              plan: data.data.plan,
-            };
-          } else {
-            usage.piapi = {
-              status: 'connected',
-            };
-          }
-        } else if (accountRes.status === 401) {
-          usage.piapi = {
-            status: 'error',
-            error: 'Clé API invalide',
-          };
-        } else {
-          usage.piapi = {
-            status: 'connected',
-          };
-        }
-      } catch (e) {
-        usage.piapi = {
-          status: 'error',
-          error: String(e),
-        };
-      }
-    }
-
     // ========== CREATOMATE ==========
     if (process.env.AI_CREATOMATE_API) {
       try {
@@ -567,12 +550,3 @@ export async function GET(request: Request) {
   }
 }
 
-function getReplicatePrice(modelName: string): number {
-  const name = modelName.toLowerCase();
-  if (name.includes('flux-1.1-pro')) return REPLICATE_PRICES['flux-1.1-pro'];
-  if (name.includes('flux-pro')) return REPLICATE_PRICES['flux-pro'];
-  if (name.includes('flux-dev')) return REPLICATE_PRICES['flux-dev'];
-  if (name.includes('flux-schnell')) return REPLICATE_PRICES['flux-schnell'];
-  if (name.includes('sdxl')) return REPLICATE_PRICES['sdxl'];
-  return 0.02; // Default
-}

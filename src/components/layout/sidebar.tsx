@@ -78,6 +78,8 @@ const shortsNavigation: NavSection = {
   title: 'PROJET',
   items: [
     { name: 'Mes Shorts', href: '/shorts', icon: Play },
+    { name: 'Rush', href: '/rush', icon: Zap },
+    { name: 'Gallery', href: '/gallery', icon: Grid3X3 },
     { name: 'Bible', href: '/bible', icon: BookOpen },
   ],
 };

@@ -1,6 +1,20 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { getSignedFileUrl } from '@/lib/storage';
+
+// Helper to sign B2 URLs
+async function signB2Url(url: string | null): Promise<string | null> {
+  if (!url) return null;
+  if (!url.startsWith('b2://')) return url;
+  const match = url.match(/^b2:\/\/[^/]+\/(.+)$/);
+  if (!match) return url;
+  try {
+    return await getSignedFileUrl(match[1]);
+  } catch {
+    return url;
+  }
+}
 
 interface RouteParams {
   params: Promise<{ projectId: string }>;
@@ -54,8 +68,18 @@ export async function GET(request: Request, { params }: RouteParams) {
           camera_angle,
           camera_movement,
           storyboard_image_url,
+          first_frame_url,
+          last_frame_url,
+          generated_video_url,
           generation_status,
-          sort_order
+          sort_order,
+          frame_in,
+          frame_out,
+          animation_prompt,
+          has_dialogue,
+          dialogue_text,
+          dialogue_character_id,
+          dialogue_audio_url
         )
       `)
       .eq('project_id', projectId)
@@ -66,11 +90,11 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Failed to fetch shorts' }, { status: 500 });
     }
 
-    // Transform to shorts format
-    const shorts = (scenes || []).map((scene) => {
-      const plans = (scene.shots || [])
+    // Transform to shorts format with signed URLs
+    const shorts = await Promise.all((scenes || []).map(async (scene) => {
+      const plans = await Promise.all((scene.shots || [])
         .sort((a, b) => a.sort_order - b.sort_order)
-        .map((shot) => ({
+        .map(async (shot) => ({
           id: shot.id,
           short_id: scene.id,
           shot_number: shot.shot_number,
@@ -79,10 +103,20 @@ export async function GET(request: Request, { params }: RouteParams) {
           shot_type: shot.shot_type,
           camera_angle: shot.camera_angle,
           camera_movement: shot.camera_movement,
-          storyboard_image_url: shot.storyboard_image_url,
+          storyboard_image_url: await signB2Url(shot.storyboard_image_url),
+          first_frame_url: await signB2Url(shot.first_frame_url || shot.storyboard_image_url),
+          last_frame_url: await signB2Url(shot.last_frame_url),
+          generated_video_url: await signB2Url(shot.generated_video_url),
           generation_status: shot.generation_status || 'not_started',
           sort_order: shot.sort_order,
-        }));
+          frame_in: shot.frame_in ?? 0,
+          frame_out: shot.frame_out ?? 100,
+          animation_prompt: shot.animation_prompt,
+          has_dialogue: shot.has_dialogue ?? false,
+          dialogue_text: shot.dialogue_text,
+          dialogue_character_id: shot.dialogue_character_id,
+          dialogue_audio_url: await signB2Url(shot.dialogue_audio_url),
+        })));
 
       const totalDuration = plans.reduce((sum, p) => sum + p.duration, 0);
 
@@ -98,7 +132,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         created_at: scene.created_at,
         updated_at: scene.updated_at,
       };
-    });
+    }));
 
     return NextResponse.json({ shorts });
   } catch (error) {

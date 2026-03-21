@@ -274,6 +274,7 @@ export function createElevenLabsWrapper(
 
 // Common ElevenLabs model identifiers
 export const ELEVENLABS_MODELS = {
+  V3: 'eleven_v3', // Latest - supports audio tags like [laughs], [sad], [whispers]
   MULTILINGUAL_V2: 'eleven_multilingual_v2',
   TURBO_V2: 'eleven_turbo_v2',
   MONOLINGUAL_V1: 'eleven_monolingual_v1',

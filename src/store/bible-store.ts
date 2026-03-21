@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware';
 import type { GlobalAsset, ProjectAssetFlat, GlobalAssetType } from '@/types/database';
 import type { GenericCharacter } from '@/lib/generic-characters';
 import { invalidateMentionCache } from '@/components/ui/mention-input';
+import { useJobsStore } from '@/store/jobs-store';
 
 export type BibleTab = 'characters' | 'locations' | 'props' | 'audio';
 
@@ -73,6 +74,17 @@ export interface GenerateImagesInput {
   viewType?: CharacterImageType;
   model?: string;
   resolution?: '1K' | '2K' | '4K';
+  visualDescription?: string; // Override the saved description
+}
+
+export interface QueueJobInput {
+  assetId: string;
+  assetName: string;
+  viewType: CharacterImageType;
+  style?: string;
+  model?: string;
+  resolution?: '1K' | '2K' | '4K';
+  visualDescription?: string;
 }
 
 interface BibleStore {
@@ -116,6 +128,7 @@ interface BibleStore {
 
   // Character image generation
   generateCharacterImages: (assetId: string, input: GenerateImagesInput) => Promise<ReferenceImage[] | null>;
+  queueCharacterImageGeneration: (input: QueueJobInput) => Promise<string | null>; // Returns job ID
   uploadCharacterImage: (assetId: string, file: File, imageType: CharacterImageType) => Promise<string | null>;
 
   // Audio CRUD
@@ -429,6 +442,52 @@ export const useBibleStore = create<BibleStore>()(
         }
       },
 
+      queueCharacterImageGeneration: async (input: QueueJobInput) => {
+        try {
+          const res = await fetch(`/api/global-assets/${input.assetId}/queue-generate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              viewType: input.viewType,
+              style: input.style || 'photorealistic',
+              model: input.model || 'fal-ai/nano-banana-2',
+              resolution: input.resolution || '2K',
+              visualDescription: input.visualDescription,
+            }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const job = data.job;
+
+            if (job) {
+              // Add job to jobs store and start polling
+              console.log('[BibleStore] Adding job to queue:', job.id, job.status);
+              useJobsStore.setState((state) => ({
+                jobs: [job, ...state.jobs.filter((j) => j.id !== job.id)],
+              }));
+              useJobsStore.getState().startPolling();
+              console.log('[BibleStore] Polling started, jobs count:', useJobsStore.getState().jobs.length);
+            }
+
+            return job?.id || null;
+          } else {
+            const errorText = await res.text();
+            console.error('Error queuing job:', res.status, errorText);
+            try {
+              const error = JSON.parse(errorText);
+              console.error('Error details:', error);
+            } catch {
+              // Not JSON
+            }
+            return null;
+          }
+        } catch (error) {
+          console.error('Error queuing character image generation:', error);
+          return null;
+        }
+      },
+
       uploadCharacterImage: async (assetId: string, file: File, imageType: CharacterImageType) => {
         try {
           const formData = new FormData();
@@ -610,3 +669,38 @@ export const useBibleStore = create<BibleStore>()(
     }
   )
 );
+
+// Listen for job completion events to refresh assets
+if (typeof window !== 'undefined') {
+  window.addEventListener('job-completed', async (event: Event) => {
+    const customEvent = event as CustomEvent<{
+      jobId: string;
+      assetId: string;
+      assetType: string;
+      jobType: string;
+      jobSubtype: string;
+    }>;
+
+    const { assetId, assetType } = customEvent.detail;
+    console.log(`[BibleStore] Job completed for asset ${assetId} (${assetType}), refreshing...`);
+
+    // Fetch the updated asset directly from API
+    try {
+      const res = await fetch(`/api/global-assets/${assetId}`);
+      if (res.ok) {
+        const { asset } = await res.json();
+        if (asset) {
+          // Update the asset in the store
+          const store = useBibleStore.getState();
+          const updatedAssets = store.globalAssets.map((a) =>
+            a.id === assetId ? asset : a
+          );
+          useBibleStore.setState({ globalAssets: updatedAssets });
+          console.log(`[BibleStore] Asset ${assetId} refreshed successfully`);
+        }
+      }
+    } catch (error) {
+      console.error('[BibleStore] Error refreshing asset:', error);
+    }
+  });
+}
