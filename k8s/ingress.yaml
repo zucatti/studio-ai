@@ -3,19 +3,13 @@ kind: Ingress
 metadata:
   name: studio
   annotations:
-    # For cert-manager (Let's Encrypt)
-    cert-manager.io/cluster-issuer: letsencrypt-prod
-    # For nginx ingress
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    # For nginx ingress (no TLS - Cloudflare handles HTTPS)
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
     nginx.ingress.kubernetes.io/proxy-body-size: "100m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
 spec:
   ingressClassName: nginx
-  tls:
-    - hosts:
-        - studio.stevencreeks.com
-      secretName: studio-tls
   rules:
     - host: studio.stevencreeks.com
       http:
