@@ -80,7 +80,20 @@ export interface ConcatenateOptions {
   outputFilename?: string;
   // Color matching - matches each clip to the previous one for continuity
   colorMatch?: boolean;           // Enable color matching between clips (default: true)
+  // Target resolution - if provided, ALL clips will be normalized to this exact resolution
+  // This should be based on project aspect ratio, not derived from clips
+  targetResolution?: { width: number; height: number };
 }
+
+// Standard resolutions for each aspect ratio
+export const STANDARD_RESOLUTIONS: Record<string, { width: number; height: number }> = {
+  '9:16': { width: 1080, height: 1920 },  // Vertical (TikTok, Reels, Shorts)
+  '16:9': { width: 1920, height: 1080 },  // Horizontal (YouTube, TV)
+  '1:1': { width: 1080, height: 1080 },   // Square (Instagram)
+  '4:5': { width: 1080, height: 1350 },   // Portrait (Instagram)
+  '2:3': { width: 1080, height: 1620 },   // Portrait
+  '21:9': { width: 2560, height: 1080 },  // Ultrawide
+};
 
 /**
  * Get video duration using ffprobe
@@ -257,9 +270,18 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
       console.log(`[FFmpeg] Downloaded video ${i + 1}/${videoUrls.length}`);
     }
 
-    // Get reference resolution from first video
-    const referenceResolution = await getVideoResolution(tempFiles[0]);
-    console.log(`[FFmpeg] Reference resolution: ${referenceResolution.width}x${referenceResolution.height}`);
+    // Determine target resolution
+    // If targetResolution is provided (from project aspect ratio), use it
+    // Otherwise fall back to first video's resolution
+    let targetResolution: { width: number; height: number };
+    if (options.targetResolution) {
+      targetResolution = options.targetResolution;
+      console.log(`[FFmpeg] Using project target resolution: ${targetResolution.width}x${targetResolution.height}`);
+    } else {
+      targetResolution = await getVideoResolution(tempFiles[0]);
+      console.log(`[FFmpeg] Using first clip resolution as fallback: ${targetResolution.width}x${targetResolution.height}`);
+    }
+    const referenceResolution = targetResolution;
 
     // Step 1: Normalize all clips to reference resolution + color matching
     const normalizedFiles: string[] = [];

@@ -1,6 +1,6 @@
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { concatenateVideos } from '@/lib/ffmpeg';
+import { concatenateVideos, STANDARD_RESOLUTIONS } from '@/lib/ffmpeg';
 
 interface RouteParams {
   params: Promise<{ projectId: string; shortId: string }>;
@@ -97,22 +97,27 @@ export async function POST(request: Request, { params }: RouteParams) {
           (shot: { generated_video_url: string }) => shot.generated_video_url
         );
 
+        // Get target resolution from project aspect ratio
+        const targetResolution = STANDARD_RESOLUTIONS[project.aspect_ratio] || STANDARD_RESOLUTIONS['16:9'];
+
         console.log('[Assemble] Video URLs to concatenate:', videoUrls);
         console.log('[Assemble] Color matching:', colorMatch);
+        console.log('[Assemble] Target resolution:', targetResolution.width, 'x', targetResolution.height, '(from aspect ratio:', project.aspect_ratio, ')');
 
         sendEvent('progress', {
           progress: 20,
           message: colorMatch
-            ? `Color matching de ${videoUrls.length} plans...`
+            ? `Normalisation ${targetResolution.width}x${targetResolution.height} + color matching...`
             : `Assemblage de ${videoUrls.length} vidéo${videoUrls.length > 1 ? 's' : ''}...`
         });
 
-        // Concatenate with FFmpeg
+        // Concatenate with FFmpeg - normalize ALL clips to project's standard resolution
         const result = await concatenateVideos({
           videoUrls,
           userId: session.user.sub,
           projectId,
           colorMatch,
+          targetResolution,  // Force all clips to this exact resolution
         });
 
         console.log('[Assemble] FFmpeg concatenation complete:', result.outputUrl);
