@@ -5,11 +5,13 @@ metadata:
   annotations:
     # For cert-manager (Let's Encrypt)
     cert-manager.io/cluster-issuer: letsencrypt-prod
-    # For traefik (k3s default)
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
+    # For nginx ingress
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
 spec:
-  ingressClassName: traefik
+  ingressClassName: nginx
   tls:
     - hosts:
         - studio.stevencreeks.com
