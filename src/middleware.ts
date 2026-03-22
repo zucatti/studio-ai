@@ -39,7 +39,8 @@ export async function middleware(request: NextRequest) {
         status: response.status,
         location: response.headers.get('location'),
         setCookieLength: setCookie?.length,
-        setCookiePreview: setCookie?.substring(0, 150),
+        // Log cookie attributes (after the value)
+        setCookieAttrs: setCookie?.split(';').slice(1).join(';'),
       });
     }
 
