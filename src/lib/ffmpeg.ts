@@ -108,7 +108,8 @@ export async function concatenateVideos(options: {
     // -f concat: use concat demuxer
     // -safe 0: allow absolute paths
     // -c copy: stream copy (no re-encoding, fast)
-    const cmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy "${outputPath}"`;
+    // -movflags +faststart: move metadata to start for streaming/proper duration display
+    const cmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy -movflags +faststart "${outputPath}"`;
     console.log(`[FFmpeg] Running: ${cmd}`);
 
     await execAsync(cmd, { timeout: 300000 }); // 5 min timeout
@@ -165,7 +166,8 @@ export async function mergeVideoAudio(options: {
     // -map 0:v:0: use video from first input
     // -map 1:a:0: use audio from second input
     // -shortest: end when shortest stream ends
-    const cmd = `ffmpeg -y -i "${videoPath}" -i "${audioPath}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest "${outputPath}"`;
+    // -movflags +faststart: move metadata to start for streaming/proper duration
+    const cmd = `ffmpeg -y -i "${videoPath}" -i "${audioPath}" -c:v copy -c:a aac -map 0:v:0 -map 1:a:0 -shortest -movflags +faststart "${outputPath}"`;
     console.log(`[FFmpeg] Running: ${cmd}`);
 
     await execAsync(cmd, { timeout: 120000 }); // 2 min timeout
