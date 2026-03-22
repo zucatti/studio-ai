@@ -87,87 +87,22 @@ export interface ConcatenateOptions {
 }
 
 /**
- * Get video info (duration, fps) using ffprobe
+ * Get video duration using ffprobe
  */
-async function getVideoInfo(videoPath: string): Promise<{ duration: number; fps: number }> {
+async function getVideoDurationLocal(videoPath: string): Promise<number> {
   const { stdout } = await execAsync(
-    `ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate,duration -show_entries format=duration -of json "${videoPath}"`,
+    `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${videoPath}"`,
     { timeout: 30000 }
   );
-  const info = JSON.parse(stdout);
-
-  // Get duration from format or stream
-  const duration = parseFloat(info.format?.duration || info.streams?.[0]?.duration || '0');
-
-  // Parse frame rate (format: "30/1" or "30000/1001")
-  const fpsStr = info.streams?.[0]?.r_frame_rate || '30/1';
-  const [num, den] = fpsStr.split('/').map(Number);
-  const fps = num / (den || 1);
-
-  return { duration, fps };
-}
-
-/**
- * Create a smooth transition between two video clips using motion interpolation
- * Takes the last part of clip1 and first part of clip2, blends them smoothly
- */
-async function createSmoothJunction(
-  clip1Path: string,
-  clip2Path: string,
-  outputPath: string,
-  overlapDuration: number = 0.3  // seconds of overlap on each side
-): Promise<void> {
-  const junction1 = generateTempPath('mp4');
-  const junction2 = generateTempPath('mp4');
-  const junctionRaw = generateTempPath('mp4');
-
-  try {
-    // Get clip1 duration
-    const clip1Info = await getVideoInfo(clip1Path);
-    const clip1Start = Math.max(0, clip1Info.duration - overlapDuration);
-
-    // Extract last part of clip1
-    await execAsync(
-      `ffmpeg -y -ss ${clip1Start} -i "${clip1Path}" -c copy "${junction1}"`,
-      { timeout: 60000 }
-    );
-
-    // Extract first part of clip2
-    await execAsync(
-      `ffmpeg -y -t ${overlapDuration} -i "${clip2Path}" -c copy "${junction2}"`,
-      { timeout: 60000 }
-    );
-
-    // Concatenate the two junction parts
-    const junctionList = generateTempPath('txt');
-    await writeFile(junctionList, `file '${junction1}'\nfile '${junction2}'`);
-    await execAsync(
-      `ffmpeg -y -f concat -safe 0 -i "${junctionList}" -c copy "${junctionRaw}"`,
-      { timeout: 60000 }
-    );
-
-    // Apply motion interpolation to smooth the transition
-    // minterpolate with motion compensation creates intermediate frames
-    // This analyzes optical flow and generates smooth motion between the two clips
-    const minterpolateCmd = `ffmpeg -y -i "${junctionRaw}" -vf "minterpolate=fps=60:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,fps=30" -c:v libx264 -preset fast -crf 18 -c:a copy "${outputPath}"`;
-
-    console.log(`[FFmpeg] Creating smooth junction with motion interpolation...`);
-    await execAsync(minterpolateCmd, { timeout: 120000 });
-
-    await cleanup(junction1, junction2, junctionRaw, junctionList);
-  } catch (error) {
-    await cleanup(junction1, junction2, junctionRaw);
-    throw error;
-  }
+  return parseFloat(stdout.trim()) || 0;
 }
 
 /**
  * Concatenate multiple videos into one using FFmpeg
  *
- * With smoothTransition=true (default), creates seamless transitions between clips:
- * - Uses motion interpolation (optical flow) to generate intermediate frames
- * - Blends the last frames of clip N with first frames of clip N+1
- * - Creates true motion continuity, not just a crossfade
+ * With smoothTransition=true (default), creates crossfade transitions between clips:
+ * - Uses xfade filter for smooth visual blending
+ * - Short 0.3s crossfade masks the frame discontinuity
  *
  * With colorMatch=true, applies color normalization to each clip for consistency
  */
@@ -180,10 +115,10 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
     projectId,
     colorMatch = false,
     smoothTransition = true,
+    transitionFrames = 10,  // ~0.33s at 30fps
   } = options;
 
   const tempFiles: string[] = [];
-  const processedFiles: string[] = [];
   const allTempFiles: string[] = [];
   const outputPath = generateTempPath('mp4');
 
@@ -223,75 +158,68 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
       workingFiles = normalizedFiles;
     }
 
-    // Step 2: Create smooth transitions (if enabled and multiple clips)
+    // Step 2: Concatenate with xfade transitions (if enabled and multiple clips)
     if (smoothTransition && workingFiles.length > 1) {
-      console.log(`[FFmpeg] Creating smooth transitions between ${workingFiles.length} clips...`);
+      console.log(`[FFmpeg] Creating crossfade transitions between ${workingFiles.length} clips...`);
 
-      const overlapDuration = 0.25; // 250ms overlap for smooth blending
-      const segments: string[] = [];
+      const xfadeDuration = transitionFrames / 30; // Convert frames to seconds
 
-      for (let i = 0; i < workingFiles.length; i++) {
-        const clipInfo = await getVideoInfo(workingFiles[i]);
+      // Build xfade filter chain for multiple clips
+      // For 2 clips: [0:v][1:v]xfade=transition=fade:duration=0.3:offset=X[v]
+      // For 3+ clips: chain them together
 
-        if (i === 0) {
-          // First clip: trim the last overlapDuration
-          const trimmedPath = generateTempPath('mp4');
-          allTempFiles.push(trimmedPath);
-          const trimEnd = Math.max(0, clipInfo.duration - overlapDuration);
-          await execAsync(
-            `ffmpeg -y -t ${trimEnd} -i "${workingFiles[i]}" -c copy "${trimmedPath}"`,
-            { timeout: 60000 }
-          );
-          segments.push(trimmedPath);
-        } else {
-          // Create smooth junction between previous clip and this one
-          const junctionPath = generateTempPath('mp4');
-          allTempFiles.push(junctionPath);
-          await createSmoothJunction(workingFiles[i - 1], workingFiles[i], junctionPath, overlapDuration);
-          segments.push(junctionPath);
-
-          if (i < workingFiles.length - 1) {
-            // Middle clip: trim both ends
-            const trimmedPath = generateTempPath('mp4');
-            allTempFiles.push(trimmedPath);
-            const trimStart = overlapDuration;
-            const trimDuration = Math.max(0, clipInfo.duration - 2 * overlapDuration);
-            await execAsync(
-              `ffmpeg -y -ss ${trimStart} -t ${trimDuration} -i "${workingFiles[i]}" -c copy "${trimmedPath}"`,
-              { timeout: 60000 }
-            );
-            segments.push(trimmedPath);
-          } else {
-            // Last clip: trim the first overlapDuration
-            const trimmedPath = generateTempPath('mp4');
-            allTempFiles.push(trimmedPath);
-            await execAsync(
-              `ffmpeg -y -ss ${overlapDuration} -i "${workingFiles[i]}" -c copy "${trimmedPath}"`,
-              { timeout: 60000 }
-            );
-            segments.push(trimmedPath);
-          }
-        }
+      // Get durations of all clips
+      const durations: number[] = [];
+      for (const file of workingFiles) {
+        const dur = await getVideoDurationLocal(file);
+        durations.push(dur);
       }
 
-      // Concatenate all segments
-      const listPath = generateTempPath('txt');
-      allTempFiles.push(listPath);
-      await writeFile(listPath, segments.map(f => `file '${f}'`).join('\n'));
+      // Build inputs
+      const inputs = workingFiles.map(f => `-i "${f}"`).join(' ');
 
-      await execAsync(
-        `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy -movflags +faststart "${outputPath}"`,
-        { timeout: 300000 }
-      );
+      // Build filter complex for xfade chain
+      let filterComplex = '';
+      let currentOffset = 0;
+      let lastOutput = '[0:v]';
+      let audioMerge = '';
+
+      for (let i = 1; i < workingFiles.length; i++) {
+        // Offset = sum of previous durations minus accumulated xfade durations
+        currentOffset = durations.slice(0, i).reduce((a, b) => a + b, 0) - (i * xfadeDuration);
+        currentOffset = Math.max(0, currentOffset);
+
+        const outputLabel = i === workingFiles.length - 1 ? '[vout]' : `[v${i}]`;
+
+        filterComplex += `${lastOutput}[${i}:v]xfade=transition=fade:duration=${xfadeDuration}:offset=${currentOffset.toFixed(3)}${outputLabel}`;
+
+        if (i < workingFiles.length - 1) {
+          filterComplex += '; ';
+        }
+
+        lastOutput = outputLabel;
+      }
+
+      // For audio: amerge or concat
+      // Simple approach: concat audio streams
+      const audioInputs = workingFiles.map((_, i) => `[${i}:a]`).join('');
+      audioMerge = `; ${audioInputs}concat=n=${workingFiles.length}:v=0:a=1[aout]`;
+
+      const fullFilter = filterComplex + audioMerge;
+
+      const xfadeCmd = `ffmpeg -y ${inputs} -filter_complex "${fullFilter}" -map "[vout]" -map "[aout]" -c:v libx264 -preset fast -crf 18 -c:a aac -movflags +faststart "${outputPath}"`;
+
+      console.log(`[FFmpeg] Running xfade: ${xfadeCmd.substring(0, 200)}...`);
+      await execAsync(xfadeCmd, { timeout: 300000 });
+
     } else {
-      // Simple concatenation without smooth transitions
+      // Simple concatenation without transitions
       const listPath = generateTempPath('txt');
       allTempFiles.push(listPath);
       await writeFile(listPath, workingFiles.map(f => `file '${f}'`).join('\n'));
 
-      const codecOpt = colorMatch ? '-c copy' : '-c copy';
       await execAsync(
-        `ffmpeg -y -f concat -safe 0 -i "${listPath}" ${codecOpt} -movflags +faststart "${outputPath}"`,
+        `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy -movflags +faststart "${outputPath}"`,
         { timeout: 300000 }
       );
     }
