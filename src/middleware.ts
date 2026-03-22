@@ -17,12 +17,18 @@ export async function middleware(request: NextRequest) {
   }
 
   try {
-    // Behind Cloudflare/nginx: rewrite URL to HTTPS before Auth0 processes it
-    if (process.env.NODE_ENV === 'production' && url.protocol === 'http:') {
-      console.log('[Middleware] Rewriting to HTTPS');
-      url.protocol = 'https:';
-      const httpsRequest = new NextRequest(url.toString(), request);
-      return await auth0.middleware(httpsRequest);
+    // Behind Cloudflare/nginx: rewrite URL to use correct protocol and host
+    if (process.env.NODE_ENV === 'production') {
+      const forwardedHost = request.headers.get('x-forwarded-host');
+      const forwardedProto = request.headers.get('x-forwarded-proto') || 'https';
+
+      if (forwardedHost && (url.host !== forwardedHost || url.protocol !== `${forwardedProto}:`)) {
+        console.log('[Middleware] Rewriting URL:', { from: url.host, to: forwardedHost, proto: forwardedProto });
+        url.protocol = `${forwardedProto}:`;
+        url.host = forwardedHost;
+        const fixedRequest = new NextRequest(url.toString(), request);
+        return await auth0.middleware(fixedRequest);
+      }
     }
 
     return await auth0.middleware(request);
