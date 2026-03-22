@@ -51,16 +51,17 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
-      - name: Deploy to k3s
-        uses: actions-hub/kubectl@master
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-        with:
-          args: rollout restart deployment/studio
+      - name: Set up kubectl
+        uses: azure/setup-kubectl@v3
 
-      - name: Wait for rollout
-        uses: actions-hub/kubectl@master
-        env:
-          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
-        with:
-          args: rollout status deployment/studio --timeout=120s
+      - name: Configure kubeconfig
+        run: |
+          mkdir -p ~/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy to k3s
+        run: |
+          kubectl config view
+          kubectl rollout restart deployment/studio -n ia-studio
+          kubectl rollout status deployment/studio -n ia-studio --timeout=120s
