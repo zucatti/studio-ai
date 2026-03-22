@@ -3,18 +3,33 @@ import { auth0 } from "./lib/auth0";
 
 export async function middleware(request: NextRequest) {
   try {
+    // Get the correct protocol and host from forwarded headers
+    const proto = request.headers.get('x-forwarded-proto') || 'http';
+    const host = request.headers.get('x-forwarded-host') || request.headers.get('host') || 'localhost';
+
+    // Create the correct URL using forwarded headers
+    const correctUrl = new URL(request.nextUrl.pathname + request.nextUrl.search, `${proto}://${host}`);
+
     // Log all incoming requests
     const cookieHeader = request.headers.get('cookie');
     console.log('[Middleware] Request:', {
       path: request.nextUrl.pathname,
-      url: request.url,
-      proto: request.headers.get('x-forwarded-proto'),
-      host: request.headers.get('x-forwarded-host') || request.headers.get('host'),
+      originalUrl: request.url,
+      correctedUrl: correctUrl.toString(),
+      proto,
+      host,
       hasCookies: !!cookieHeader,
       sessionCookie: cookieHeader?.includes('__session') ? 'present' : 'missing',
     });
 
-    const response = await auth0.middleware(request);
+    // Create a new request with the correct URL for Auth0
+    const correctedRequest = new NextRequest(correctUrl, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+    });
+
+    const response = await auth0.middleware(correctedRequest);
 
     // Log response details for auth routes AND homepage
     if (request.nextUrl.pathname.startsWith('/auth') || request.nextUrl.pathname === '/') {
