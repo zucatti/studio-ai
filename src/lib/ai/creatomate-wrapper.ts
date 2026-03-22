@@ -348,19 +348,11 @@ export class CreatomateWrapper {
     }
 
     // Create video elements on the same track - they play in sequence
-    const videoElements = options.videoUrls.map((url, index) => ({
+    // No transition: clips are placed back-to-back for seamless playback
+    const videoElements = options.videoUrls.map((url) => ({
       type: 'video' as const,
       track: 1,
       source: url,
-      // Add a short crossfade transition between clips (except for first)
-      ...(index > 0 ? {
-        animations: [{
-          time: 'start',
-          duration: 0.3,
-          transition: true,
-          type: 'fade',
-        }],
-      } : {}),
     }));
 
     const source = {
