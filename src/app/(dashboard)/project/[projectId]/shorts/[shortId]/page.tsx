@@ -97,6 +97,45 @@ export default function ShortDetailPage() {
     }
   }, [short]);
 
+  // Load assembled video URL from database (sign b2:// URLs)
+  useEffect(() => {
+    if (!short?.assembled_video_url) {
+      setAssembledVideoUrl(null);
+      return;
+    }
+
+    const loadAssembledVideo = async () => {
+      const url = short.assembled_video_url;
+
+      // If it's a b2:// URL, we need to sign it
+      if (url && url.startsWith('b2://')) {
+        try {
+          const res = await fetch('/api/storage/sign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls: [url] }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const signedUrl = data.signedUrls?.[url];
+            if (signedUrl) {
+              setAssembledVideoUrl(signedUrl);
+              return;
+            }
+          }
+        } catch (error) {
+          console.error('Error signing assembled video URL:', error);
+        }
+      }
+
+      // Use as-is if not b2:// or signing failed
+      setAssembledVideoUrl(url);
+    };
+
+    loadAssembledVideo();
+  }, [short?.assembled_video_url]);
+
   const selectedPlan = short?.plans.find((p) => p.id === selectedPlanId) || null;
 
   // Get the previous plan (for frame continuity feature)
@@ -306,13 +345,24 @@ export default function ShortDetailPage() {
                   return;
 
                 case 'complete':
-                  toast.success(`Vidéo générée! (${data.model}, ${data.duration}s)`, { id: toastId });
+                  // Format duration for display
+                  const durationDisplay = data.duration
+                    ? `${Math.floor(data.duration / 60)}:${Math.round(data.duration % 60).toString().padStart(2, '0')}`
+                    : `${data.duration}s`;
                   console.log('[Video Gen Complete]', data);
 
-                  // Update plan with generated video
+                  // Music overlay is now handled server-side in the generate-video route
+                  const completeMsg = data.hasMusic
+                    ? `Vidéo avec musique générée! (${data.model}, ${durationDisplay})`
+                    : `Vidéo générée! (${data.model}, ${durationDisplay})`;
+
+                  toast.success(completeMsg, { id: toastId });
+
+                  // Update plan with generated video and real duration
                   updatePlan(projectId, planId, {
                     generated_video_url: data.videoUrl,
                     generation_status: 'completed',
+                    duration: data.duration,
                     dialogue_audio_url: data.hasDialogueAudio ? data.dialogueAudioUrl : undefined,
                   });
 
@@ -323,7 +373,7 @@ export default function ShortDetailPage() {
                       planId,
                       progress: 100,
                       step: 'complete',
-                      message: 'Vidéo générée!',
+                      message: data.hasMusic ? 'Vidéo avec musique générée!' : 'Vidéo générée!',
                       status: 'completed',
                       videoUrl: data.videoUrl,
                     });
@@ -680,7 +730,6 @@ export default function ShortDetailPage() {
             {assembledVideoUrl && (
               <Button
                 variant="outline"
-                size="sm"
                 onClick={() => {
                   const filename = `${short.title.replace(/\s+/g, '-').toLowerCase()}.mp4`;
                   const downloadUrl = `/api/download?url=${encodeURIComponent(assembledVideoUrl)}&filename=${encodeURIComponent(filename)}`;
@@ -744,7 +793,16 @@ export default function ShortDetailPage() {
                               setAssemblyProgress(100);
                               setAssembledVideoUrl(data.videoUrl);
                               setIsAssembling(false);
-                              toast.success('Short assemblé');
+                              // Show duration in toast if available
+                              if (data.duration) {
+                                const mins = Math.floor(data.duration / 60);
+                                const secs = Math.round(data.duration % 60);
+                                toast.success(`Short assemblé (${mins}:${secs.toString().padStart(2, '0')})`);
+                              } else {
+                                toast.success('Short assemblé');
+                              }
+                              // Refetch shorts to update store with new duration
+                              fetchShorts(projectId);
                               return;
                             case 'error':
                               throw new Error(data.error || 'Assembly failed');

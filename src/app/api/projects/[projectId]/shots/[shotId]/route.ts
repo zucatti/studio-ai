@@ -105,6 +105,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       'has_vocals',
       'lip_sync_enabled',
       'singing_character_id',
+      // Audio/Music mode fields
+      'audio_mode',
+      'audio_asset_id',
+      'audio_start',
+      'audio_end',
     ];
 
     const updates: Record<string, any> = {};

@@ -123,10 +123,29 @@ export async function POST(request: Request, { params }: RouteParams) {
         console.log('[Assemble] FFmpeg concatenation complete:', result.outputUrl);
         console.log('[Assemble] Signed URL for playback:', result.signedUrl);
 
+        // Save assembled video URL and duration to database for persistence
+        sendEvent('progress', { progress: 95, message: 'Sauvegarde...' });
+
+        const { error: updateError } = await supabase
+          .from('scenes')
+          .update({
+            assembled_video_url: result.outputUrl,
+            assembled_video_duration: result.duration || null,
+          })
+          .eq('id', shortId);
+
+        if (updateError) {
+          console.error('[Assemble] Failed to save assembled video URL:', updateError);
+          // Continue anyway - video is still accessible via signed URL
+        } else {
+          console.log('[Assemble] Saved assembled video URL to database');
+        }
+
         sendEvent('progress', { progress: 100, message: 'Terminé!' });
         sendEvent('complete', {
           videoUrl: result.signedUrl,      // Use signed URL for immediate playback
           storageUrl: result.outputUrl,    // b2:// URL for storage reference
+          duration: result.duration,       // FFmpeg-calculated duration
         });
         controller.close();
 

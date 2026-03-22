@@ -57,6 +57,8 @@ export async function GET(request: Request, { params }: RouteParams) {
         title,
         description,
         sort_order,
+        assembled_video_url,
+        assembled_video_duration,
         created_at,
         updated_at,
         shots (
@@ -79,7 +81,11 @@ export async function GET(request: Request, { params }: RouteParams) {
           has_dialogue,
           dialogue_text,
           dialogue_character_id,
-          dialogue_audio_url
+          dialogue_audio_url,
+          audio_mode,
+          audio_asset_id,
+          audio_start,
+          audio_end
         )
       `)
       .eq('project_id', projectId)
@@ -116,6 +122,11 @@ export async function GET(request: Request, { params }: RouteParams) {
           dialogue_text: shot.dialogue_text,
           dialogue_character_id: shot.dialogue_character_id,
           dialogue_audio_url: await signB2Url(shot.dialogue_audio_url),
+          // Audio/Music
+          audio_mode: shot.audio_mode || 'mute',
+          audio_asset_id: shot.audio_asset_id,
+          audio_start: shot.audio_start ?? 0,
+          audio_end: shot.audio_end,
         })));
 
       const totalDuration = plans.reduce((sum, p) => sum + p.duration, 0);
@@ -129,6 +140,8 @@ export async function GET(request: Request, { params }: RouteParams) {
         sort_order: scene.sort_order,
         plans,
         totalDuration,
+        assembled_video_url: scene.assembled_video_url || null,
+        assembled_video_duration: scene.assembled_video_duration || null,
         created_at: scene.created_at,
         updated_at: scene.updated_at,
       };

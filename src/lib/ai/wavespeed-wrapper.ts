@@ -215,7 +215,12 @@ export class WavespeedWrapper {
     let result: WavespeedTaskResult;
     try {
       // Check if this is OmniHuman (talking head model - different API)
-      const isOmniHuman = input.model.includes('omni-human');
+      // Model names:
+      // - 'bytedance/avatar-omni-human-1.5' (from DIALOGUE_VIDEO_MODELS, used by frontend)
+      // - 'bytedance/omnihuman-1.5/image-to-video' (from WAVESPEED_VIDEO_MODELS)
+      // - 'omnihuman-1.5' (short name)
+      const modelLower = input.model.toLowerCase();
+      const isOmniHuman = modelLower.includes('omni-human') || modelLower.includes('omnihuman');
 
       let body: Record<string, unknown>;
 
@@ -230,9 +235,12 @@ export class WavespeedWrapper {
         body = {
           image: input.image_url,
           audio: input.audio_url,
+          resolution: '1080p',  // Always use 1080p for best quality
+          aspect_ratio: input.aspect_ratio || '9:16',
         };
         console.log(`[WaveSpeed] OmniHuman request - image: ${input.image_url.substring(0, 80)}...`);
         console.log(`[WaveSpeed] OmniHuman request - audio: ${input.audio_url.substring(0, 80)}...`);
+        console.log(`[WaveSpeed] OmniHuman request - resolution: 1080p, aspect_ratio: ${input.aspect_ratio || '9:16'}`);
       } else {
         // Standard video generation - WaveSpeed uses "image" not "image_url"
         body = {

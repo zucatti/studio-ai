@@ -116,7 +116,8 @@ import {
   isProviderAvailable,
   PROVIDER_INFO,
 } from '@/lib/ai/video-provider';
-import { getSignedFileUrl } from '@/lib/storage';
+import { getSignedFileUrl, parseStorageUrl } from '@/lib/storage';
+import { getVideoDuration, overlayMusicOnVideo } from '@/lib/ffmpeg';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 interface RouteParams {
@@ -407,10 +408,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         return;
       }
 
-      // Get shot with all fields including animation_prompt and dialogue
+      // Get shot with all fields including animation_prompt, dialogue, and audio/music settings
       const { data: shot, error: shotError } = await supabase
         .from('shots')
-        .select('*, animation_prompt, has_dialogue, dialogue_text, dialogue_character_id, generated_video_url, dialogue_audio_url, dialogue_text_hash')
+        .select('*, animation_prompt, has_dialogue, dialogue_text, dialogue_character_id, generated_video_url, dialogue_audio_url, dialogue_text_hash, audio_mode, audio_asset_id, audio_start, audio_end')
         .eq('id', shotId)
         .single();
 
@@ -905,10 +906,21 @@ export async function POST(request: Request, { params }: RouteParams) {
         console.log(`[Video Gen] OmniHuman 1.5 fal.ai - Image: ${firstFrameUrl.substring(0, 50)}...`);
         console.log(`[Video Gen] OmniHuman 1.5 fal.ai - Audio: ${publicAudioUrl.substring(0, 50)}...`);
 
+        // Build prompt with camera settings (OmniHuman supports camera instructions)
+        const omniPrompt = buildVideoPrompt({
+          animation: shot.animation_prompt,
+          description: shot.description,
+          shotType: shot.shot_type,
+          cameraAngle: shot.camera_angle,
+          cameraMovement: shot.camera_movement,
+        });
+
+        console.log(`[Video Gen] OmniHuman prompt: ${omniPrompt}`);
+
         const omniResult = await generateOmniHumanVideoFal(falWrapper, {
           imageUrl: firstFrameUrl,
           audioUrl: publicAudioUrl,
-          prompt: shot.animation_prompt || undefined,
+          prompt: omniPrompt,
           resolution: '1080p',
           turboMode: true,  // Faster generation
         });
@@ -983,6 +995,77 @@ export async function POST(request: Request, { params }: RouteParams) {
           console.error('[Video Gen] Failed to upload to B2, using original URL:', uploadError);
         }
 
+        // Check if this shot has music to overlay
+        const hasMusic = shot.audio_asset_id &&
+          (shot.audio_mode === 'instrumental' || shot.audio_mode === 'vocal');
+
+        if (hasMusic) {
+          send('progress', {
+            step: 'music_overlay',
+            message: 'Ajout de la musique...',
+            progress: 94,
+          });
+          await updateJobProgress(supabase, jobId, 94, 'Ajout de la musique...');
+
+          try {
+            // Get the audio asset
+            const { data: audioAsset } = await supabase
+              .from('global_assets')
+              .select('id, name, data')
+              .eq('id', shot.audio_asset_id)
+              .single();
+
+            if (audioAsset) {
+              const assetData = audioAsset.data as Record<string, unknown>;
+              const fileUrl = assetData?.fileUrl as string;
+
+              if (fileUrl) {
+                // Get signed URL for the audio file
+                let audioUrl = fileUrl;
+                if (fileUrl.startsWith('b2://')) {
+                  const parsed = parseStorageUrl(fileUrl);
+                  if (parsed) {
+                    audioUrl = await getSignedFileUrl(parsed.key, 3600);
+                  }
+                }
+
+                console.log(`[Video Gen] Overlaying music: ${audioAsset.name}`);
+                console.log(`[Video Gen] Audio segment: ${shot.audio_start}s - ${shot.audio_end}s`);
+
+                // Overlay music on video
+                const musicResult = await overlayMusicOnVideo({
+                  videoUrl: finalVideoUrl,
+                  audioUrl,
+                  audioStart: shot.audio_start || 0,
+                  audioEnd: shot.audio_end || (shot.audio_start || 0) + videoDuration,
+                  userId: session.user.sub,
+                  projectId,
+                  shotId,
+                  volume: 1.0,
+                });
+
+                // Update to use video with music
+                finalVideoUrl = musicResult.outputUrl;
+                console.log(`[Video Gen] Music overlay complete: ${finalVideoUrl}`);
+
+                send('progress', {
+                  step: 'music_complete',
+                  message: 'Musique ajoutée',
+                  progress: 96,
+                });
+              }
+            }
+          } catch (musicError) {
+            // Log error but continue with video without music
+            console.error('[Video Gen] Music overlay error:', musicError);
+            send('warning', {
+              step: 'music_error',
+              message: 'Erreur lors de l\'ajout de la musique, vidéo sans musique',
+              error: musicError instanceof Error ? musicError.message : 'Unknown error'
+            });
+          }
+        }
+
         send('progress', {
           step: 'saving',
           message: 'Finalisation...',
@@ -1000,7 +1083,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           .eq('id', shotId);
 
         // Complete the job
-        await completeJob(supabase, jobId, { videoUrl: finalVideoUrl, model: videoModel }, result.cost);
+        await completeJob(supabase, jobId, { videoUrl: finalVideoUrl, model: videoModel, hasMusic }, result.cost);
 
         // Get signed URL for immediate playback if it's a B2 URL
         let playbackUrl = finalVideoUrl;
@@ -1009,15 +1092,36 @@ export async function POST(request: Request, { params }: RouteParams) {
           playbackUrl = await getSignedFileUrl(key);
         }
 
+        // Calculate real duration from generated video
+        let realDuration = videoDuration;
+        try {
+          realDuration = await getVideoDuration(playbackUrl);
+          console.log(`[Video Gen] Real duration: ${realDuration}s (requested: ${videoDuration}s)`);
+
+          // Update shot with real duration
+          await supabase
+            .from('shots')
+            .update({ duration: realDuration })
+            .eq('id', shotId);
+        } catch (durationError) {
+          console.error('[Video Gen] Failed to get video duration:', durationError);
+          // Keep using requested duration as fallback
+        }
+
+        const completeMessage = hasMusic
+          ? `Vidéo ${modelName} avec musique générée!`
+          : `Vidéo ${modelName} générée avec succès!`;
+
         send('complete', {
           step: 'done',
-          message: `Vidéo ${modelName} générée avec succès!`,
+          message: completeMessage,
           progress: 100,
           videoUrl: playbackUrl,
           model: videoModel,
-          duration: videoDuration,
+          duration: realDuration,
           cost: result.cost,
           jobId,
+          hasMusic,
         });
         close();
         return;

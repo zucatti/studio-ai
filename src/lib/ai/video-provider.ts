@@ -42,12 +42,10 @@ export const VIDEO_PROVIDER_MODELS: Record<VideoProvider, { value: string; label
 };
 
 // Models specifically for dialogue (require audio)
-// These are shown when dialogue is enabled
+// OmniHuman 1.5 via fal.ai is the only quality option
+// WaveSpeed's version is degraded/fake - removed
 export const DIALOGUE_VIDEO_MODELS: { value: string; label: string; duration: number[]; provider: VideoProvider; supportsFrameOut: boolean }[] = [
-  // WaveSpeed models (default for dialogue)
-  { value: 'bytedance/avatar-omni-human-1.5', label: 'OmniHuman 1.5 (WaveSpeed)', duration: [5, 10, 15], provider: 'wavespeed', supportsFrameOut: false },
-  // fal.ai models
-  { value: 'omnihuman', label: 'OmniHuman 1.5 (fal)', duration: [5, 10], provider: 'fal', supportsFrameOut: false },
+  { value: 'omnihuman', label: 'OmniHuman 1.5', duration: [5, 10, 15, 30], provider: 'fal', supportsFrameOut: false },
 ];
 
 // Check if a model is dialogue-only

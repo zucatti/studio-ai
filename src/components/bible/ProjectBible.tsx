@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Book, User, Users, MapPin, Package, Plus, Loader2, AlertCircle, AtSign, Hash, Check, Trash2 } from 'lucide-react';
+import { Book, User, Users, MapPin, Package, Music, Plus, Loader2, AlertCircle, AtSign, Hash, Check, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { StorageThumbnail } from '@/components/ui/storage-image';
 import {
@@ -62,6 +62,7 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
   const characters = projectAssets.filter(a => a.asset_type === 'character');
   const locations = projectAssets.filter(a => a.asset_type === 'location');
   const props = projectAssets.filter(a => a.asset_type === 'prop');
+  const audio = projectAssets.filter(a => a.asset_type === 'audio');
   const genericCharacters = GENERIC_CHARACTERS.filter(g => isGenericAssetInProject(g.id));
 
   const isCharacterUsed = (id: string) => usedCharacterIds.has(id);
@@ -79,7 +80,7 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
     openGlobalBible(true);
   };
 
-  const totalAssets = characters.length + locations.length + props.length + genericCharacters.length;
+  const totalAssets = characters.length + locations.length + props.length + audio.length + genericCharacters.length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -184,6 +185,23 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
                         reference={generateReferenceName(prop.name, '#')}
                         prefix="#"
                         onRemove={() => handleRemoveAsset(prop.project_asset_id)}
+                      />
+                    ))}
+                  </div>
+                </Section>
+              )}
+
+              {/* Audio */}
+              {audio.length > 0 && (
+                <Section icon={Music} title="Audio" count={audio.length} color="purple">
+                  <div className="grid grid-cols-2 gap-3">
+                    {audio.map((aud) => (
+                      <AssetCard
+                        key={aud.id}
+                        name={aud.name}
+                        reference={generateReferenceName(aud.name, '#')}
+                        prefix="#"
+                        onRemove={() => handleRemoveAsset(aud.project_asset_id)}
                       />
                     ))}
                   </div>

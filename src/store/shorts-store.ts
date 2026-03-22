@@ -26,6 +26,11 @@ export interface Plan {
   dialogue_text: string | null;
   dialogue_character_id: string | null; // Global asset ID for voice
   dialogue_audio_url: string | null; // Generated ElevenLabs audio
+  // Audio/Music
+  audio_mode: 'mute' | 'dialogue' | 'audio' | 'instrumental' | 'vocal';
+  audio_asset_id: string | null; // Global asset ID for music/audio
+  audio_start: number; // Start time in seconds
+  audio_end: number | null; // End time in seconds (null = use plan duration)
 }
 
 // Short (scene used as a short)
@@ -38,6 +43,8 @@ export interface Short {
   sort_order: number;
   plans: Plan[];
   totalDuration: number;
+  assembled_video_url: string | null; // Final assembled video
+  assembled_video_duration: number | null; // Duration in seconds (from FFmpeg)
   created_at: string;
   updated_at: string;
 }
@@ -111,6 +118,8 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           ...data.short,
           plans: [],
           totalDuration: 0,
+          assembled_video_url: null,
+          assembled_video_duration: null,
         };
         set((state) => ({
           shorts: [...state.shorts, newShort],
@@ -222,6 +231,11 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           dialogue_text: data.plan.dialogue_text ?? null,
           dialogue_character_id: data.plan.dialogue_character_id ?? null,
           dialogue_audio_url: data.plan.dialogue_audio_url ?? null,
+          // Audio/Music
+          audio_mode: data.plan.audio_mode || 'mute',
+          audio_asset_id: data.plan.audio_asset_id ?? null,
+          audio_start: data.plan.audio_start ?? 0,
+          audio_end: data.plan.audio_end ?? null,
         };
 
         set((state) => ({

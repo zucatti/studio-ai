@@ -82,7 +82,7 @@ export function BibleSidebar() {
       case 'props':
         return <BibleProps projectId={projectId} showGlobalOnly={true} />;
       case 'audio':
-        return <BibleAudio showGlobalOnly={true} />;
+        return <BibleAudio projectId={projectId} showGlobalOnly={true} />;
       default:
         return null;
     }

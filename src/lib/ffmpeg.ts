@@ -343,13 +343,13 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
     normalizedFiles.push(firstNormalized);
     console.log(`[FFmpeg] Normalized clip 1/${tempFiles.length}`);
 
-    // Subsequent clips: color matching + resolution normalization
+    // Subsequent clips: stretch correction + color matching + resolution normalization
     if (tempFiles.length > 1) {
-      console.log(`[FFmpeg] Matching colors between ${tempFiles.length} clips...`);
+      console.log(`[FFmpeg] Analyzing and correcting ${tempFiles.length} clips...`);
 
       for (let i = 1; i < tempFiles.length; i++) {
         const prevClip = normalizedFiles[i - 1]; // Use the normalized previous clip
-        const currClip = tempFiles[i];
+        let currClip = tempFiles[i];
 
         // Extract frames for analysis
         const prevLastFrame = generateTempPath('png');
@@ -359,7 +359,16 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
         await extractFrame(prevClip, 'last', prevLastFrame);
         await extractFrame(currClip, 'first', currFirstFrame);
 
-        // Analyze colors
+        // Note: Stretch correction removed - workflow now avoids OmniHuman concatenation
+        // OmniHuman generates single long clips (15s+ based on audio)
+        // For transitions, use OmniHuman → Kling (extract last frame, inject into Kling)
+        // Multiple OmniHuman clips should be treated as cutaway shots (plan de coupe)
+        //
+        // TODO: Cleanup - detectStretchRatio() and correctVideoStretch() functions kept
+        // in case stretch correction is needed for other models in the future.
+        // Remove if unused after validating OmniHuman → Kling workflow works well.
+
+        // Step 2: Analyze colors
         console.log(`[FFmpeg] Analyzing color difference between clip ${i} and ${i + 1}...`);
         const prevColors = await analyzeFrameColors(prevLastFrame);
         const currColors = await analyzeFrameColors(currFirstFrame);
@@ -367,13 +376,13 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
         console.log(`[FFmpeg] Clip ${i} last frame: Y=${prevColors.yAvg.toFixed(1)}, range=${prevColors.yMin}-${prevColors.yMax}, sat=${prevColors.satAvg.toFixed(1)}`);
         console.log(`[FFmpeg] Clip ${i + 1} first frame: Y=${currColors.yAvg.toFixed(1)}, range=${currColors.yMin}-${currColors.yMax}, sat=${currColors.satAvg.toFixed(1)}`);
 
-        // Calculate correction (only if colorMatch is enabled)
+        // Calculate color correction (only if colorMatch is enabled)
         const correction = colorMatch
           ? calculateColorCorrection(currColors, prevColors)
           : { brightness: 0, contrast: 1, saturation: 1 };
 
         if (colorMatch) {
-          console.log(`[FFmpeg] Correction needed: brightness=${(correction.brightness * 100).toFixed(1)}%, contrast=${(correction.contrast * 100).toFixed(0)}%, saturation=${(correction.saturation * 100).toFixed(0)}%`);
+          console.log(`[FFmpeg] Color correction needed: brightness=${(correction.brightness * 100).toFixed(1)}%, contrast=${(correction.contrast * 100).toFixed(0)}%, saturation=${(correction.saturation * 100).toFixed(0)}%`);
         }
 
         const normalizedPath = generateTempPath('mp4');
@@ -395,8 +404,10 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
     await writeFile(listPath, workingFiles.map(f => `file '${f}'`).join('\n'));
 
     console.log(`[FFmpeg] Concatenating ${workingFiles.length} clips...`);
+    // Re-encode to ensure proper keyframe alignment and avoid transition glitches
+    // -c copy can cause flickering/backward frames if GOP structures don't align
     await execAsync(
-      `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy -movflags +faststart "${outputPath}"`,
+      `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c:v libx264 -preset fast -crf 18 -c:a aac -b:a 192k -movflags +faststart "${outputPath}"`,
       { timeout: 300000 }
     );
 
@@ -413,7 +424,11 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
 
     const signedUrl = await getSignedFileUrl(storageKey, 3600);
 
-    return { outputUrl: url, signedUrl };
+    // Get duration from local output file before cleanup
+    const duration = await getVideoDurationLocal(outputPath);
+    console.log(`[FFmpeg] Output duration: ${duration}s`);
+
+    return { outputUrl: url, signedUrl, duration };
 
   } finally {
     await cleanup(outputPath, ...allTempFiles);
@@ -502,6 +517,18 @@ export async function getVideoDuration(videoUrl: string): Promise<number> {
 }
 
 /**
+ * Get image resolution from a local file using ffprobe
+ */
+async function getLocalImageResolution(imagePath: string): Promise<{ width: number; height: number }> {
+  const { stdout } = await execAsync(
+    `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${imagePath}"`,
+    { timeout: 30000 }
+  );
+  const [width, height] = stdout.trim().split(',').map(Number);
+  return { width, height };
+}
+
+/**
  * Get image resolution using ffprobe
  */
 export async function getImageResolution(imageUrl: string): Promise<{ width: number; height: number }> {
@@ -527,12 +554,7 @@ export async function getImageResolution(imageUrl: string): Promise<{ width: num
   await writeFile(tempPath, buffer);
 
   try {
-    const { stdout } = await execAsync(
-      `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${tempPath}"`,
-      { timeout: 30000 }
-    );
-    const [width, height] = stdout.trim().split(',').map(Number);
-    return { width, height };
+    return await getLocalImageResolution(tempPath);
   } finally {
     await cleanup(tempPath);
   }
@@ -610,5 +632,263 @@ export async function normalizeVideoToFrame(options: {
 
   } finally {
     await cleanup(videoPath, outputPath);
+  }
+}
+
+/**
+ * Detect and correct geometric stretch in a video by comparing with reference frame
+ * OmniHuman tends to stretch images due to internal square tensor processing
+ * This function detects the stretch by comparing edge/structure and corrects it
+ */
+export async function correctVideoStretch(options: {
+  videoUrl: string;
+  referenceFrameUrl: string;  // The original input frame (before AI generation)
+  userId: string;
+  projectId: string;
+  shotId: string;
+}): Promise<{ outputUrl: string; signedUrl: string; correction: { scaleX: number; scaleY: number } }> {
+  await ensureTempDir();
+
+  const { videoUrl, referenceFrameUrl, userId, projectId, shotId } = options;
+
+  // Download video and reference frame
+  const videoPath = await downloadToTemp(videoUrl, 'mp4');
+  const refFramePath = await downloadToTemp(referenceFrameUrl, 'png');
+  const generatedFramePath = generateTempPath('png');
+  const outputPath = generateTempPath('mp4');
+
+  try {
+    // Extract first frame from video
+    await extractFrame(videoPath, 'first', generatedFramePath);
+
+    // Get dimensions
+    const refRes = await getImageResolution(refFramePath);
+    const genRes = await getImageResolution(generatedFramePath);
+
+    console.log(`[FFmpeg] Reference frame: ${refRes.width}x${refRes.height}`);
+    console.log(`[FFmpeg] Generated frame: ${genRes.width}x${genRes.height}`);
+
+    // Detect stretch by analyzing horizontal/vertical edge density
+    // If image is stretched horizontally, vertical edges will be more spread out
+    const stretchRatio = await detectStretchRatio(refFramePath, generatedFramePath);
+
+    console.log(`[FFmpeg] Detected stretch ratio: scaleX=${stretchRatio.scaleX.toFixed(4)}, scaleY=${stretchRatio.scaleY.toFixed(4)}`);
+
+    // Apply correction if significant stretch detected (> 0.5%)
+    const needsCorrection = Math.abs(stretchRatio.scaleX - 1) > 0.005 || Math.abs(stretchRatio.scaleY - 1) > 0.005;
+
+    if (needsCorrection) {
+      // Calculate corrected dimensions
+      const correctedWidth = Math.round(genRes.width * stretchRatio.scaleX);
+      const correctedHeight = Math.round(genRes.height * stretchRatio.scaleY);
+
+      // Ensure even dimensions
+      const finalWidth = Math.floor(correctedWidth / 2) * 2;
+      const finalHeight = Math.floor(correctedHeight / 2) * 2;
+
+      console.log(`[FFmpeg] Applying stretch correction: ${genRes.width}x${genRes.height} -> ${finalWidth}x${finalHeight}`);
+
+      // Scale to corrected size, then crop to original dimensions
+      await execAsync(
+        `ffmpeg -y -i "${videoPath}" -vf "scale=${finalWidth}:${finalHeight}:flags=lanczos,crop=${genRes.width}:${genRes.height},setsar=1:1" -c:v libx264 -preset fast -crf 18 -c:a copy -movflags +faststart "${outputPath}"`,
+        { timeout: 180000 }
+      );
+    } else {
+      console.log(`[FFmpeg] No significant stretch detected, keeping original`);
+      // Just copy with setsar
+      await execAsync(
+        `ffmpeg -y -i "${videoPath}" -vf "setsar=1:1" -c:v libx264 -preset fast -crf 18 -c:a copy -movflags +faststart "${outputPath}"`,
+        { timeout: 180000 }
+      );
+    }
+
+    // Upload corrected video
+    const outputBuffer = await readFile(outputPath);
+    console.log(`[FFmpeg] Corrected video size: ${outputBuffer.length} bytes`);
+
+    const sanitizedUserId = userId.replace(/[|]/g, '_');
+    const timestamp = Date.now();
+    const storageKey = `videos/${sanitizedUserId}/${projectId}/${shotId}_corrected_${timestamp}.mp4`;
+
+    const { url } = await uploadFile(storageKey, outputBuffer, 'video/mp4');
+    console.log(`[FFmpeg] Uploaded corrected video to: ${url}`);
+
+    const signedUrl = await getSignedFileUrl(storageKey, 3600);
+
+    return { outputUrl: url, signedUrl, correction: stretchRatio };
+
+  } finally {
+    await cleanup(videoPath, refFramePath, generatedFramePath, outputPath);
+  }
+}
+
+/**
+ * Overlay music onto a video with specific start/end points
+ * Extracts a segment of the audio and mixes it with video
+ */
+export async function overlayMusicOnVideo(options: {
+  videoUrl: string;
+  audioUrl: string;
+  audioStart: number;    // Start time in seconds in the audio file
+  audioEnd: number;      // End time in seconds in the audio file
+  userId: string;
+  projectId: string;
+  shotId: string;
+  volume?: number;       // Audio volume multiplier (default: 1.0)
+}): Promise<MergeAudioResult> {
+  await ensureTempDir();
+
+  const { videoUrl, audioUrl, audioStart, audioEnd, userId, projectId, shotId, volume = 1.0 } = options;
+  const audioDuration = audioEnd - audioStart;
+
+  console.log(`[FFmpeg] Overlaying music: ${audioStart}s-${audioEnd}s (${audioDuration}s) onto video`);
+
+  const videoPath = await downloadToTemp(videoUrl, 'mp4');
+  const audioPath = await downloadToTemp(audioUrl, 'mp3');
+  const outputPath = generateTempPath('mp4');
+
+  try {
+    // Get video duration to ensure we don't exceed it
+    const videoDuration = await getVideoDurationLocal(videoPath);
+    console.log(`[FFmpeg] Video duration: ${videoDuration}s, Audio segment: ${audioDuration}s`);
+
+    // FFmpeg command:
+    // -ss audioStart: seek to start position in audio
+    // -t audioDuration: read only the specified duration
+    // -filter_complex: mix audio with video's existing audio (if any) or just add it
+    // volume=X: adjust audio volume
+    // amix: mix audio streams, or use the music as the only audio
+    const cmd = `ffmpeg -y -i "${videoPath}" -ss ${audioStart} -t ${audioDuration} -i "${audioPath}" -filter_complex "[1:a]volume=${volume}[music];[music]apad[padded];[padded]atrim=0:${videoDuration}[trimmed]" -map 0:v:0 -map "[trimmed]" -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart "${outputPath}"`;
+
+    console.log(`[FFmpeg] Running music overlay...`);
+    await execAsync(cmd, { timeout: 180000 }); // 3 min timeout
+
+    // Read output and upload to B2
+    const outputBuffer = await readFile(outputPath);
+    console.log(`[FFmpeg] Output size: ${outputBuffer.length} bytes`);
+
+    const sanitizedUserId = userId.replace(/[|]/g, '_');
+    const timestamp = Date.now();
+    const storageKey = `videos/${sanitizedUserId}/${projectId}/${shotId}_with_music_${timestamp}.mp4`;
+
+    const { url } = await uploadFile(storageKey, outputBuffer, 'video/mp4');
+    console.log(`[FFmpeg] Uploaded to: ${url}`);
+
+    const signedUrl = await getSignedFileUrl(storageKey, 3600);
+
+    return { outputUrl: url, signedUrl };
+
+  } finally {
+    await cleanup(videoPath, audioPath, outputPath);
+  }
+}
+
+/**
+ * Detect stretch ratio between reference and generated frames
+ * Uses edge detection and correlation to find the optimal scale
+ */
+async function detectStretchRatio(
+  refFramePath: string,
+  genFramePath: string
+): Promise<{ scaleX: number; scaleY: number }> {
+  try {
+    // Use FFmpeg to compute SSIM at different scales and find optimal match
+    // Test wider range with finer granularity for better detection
+
+    const scaleFactors = [0.94, 0.95, 0.96, 0.97, 0.98, 0.99, 1.00, 1.01, 1.02, 1.03, 1.04, 1.05, 1.06];
+    let bestScaleX = 1.0;
+    let bestScaleY = 1.0;
+    let bestScore = -1;
+
+    // Get reference dimensions (local file, not URL)
+    const refRes = await getLocalImageResolution(refFramePath);
+
+    console.log(`[FFmpeg] Testing ${scaleFactors.length} scale factors for stretch detection...`);
+    const scores: Array<{ scale: number; score: number }> = [];
+
+    // Get both frame dimensions
+    const genRes = await getLocalImageResolution(genFramePath);
+    console.log(`[FFmpeg] Reference frame: ${refRes.width}x${refRes.height}, Generated frame: ${genRes.width}x${genRes.height}`);
+
+    // First, scale both frames to same base size for fair comparison
+    // Use the generated frame's dimensions as base since that's what we're testing
+    const baseRefPath = generateTempPath('png');
+    await execAsync(
+      `ffmpeg -y -i "${refFramePath}" -vf "scale=${genRes.width}:${genRes.height}:flags=lanczos" "${baseRefPath}"`,
+      { timeout: 30000 }
+    );
+
+    for (const scaleX of scaleFactors) {
+      // Test horizontal stretch correction
+      // Scale the generated frame horizontally to simulate correction
+      const scaledWidth = Math.round(genRes.width * scaleX);
+      const scaledPath = generateTempPath('png');
+
+      try {
+        // Scale generated frame horizontally, then crop/pad to match base dimensions
+        // crop takes center portion if scaled is larger, pad adds black if smaller
+        if (scaledWidth >= genRes.width) {
+          // Scaled is wider - crop center
+          await execAsync(
+            `ffmpeg -y -i "${genFramePath}" -vf "scale=${scaledWidth}:${genRes.height}:flags=lanczos,crop=${genRes.width}:${genRes.height}" "${scaledPath}"`,
+            { timeout: 30000 }
+          );
+        } else {
+          // Scaled is narrower - pad with black
+          const padX = Math.floor((genRes.width - scaledWidth) / 2);
+          await execAsync(
+            `ffmpeg -y -i "${genFramePath}" -vf "scale=${scaledWidth}:${genRes.height}:flags=lanczos,pad=${genRes.width}:${genRes.height}:${padX}:0:black" "${scaledPath}"`,
+            { timeout: 30000 }
+          );
+        }
+
+        // Compute SSIM between scaled reference and scaled generated frame
+        const { stdout, stderr } = await execAsync(
+          `ffmpeg -i "${baseRefPath}" -i "${scaledPath}" -lavfi "ssim" -f null - 2>&1`,
+          { timeout: 30000 }
+        );
+
+        // Parse SSIM score from output
+        const output = stdout + stderr;
+        const match = output.match(/All:([\d.]+)/);
+        if (match) {
+          const score = parseFloat(match[1]);
+          scores.push({ scale: scaleX, score });
+          if (score > bestScore) {
+            bestScore = score;
+            bestScaleX = scaleX;
+          }
+        }
+      } catch (e) {
+        // Ignore errors in individual tests
+        console.log(`[FFmpeg] SSIM test failed for scale ${scaleX}:`, e instanceof Error ? e.message : e);
+      } finally {
+        await cleanup(scaledPath);
+      }
+    }
+
+    // Cleanup base reference
+    await cleanup(baseRefPath);
+
+    // Log all scores for debugging
+    if (scores.length > 0) {
+      console.log(`[FFmpeg] SSIM scores by scale factor:`);
+      scores.forEach(({ scale, score }) => {
+        const marker = scale === bestScaleX ? ' <-- BEST' : '';
+        console.log(`[FFmpeg]   scale=${scale.toFixed(2)}: SSIM=${score.toFixed(6)}${marker}`);
+      });
+    }
+
+    // For now, assume vertical stretch is proportional or minimal
+    bestScaleY = 1.0;
+
+    console.log(`[FFmpeg] Best stretch match: scaleX=${bestScaleX} (SSIM=${bestScore.toFixed(6)})`);
+
+    return { scaleX: bestScaleX, scaleY: bestScaleY };
+
+  } catch (error) {
+    console.error('[FFmpeg] Stretch detection error:', error);
+    // Default to no correction
+    return { scaleX: 1.0, scaleY: 1.0 };
   }
 }

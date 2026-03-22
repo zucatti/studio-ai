@@ -277,7 +277,7 @@ export function BibleAssetCard({
             {/* Name */}
             <h4 className="flex-1 font-medium text-white text-sm truncate">{asset.name}</h4>
 
-            {/* Right side: hashtag + menu */}
+            {/* Right side: hashtag + import/remove + menu */}
             <div className="flex items-center gap-1 flex-shrink-0">
               {/* Reference hashtag - green */}
               <TooltipProvider>
@@ -297,6 +297,48 @@ export function BibleAssetCard({
                   </TooltipContent>
                 </Tooltip>
               </TooltipProvider>
+
+              {/* Import button for library items */}
+              {!isInProject && onImport && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => { e.stopPropagation(); onImport(); }}
+                        className="h-7 w-7 text-slate-400 hover:text-green-400 hover:bg-green-500/10"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="bg-[#1a2433] border-white/10">
+                      <p className="text-xs">Ajouter au projet</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
+
+              {/* Remove button for project items */}
+              {isInProject && onRemove && (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => { e.stopPropagation(); onRemove(); }}
+                        className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom" className="bg-[#1a2433] border-white/10">
+                      <p className="text-xs">Retirer du projet</p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              )}
 
               {/* 3-dot menu */}
               {(onEdit || onDelete) && (

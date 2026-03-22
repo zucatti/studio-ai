@@ -22,7 +22,7 @@ import {
 import { DurationPicker } from './DurationPicker';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { VideoGenerationCard, type VideoGenerationProgress } from './VideoGenerationCard';
-import { Loader2, ImageIcon, Film, Play, Pause, Mic, Images, Video, Link, Maximize2, Volume2, VolumeX, Download, X, Clock } from 'lucide-react';
+import { Loader2, ImageIcon, Film, Play, Pause, Mic, Images, Video, Link, Maximize2, Volume2, VolumeX, Download, X, Clock, Settings, Music } from 'lucide-react';
 import { useBibleStore } from '@/store/bible-store';
 import type { Plan } from '@/store/shorts-store';
 import type { ShotType, CameraAngle, CameraMovement, AspectRatio } from '@/types/database';
@@ -118,6 +118,18 @@ export function PlanEditorModal({
   const [dialogueText, setDialogueText] = useState('');
   const [dialogueCharacterId, setDialogueCharacterId] = useState<string | null>(null);
 
+  // Audio/Music mode
+  const [audioMode, setAudioMode] = useState<'mute' | 'dialogue' | 'audio' | 'instrumental' | 'vocal'>('mute');
+  const [selectedAudioAssetId, setSelectedAudioAssetId] = useState<string | null>(null);
+  const [audioStart, setAudioStart] = useState(0);
+  const [audioEnd, setAudioEnd] = useState<number | null>(null);
+  const [audioWaveform, setAudioWaveform] = useState<number[]>([]);
+  const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
+  const musicPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const [isMusicPlaying, setIsMusicPlaying] = useState(false);
+  const [musicCurrentTime, setMusicCurrentTime] = useState(0);
+  const [musicDuration, setMusicDuration] = useState(0);
+
   // Gallery picker state
   const [showGalleryPicker, setShowGalleryPicker] = useState(false);
   const [pickingFrame, setPickingFrame] = useState<'in' | 'out' | null>(null);
@@ -125,6 +137,7 @@ export function PlanEditorModal({
   // Video generation settings
   const [videoProvider, setVideoProvider] = useState<VideoProvider>('wavespeed');
   const [videoModel, setVideoModel] = useState('kwaivgi/kling-v3.0-pro/image-to-video');
+  const [showAdvancedVideo, setShowAdvancedVideo] = useState(false); // Hidden by default
 
   // Get appropriate video models based on provider and dialogue state
   const availableVideoModels = useMemo(() => {
@@ -179,10 +192,6 @@ export function PlanEditorModal({
   // Audio generation state
   const [isAddingAudio, setIsAddingAudio] = useState(false);
 
-  // Duration estimation for dialogue mode
-  const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
-  const [isEstimatingDuration, setIsEstimatingDuration] = useState(false);
-
   // Custom video player state
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -207,6 +216,10 @@ export function PlanEditorModal({
       setHasDialogue(plan.has_dialogue ?? false);
       setDialogueText(plan.dialogue_text ?? '');
       setDialogueCharacterId(plan.dialogue_character_id ?? null);
+      setAudioMode(plan.audio_mode || 'mute');
+      setSelectedAudioAssetId(plan.audio_asset_id || null);
+      setAudioStart(plan.audio_start ?? 0);
+      setAudioEnd(plan.audio_end ?? null);
       // Auto-show video preview if video exists
       setShowVideoPreview(!!plan.generated_video_url);
     }
@@ -261,6 +274,134 @@ export function PlanEditorModal({
         };
       });
   }, [projectAssets]);
+
+  // Get music assets for audio picker (only 'music' type)
+  const musicAssets = useMemo(() => {
+    return projectAssets
+      .filter((asset) => {
+        if (asset.asset_type !== 'audio') return false;
+        const data = asset.data as Record<string, unknown> | null;
+        return data?.audioType === 'music';
+      })
+      .map((asset) => ({
+        id: asset.id,
+        name: asset.name,
+        data: asset.data as Record<string, unknown>,
+      }));
+  }, [projectAssets]);
+
+  // Get selected music asset
+  const selectedMusicAsset = useMemo(() => {
+    return musicAssets.find(a => a.id === selectedAudioAssetId);
+  }, [musicAssets, selectedAudioAssetId]);
+
+  // The audio selection duration is locked to the plan duration
+  const selectionDuration = plan?.duration || 5;
+
+  // Generate waveform when audio is selected (uses stored duration, simulates waveform)
+  const generateWaveform = useCallback((audioUrl: string, duration?: number) => {
+    setIsLoadingWaveform(true);
+
+    // Use provided duration or default
+    const audioDuration = duration || 180; // Default 3 min if unknown
+    setMusicDuration(audioDuration);
+
+    // The effective selection duration is the min of plan duration and music duration
+    const effectiveSelectionDuration = Math.min(audioDuration, selectionDuration);
+
+    // Initialize or clamp selection to valid range
+    const currentEnd = audioEnd ?? 0;
+    if (currentEnd === 0 || audioStart + effectiveSelectionDuration > audioDuration) {
+      // Reset to start if invalid
+      setAudioStart(0);
+      setAudioEnd(effectiveSelectionDuration);
+    }
+
+    // Generate aesthetic waveform pattern (simulated but consistent)
+    // Use a seed based on the URL to make it consistent for the same file
+    const seed = audioUrl.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
+    const waveformData: number[] = [];
+    for (let i = 0; i < 100; i++) {
+      // Create a musical-looking pattern with some randomness
+      const base = Math.sin(i * 0.15 + seed * 0.01) * 0.3 + 0.5;
+      const variation = Math.sin(i * 0.4 + seed * 0.02) * 0.2;
+      const noise = Math.sin(seed + i * 7.3) * 0.15;
+      waveformData.push(Math.max(0.1, Math.min(1, base + variation + noise)));
+    }
+
+    setAudioWaveform(waveformData);
+    setIsLoadingWaveform(false);
+  }, [audioEnd, audioStart, selectionDuration]);
+
+  // Load waveform when audio is selected
+  useEffect(() => {
+    if (selectedMusicAsset) {
+      const data = selectedMusicAsset.data as { fileUrl?: string; duration?: number };
+      if (data.fileUrl) {
+        generateWaveform(data.fileUrl, data.duration);
+      }
+    } else {
+      setAudioWaveform([]);
+      setMusicDuration(0);
+    }
+  }, [selectedMusicAsset, generateWaveform]);
+
+  // Music player controls
+  const toggleMusicPlay = useCallback(async () => {
+    if (!selectedMusicAsset) return;
+    const fileUrl = (selectedMusicAsset.data as { fileUrl?: string })?.fileUrl;
+    if (!fileUrl) return;
+
+    if (isMusicPlaying && musicPlayerRef.current) {
+      musicPlayerRef.current.pause();
+      setIsMusicPlaying(false);
+      return;
+    }
+
+    // Get signed URL
+    let signedUrl = fileUrl;
+    if (fileUrl.startsWith('b2://')) {
+      const res = await fetch('/api/storage/sign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ urls: [fileUrl] }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        signedUrl = data.signedUrls?.[fileUrl] || fileUrl;
+      }
+    }
+
+    if (!musicPlayerRef.current || musicPlayerRef.current.src !== signedUrl) {
+      musicPlayerRef.current = new Audio(signedUrl);
+      musicPlayerRef.current.ontimeupdate = () => {
+        if (musicPlayerRef.current) {
+          setMusicCurrentTime(musicPlayerRef.current.currentTime);
+          // Stop at audioEnd
+          if (audioEnd && musicPlayerRef.current.currentTime >= audioEnd) {
+            musicPlayerRef.current.pause();
+            musicPlayerRef.current.currentTime = audioStart;
+            setIsMusicPlaying(false);
+          }
+        }
+      };
+      musicPlayerRef.current.onended = () => setIsMusicPlaying(false);
+    }
+
+    musicPlayerRef.current.currentTime = audioStart;
+    await musicPlayerRef.current.play();
+    setIsMusicPlaying(true);
+  }, [selectedMusicAsset, isMusicPlaying, audioStart, audioEnd]);
+
+  // Cleanup music player on unmount
+  useEffect(() => {
+    return () => {
+      if (musicPlayerRef.current) {
+        musicPlayerRef.current.pause();
+        musicPlayerRef.current = null;
+      }
+    };
+  }, []);
 
   const ratioConfig = ASPECT_RATIO_CONFIG[aspectRatio] || ASPECT_RATIO_CONFIG['9:16'];
 
@@ -361,6 +502,13 @@ export function PlanEditorModal({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  // Format time for audio (with decimals for precision)
+  const formatTimeAudio = (time: number) => {
+    const minutes = Math.floor(time / 60);
+    const seconds = Math.floor(time % 60);
+    return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+  };
+
   // Calculate frame preview dimensions - fill available height
   const getFrameStyle = () => {
     // Use most of the available height (90vh modal - header ~100px - padding)
@@ -439,41 +587,6 @@ export function PlanEditorModal({
 
     toast.error('Aucune frame disponible');
   }, [previousVideoUrl, previousLastFrameUrl, previousFirstFrameUrl, projectId, onUpdate]);
-
-  // Estimate dialogue duration using Claude
-  const estimateDialogueDuration = useCallback(async () => {
-    if (!dialogueText.trim()) {
-      toast.error('Ajoutez du texte de dialogue');
-      return;
-    }
-
-    setIsEstimatingDuration(true);
-    try {
-      const response = await fetch('/api/ai/estimate-duration', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: dialogueText }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to estimate duration');
-      }
-
-      const { duration } = await response.json();
-      setEstimatedDuration(duration);
-      toast.success(`Durée estimée: ~${duration}s`);
-    } catch (error) {
-      console.error('Duration estimation error:', error);
-      toast.error('Erreur lors de l\'estimation');
-    } finally {
-      setIsEstimatingDuration(false);
-    }
-  }, [dialogueText]);
-
-  // Reset estimated duration when dialogue text changes significantly
-  useEffect(() => {
-    setEstimatedDuration(null);
-  }, [dialogueText]);
 
   if (!plan) return null;
 
@@ -674,40 +787,20 @@ export function PlanEditorModal({
 
           {/* Camera Settings Row */}
           <div className="flex items-center gap-4 mt-4">
-            {/* Duration: show picker or estimate button based on dialogue mode */}
+            {/* Duration: show picker in normal mode, or current duration in dialogue mode */}
             <div className="flex items-center gap-2">
               <Label className="text-slate-400 text-xs whitespace-nowrap">Durée</Label>
               {hasDialogue ? (
-                // In dialogue mode: show estimate button or estimated value
-                <div className="flex items-center gap-2">
-                  {estimatedDuration ? (
-                    <span className="text-white text-sm font-medium px-2 py-1 bg-white/5 rounded">
-                      ~{estimatedDuration}s
-                    </span>
+                // In dialogue mode: duration is determined by audio, show current value or "auto"
+                <span className="text-slate-400 text-xs px-2 py-1 bg-white/5 rounded">
+                  {plan.generated_video_url ? (
+                    // Video exists, show actual duration
+                    <span className="text-white">{plan.duration}s</span>
                   ) : (
-                    <span className="text-slate-500 text-xs px-2">auto</span>
+                    // No video yet, will be auto-determined
+                    <span className="text-slate-500">auto (audio)</span>
                   )}
-                  <button
-                    onClick={estimateDialogueDuration}
-                    disabled={isEstimatingDuration || !dialogueText.trim()}
-                    className={cn(
-                      "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
-                      isEstimatingDuration
-                        ? "bg-blue-500/20 text-blue-300 cursor-wait"
-                        : dialogueText.trim()
-                          ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
-                          : "bg-white/5 text-slate-500 cursor-not-allowed"
-                    )}
-                    title="Estimer la durée du dialogue"
-                  >
-                    {isEstimatingDuration ? (
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Clock className="w-3 h-3" />
-                    )}
-                    Estimer
-                  </button>
-                </div>
+                </span>
               ) : (
                 // Normal mode: duration picker
                 <DurationPicker
@@ -777,6 +870,49 @@ export function PlanEditorModal({
                 </SelectContent>
               </Select>
             </div>
+
+            {/* Audio Mode - group button */}
+            <div className="flex items-center gap-2 ml-auto">
+              <Label className="text-slate-400 text-xs whitespace-nowrap">Audio</Label>
+              <div className="inline-flex rounded-lg bg-white/5 p-0.5">
+                {([
+                  { value: 'mute', label: 'Muet' },
+                  { value: 'dialogue', label: 'Dialogue' },
+                  { value: 'audio', label: 'Audio' },
+                  { value: 'instrumental', label: 'Instru' },
+                  { value: 'vocal', label: 'Vocal' },
+                ] as const).map((mode) => (
+                  <button
+                    key={mode.value}
+                    onClick={() => {
+                      setAudioMode(mode.value);
+                      onUpdate({ audio_mode: mode.value });
+                      // Also sync has_dialogue when switching to/from dialogue mode
+                      if (mode.value === 'dialogue' && !hasDialogue) {
+                        setHasDialogue(true);
+                        onUpdate({ has_dialogue: true, audio_mode: mode.value });
+                      } else if (mode.value !== 'dialogue' && hasDialogue) {
+                        setHasDialogue(false);
+                        onUpdate({ has_dialogue: false, audio_mode: mode.value });
+                      }
+                    }}
+                    className={cn(
+                      "px-2.5 py-1 text-xs font-medium rounded-md transition-all",
+                      audioMode === mode.value
+                        ? mode.value === 'mute'
+                          ? "bg-slate-600 text-white"
+                          : mode.value === 'dialogue'
+                          ? "bg-purple-500 text-white"
+                          : "bg-blue-500 text-white"
+                        : "text-slate-400 hover:text-white"
+                    )}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+
+            </div>
           </div>
         </DialogHeader>
 
@@ -784,9 +920,13 @@ export function PlanEditorModal({
         <div className="flex flex-1 overflow-hidden">
           {/* CENTER: Frames Area - fills all available height */}
           <div className="flex-1 p-4 flex flex-col bg-[#0a0e12] overflow-hidden">
-            {/* View toggle - Video / Frames (group button) */}
-            {(plan.generated_video_url || videoGenerationProgress) && (
-              <div className="flex-shrink-0 mb-3 flex justify-center">
+            {/* Top bar - View toggle (left/center) + Generate button (right) */}
+            <div className="flex-shrink-0 mb-3 flex items-center justify-between">
+              {/* Left spacer for centering */}
+              <div className="w-32" />
+
+              {/* Center: View toggle - Video / Frames (only if video exists) */}
+              {(plan.generated_video_url || videoGenerationProgress) ? (
                 <div className="inline-flex rounded-lg bg-white/5 p-1">
                   <button
                     onClick={() => setShowVideoPreview(true)}
@@ -818,8 +958,37 @@ export function PlanEditorModal({
                     Frames
                   </button>
                 </div>
+              ) : (
+                <div />
+              )}
+
+              {/* Right: Generate Video button */}
+              <div className="w-32 flex justify-end">
+                <Button
+                  size="sm"
+                  className={cn(
+                    'h-8',
+                    canGenerateVideo && !isGeneratingVideo
+                      ? 'bg-blue-600 hover:bg-blue-700'
+                      : 'bg-slate-700 text-slate-400 cursor-not-allowed'
+                  )}
+                  onClick={handleGenerateVideo}
+                  disabled={!canGenerateVideo || isGeneratingVideo}
+                >
+                  {isGeneratingVideo ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                      {videoGenerationProgress?.progress || 0}%
+                    </>
+                  ) : (
+                    <>
+                      <Play className="w-3.5 h-3.5 mr-1.5 fill-current" />
+                      Générer
+                    </>
+                  )}
+                </Button>
               </div>
-            )}
+            </div>
 
             {/* Video Preview Mode - shows generation card or completed video */}
             {showVideoPreview && (videoGenerationProgress || plan.generated_video_url) ? (
@@ -1027,7 +1196,10 @@ export function PlanEditorModal({
                           onClick={() => {
                             const newValue = !hasDialogue;
                             setHasDialogue(newValue);
-                            onUpdate({ has_dialogue: newValue });
+                            // Sync audio mode with dialogue toggle
+                            const newAudioMode = newValue ? 'dialogue' : 'mute';
+                            setAudioMode(newAudioMode);
+                            onUpdate({ has_dialogue: newValue, audio_mode: newAudioMode });
                           }}
                           className={cn(
                             "relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors",
@@ -1088,105 +1260,280 @@ export function PlanEditorModal({
               )}
             </div>
             )}
+
+            {/* Music Picker Panel - shown for instrumental/vocal modes, only in Frames view */}
+            {!showVideoPreview && (audioMode === 'instrumental' || audioMode === 'vocal') && (
+              <div className="flex-shrink-0 mt-2 px-3 py-2 rounded-lg bg-slate-900/80 border border-blue-500/20">
+                {musicAssets.length === 0 ? (
+                  <div className="flex items-center justify-center gap-2 py-1">
+                    <Music className="w-3.5 h-3.5 text-slate-500" />
+                    <p className="text-xs text-slate-400">Aucune musique — Ajoutez via la Bible</p>
+                  </div>
+                ) : !selectedAudioAssetId ? (
+                  /* Music cards selection - compact horizontal list */
+                  <div className="flex items-center gap-2">
+                    <Music className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                    <div className="flex gap-2 overflow-x-auto py-0.5">
+                      {musicAssets.map((audio) => {
+                        const audioData = audio.data as { duration?: number };
+                        return (
+                          <button
+                            key={audio.id}
+                            onClick={() => {
+                              const audioDur = audioData.duration || 180;
+                              const endTime = Math.min(audioDur, selectionDuration);
+                              setSelectedAudioAssetId(audio.id);
+                              setAudioStart(0);
+                              setAudioEnd(endTime);
+                              onUpdate({ audio_asset_id: audio.id, audio_start: 0, audio_end: endTime });
+                            }}
+                            className="flex items-center gap-1.5 px-2 py-1 rounded-md border bg-white/5 border-white/10 hover:bg-blue-500/20 hover:border-blue-500/50 transition-all"
+                          >
+                            <span className="text-xs font-medium text-white whitespace-nowrap">{audio.name}</span>
+                            {audioData.duration && (
+                              <span className="text-[10px] text-slate-500">
+                                {Math.floor(audioData.duration / 60)}:{String(Math.floor(audioData.duration % 60)).padStart(2, '0')}
+                              </span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  /* Waveform timeline editor - compact */
+                  <div className="flex items-center gap-3">
+                    {/* Play/Pause button */}
+                    <button
+                      onClick={toggleMusicPlay}
+                      disabled={isLoadingWaveform}
+                      className={cn(
+                        "w-8 h-8 rounded-full flex-shrink-0 flex items-center justify-center transition-all",
+                        "bg-blue-600 hover:bg-blue-500 text-white",
+                        isLoadingWaveform && "opacity-50 cursor-wait"
+                      )}
+                    >
+                      {isLoadingWaveform ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : isMusicPlaying ? (
+                        <Pause className="w-4 h-4" />
+                      ) : (
+                        <Play className="w-4 h-4 ml-0.5" />
+                      )}
+                    </button>
+
+                    {/* Waveform visualization - inline */}
+                    <div className="relative flex-1 h-10 bg-slate-800/50 rounded overflow-hidden">
+                      {isLoadingWaveform ? (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+                        </div>
+                      ) : (
+                        <>
+                          {/* Waveform bars */}
+                          <div className="absolute inset-0 flex items-center justify-around px-0.5 pointer-events-none">
+                            {audioWaveform.map((value, i) => {
+                              const position = i / audioWaveform.length;
+                              const startPos = audioStart / musicDuration;
+                              const endPos = (audioEnd ?? (audioStart + selectionDuration)) / musicDuration;
+                              const isInRange = position >= startPos && position <= endPos;
+
+                              return (
+                                <div
+                                  key={i}
+                                  className={cn(
+                                    "w-0.5 rounded-full",
+                                    isInRange ? "bg-blue-400" : "bg-slate-600/40"
+                                  )}
+                                  style={{ height: `${value * 80}%` }}
+                                />
+                              );
+                            })}
+                          </div>
+
+                          {/* Selection overlay - dimmed areas outside selection */}
+                          <div
+                            className="absolute top-0 bottom-0 left-0 bg-black/50 pointer-events-none"
+                            style={{ width: `${(audioStart / musicDuration) * 100}%` }}
+                          />
+                          <div
+                            className="absolute top-0 bottom-0 right-0 bg-black/50 pointer-events-none"
+                            style={{ width: `${((musicDuration - (audioEnd ?? selectionDuration)) / musicDuration) * 100}%` }}
+                          />
+
+                          {/* Draggable selection zone */}
+                          {(() => {
+                            const effectiveSelection = Math.min(selectionDuration, musicDuration);
+                            const currentSelectionWidth = (audioEnd ?? effectiveSelection) - audioStart;
+
+                            return (
+                              <div
+                                className="absolute top-0 bottom-0 cursor-grab active:cursor-grabbing border-x-2 border-blue-400 hover:bg-blue-500/10 transition-colors"
+                                style={{
+                                  left: `${(audioStart / musicDuration) * 100}%`,
+                                  width: `${(currentSelectionWidth / musicDuration) * 100}%`,
+                                }}
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  const container = e.currentTarget.parentElement;
+                                  if (!container) return;
+                                  const rect = container.getBoundingClientRect();
+                                  const startX = e.clientX;
+                                  const initialStart = audioStart;
+                                  const selWidth = currentSelectionWidth;
+
+                                  let lastStart = audioStart;
+                                  let lastEnd = audioEnd ?? effectiveSelection;
+
+                                  const onMove = (moveE: MouseEvent) => {
+                                    const deltaX = moveE.clientX - startX;
+                                    const deltaTime = (deltaX / rect.width) * musicDuration;
+                                    let newStart = initialStart + deltaTime;
+                                    newStart = Math.max(0, Math.min(newStart, musicDuration - selWidth));
+                                    const newEnd = newStart + selWidth;
+                                    lastStart = newStart;
+                                    lastEnd = newEnd;
+                                    setAudioStart(newStart);
+                                    setAudioEnd(newEnd);
+                                  };
+
+                                  const onUp = () => {
+                                    document.removeEventListener('mousemove', onMove);
+                                    document.removeEventListener('mouseup', onUp);
+                                    onUpdate({ audio_start: lastStart, audio_end: lastEnd });
+                                  };
+
+                                  document.addEventListener('mousemove', onMove);
+                                  document.addEventListener('mouseup', onUp);
+                                }}
+                              />
+                            );
+                          })()}
+
+                          {/* Playhead */}
+                          {isMusicPlaying && (
+                            <div
+                              className="absolute top-0 bottom-0 w-0.5 bg-white pointer-events-none"
+                              style={{ left: `${(musicCurrentTime / musicDuration) * 100}%` }}
+                            />
+                          )}
+                        </>
+                      )}
+                    </div>
+
+                    {/* Time display */}
+                    <div className="flex-shrink-0 text-[10px] text-slate-400 tabular-nums whitespace-nowrap">
+                      <span className="text-green-400">{formatTimeAudio(audioStart)}</span>
+                      <span className="text-slate-500">-</span>
+                      <span className="text-red-400">{formatTimeAudio(audioEnd ?? selectionDuration)}</span>
+                    </div>
+
+                    {/* Change button */}
+                    <button
+                      onClick={() => {
+                        setSelectedAudioAssetId(null);
+                        setAudioWaveform([]);
+                        setAudioStart(0);
+                        setAudioEnd(selectionDuration);
+                        setMusicDuration(0);
+                        if (musicPlayerRef.current) {
+                          musicPlayerRef.current.pause();
+                          musicPlayerRef.current = null;
+                          setIsMusicPlaying(false);
+                        }
+                        onUpdate({ audio_asset_id: null, audio_start: 0, audio_end: null });
+                      }}
+                      className="flex-shrink-0 text-[10px] text-slate-500 hover:text-red-400 transition-colors"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
 
           {/* RIGHT PANEL: Video Generation Settings */}
-          <div className="w-[260px] flex-shrink-0 border-l border-white/10 p-4 overflow-y-auto space-y-4 bg-[#0d1218]">
-            {/* Video Generation Section */}
-            <div>
-              <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
-                Génération vidéo
-              </h3>
+          {/* Side panel - collapsed by default, expandable for advanced options */}
+          <div className={cn(
+            "flex-shrink-0 border-l border-white/10 overflow-y-auto bg-[#0d1218] transition-all duration-200",
+            showAdvancedVideo ? "w-[260px] p-4" : "w-10 p-2"
+          )}>
+            {/* Toggle button */}
+            <button
+              onClick={() => setShowAdvancedVideo(!showAdvancedVideo)}
+              className="w-6 h-6 flex items-center justify-center rounded bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white mb-2"
+              title={showAdvancedVideo ? "Masquer les options" : "Options avancées"}
+            >
+              <Settings className="w-4 h-4" />
+            </button>
 
-              <div className="space-y-3">
-                {/* Provider selector - group buttons (auto-selected in dialogue mode based on model) */}
+            {showAdvancedVideo && (
+              <div className="space-y-4">
+                {/* Video Generation Section */}
                 <div>
-                  <Label className="text-slate-400 text-xs mb-1.5 block">
-                    Provider {hasDialogue && <span className="text-blue-400">(auto par modèle)</span>}
-                  </Label>
-                  <div className="inline-flex rounded-lg bg-white/5 p-1 w-full">
-                    {(['wavespeed', 'modelslab', 'fal'] as VideoProvider[]).map((provider) => {
-                      // In dialogue mode, only show providers that have dialogue models
-                      const hasDialogueModels = DIALOGUE_VIDEO_MODELS.some(m => m.provider === provider);
-                      const isDisabled = hasDialogue && !hasDialogueModels;
+                  <h3 className="text-xs font-medium text-slate-400 uppercase tracking-wider mb-2">
+                    Génération vidéo
+                  </h3>
 
-                      return (
-                        <button
-                          key={provider}
-                          onClick={() => !hasDialogue && setVideoProvider(provider)}
-                          disabled={isDisabled}
-                          className={cn(
-                            "flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all",
-                            videoProvider === provider
-                              ? "bg-white/10 text-white"
-                              : "text-slate-400 hover:text-white",
-                            isDisabled && "opacity-30 cursor-not-allowed"
-                          )}
-                        >
-                          {PROVIDER_INFO[provider].name}
-                        </button>
-                      );
-                    })}
+                  <div className="space-y-3">
+                    {/* Provider selector - only show if NOT in dialogue mode (dialogue = auto fal.ai) */}
+                    {!hasDialogue && (
+                      <div>
+                        <Label className="text-slate-400 text-xs mb-1.5 block">Provider</Label>
+                        <div className="inline-flex rounded-lg bg-white/5 p-1 w-full">
+                          {(['wavespeed', 'modelslab', 'fal'] as VideoProvider[]).map((provider) => (
+                            <button
+                              key={provider}
+                              onClick={() => setVideoProvider(provider)}
+                              className={cn(
+                                "flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all",
+                                videoProvider === provider
+                                  ? "bg-white/10 text-white"
+                                  : "text-slate-400 hover:text-white"
+                              )}
+                            >
+                              {PROVIDER_INFO[provider].name}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Model selector - only show if NOT in dialogue mode (dialogue = auto OmniHuman) */}
+                    {!hasDialogue && (
+                      <div>
+                        <Label className="text-slate-300 text-xs mb-1 block">Modèle</Label>
+                        <Select value={videoModel} onValueChange={setVideoModel}>
+                          <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-[#1a2e44] border-white/10">
+                            {availableVideoModels.map((model) => (
+                              <SelectItem key={model.value} value={model.value} className="text-xs">
+                                <div className="flex items-center gap-2">
+                                  <span>{model.label}</span>
+                                  <span className="text-slate-500">({model.duration.join('/')}s)</span>
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {/* Info for dialogue mode */}
+                    {hasDialogue && (
+                      <div className="text-xs text-slate-400 bg-white/5 rounded-lg p-2">
+                        <p className="text-purple-400 font-medium">Mode dialogue activé</p>
+                        <p className="mt-1">OmniHuman 1.5 (fal.ai) - auto</p>
+                      </div>
+                    )}
                   </div>
                 </div>
-
-                <div>
-                  <Label className="text-slate-300 text-xs mb-1 block">
-                    Modèle {hasDialogue && <span className="text-green-400">(dialogue)</span>}
-                  </Label>
-                  <Select value={videoModel} onValueChange={setVideoModel}>
-                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#1a2e44] border-white/10">
-                      {availableVideoModels.map((model) => (
-                        <SelectItem key={model.value} value={model.value} className="text-xs">
-                          <div className="flex items-center gap-2">
-                            <span>{model.label}</span>
-                            <span className="text-slate-500">({model.duration.join('/')}s)</span>
-                          </div>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  {hasDialogue && (videoModel === 'omnihuman' || videoModel.includes('omni-human')) && (
-                    <p className="text-[10px] text-purple-400 mt-1">
-                      OmniHuman 1.5 (Frame In uniquement)
-                    </p>
-                  )}
-                </div>
-
-                <Button
-                  className={cn(
-                    'w-full',
-                    canGenerateVideo
-                      ? 'bg-blue-600 hover:bg-blue-700'
-                      : 'bg-slate-700 text-slate-400 cursor-not-allowed'
-                  )}
-                  onClick={handleGenerateVideo}
-                  disabled={!canGenerateVideo || isGeneratingVideo}
-                >
-                  {isGeneratingVideo ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Génération...
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-4 h-4 mr-2 fill-current" />
-                      Générer la vidéo
-                    </>
-                  )}
-                </Button>
-
-                {!canGenerateVideo && (
-                  <p className="text-[10px] text-slate-500 text-center">
-                    Frame In requise
-                  </p>
-                )}
               </div>
-            </div>
+            )}
           </div>
         </div>
 
