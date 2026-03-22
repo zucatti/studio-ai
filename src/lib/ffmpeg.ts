@@ -107,15 +107,34 @@ async function getVideoDurationLocal(videoPath: string): Promise<number> {
 }
 
 /**
+ * Get detailed video info using ffprobe (resolution, SAR, DAR)
+ */
+async function getVideoInfo(videoPath: string): Promise<{
+  width: number;
+  height: number;
+  sar: string;
+  dar: string;
+}> {
+  const { stdout } = await execAsync(
+    `ffprobe -v error -select_streams v:0 -show_entries stream=width,height,sample_aspect_ratio,display_aspect_ratio -of json "${videoPath}"`,
+    { timeout: 30000 }
+  );
+  const data = JSON.parse(stdout);
+  const stream = data.streams?.[0] || {};
+  return {
+    width: stream.width || 0,
+    height: stream.height || 0,
+    sar: stream.sample_aspect_ratio || '1:1',
+    dar: stream.display_aspect_ratio || 'N/A',
+  };
+}
+
+/**
  * Get video resolution using ffprobe
  */
 async function getVideoResolution(videoPath: string): Promise<{ width: number; height: number }> {
-  const { stdout } = await execAsync(
-    `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${videoPath}"`,
-    { timeout: 30000 }
-  );
-  const [width, height] = stdout.trim().split(',').map(Number);
-  return { width, height };
+  const info = await getVideoInfo(videoPath);
+  return { width: info.width, height: info.height };
 }
 
 /**
@@ -262,12 +281,15 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
   try {
     console.log(`[FFmpeg] Downloading ${videoUrls.length} videos...`);
 
-    // Download all videos
+    // Download all videos and log their properties
     for (let i = 0; i < videoUrls.length; i++) {
       const tempPath = await downloadToTemp(videoUrls[i], 'mp4');
       tempFiles.push(tempPath);
       allTempFiles.push(tempPath);
-      console.log(`[FFmpeg] Downloaded video ${i + 1}/${videoUrls.length}`);
+
+      // Log detailed video info for debugging
+      const videoInfo = await getVideoInfo(tempPath);
+      console.log(`[FFmpeg] Video ${i + 1}/${videoUrls.length}: ${videoInfo.width}x${videoInfo.height}, SAR=${videoInfo.sar}, DAR=${videoInfo.dar}`);
     }
 
     // Determine target resolution
