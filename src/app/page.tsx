@@ -1,24 +1,12 @@
 import { redirect } from 'next/navigation';
-import { getSessionWithProxy } from '@/lib/auth0';
+import { auth0 } from '@/lib/auth0';
 
 export default async function HomePage() {
-  console.log('[HomePage] Loading...');
+  const session = await auth0.getSession();
 
-  try {
-    const session = await getSessionWithProxy();
-    console.log('[HomePage] Session result:', {
-      hasSession: !!session,
-      hasUser: !!session?.user,
-      userId: session?.user?.sub?.substring(0, 10)
-    });
-
-    if (session?.user) {
-      redirect('/projects');
-    } else {
-      redirect('/auth/login');
-    }
-  } catch (error) {
-    console.error('[HomePage] ERROR getting session:', error);
-    throw error;
+  if (session?.user) {
+    redirect('/projects');
+  } else {
+    redirect('/auth/login');
   }
 }

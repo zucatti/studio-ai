@@ -1,10 +1,10 @@
 import { Auth0Client } from "@auth0/nextjs-auth0/server";
-import { cookies, headers } from "next/headers";
+import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 
 const baseUrl = process.env.AUTH0_BASE_URL || 'https://studio.stevencreeks.com';
 
-export const auth0 = new Auth0Client({
+const auth0Client = new Auth0Client({
   domain: process.env.AUTH0_ISSUER_BASE_URL?.replace("https://", ""),
   clientId: process.env.AUTH0_CLIENT_ID,
   clientSecret: process.env.AUTH0_CLIENT_SECRET,
@@ -27,18 +27,14 @@ export const auth0 = new Auth0Client({
 });
 
 /**
- * Get session with corrected URL for reverse proxy setup.
- * Uses the configured base URL instead of the internal 0.0.0.0:3000 URL.
+ * Helper to build a corrected request with proper URL for reverse proxy.
  */
-export async function getSessionWithProxy() {
+async function buildCorrectedRequest(): Promise<NextRequest> {
   const cookieStore = await cookies();
 
-  // Build cookie header, filtering out empty cookies and old __session format
-  const allCookies = cookieStore.getAll();
-  const validCookies = allCookies.filter(c => {
-    // Skip empty cookies
+  // Filter out empty cookies and old __session format
+  const validCookies = cookieStore.getAll().filter(c => {
     if (!c.value || c.value === '') return false;
-    // Skip old __session format (without number suffix) - only use chunked format
     if (c.name === '__session') return false;
     return true;
   });
@@ -47,20 +43,28 @@ export async function getSessionWithProxy() {
     .map(c => `${c.name}=${c.value}`)
     .join('; ');
 
-  console.log('[getSessionWithProxy] Cookies:', {
-    total: allCookies.length,
-    valid: validCookies.length,
-    names: validCookies.map(c => c.name),
-  });
-
-  // Create a request with the correct base URL (hardcoded for proxy setup)
-  const correctedRequest = new NextRequest(new URL('/', baseUrl), {
+  return new NextRequest(new URL('/', baseUrl), {
     headers: new Headers({
       'cookie': cookieHeader,
     }),
   });
-
-  const session = await auth0.getSession(correctedRequest);
-  console.log('[getSessionWithProxy] Result:', { hasSession: !!session });
-  return session;
 }
+
+/**
+ * Wrapped Auth0 client that fixes getSession for reverse proxy setup.
+ */
+export const auth0 = {
+  ...auth0Client,
+
+  // Override getSession to use corrected request
+  async getSession(req?: NextRequest) {
+    if (req) {
+      return auth0Client.getSession(req);
+    }
+    const correctedRequest = await buildCorrectedRequest();
+    return auth0Client.getSession(correctedRequest);
+  },
+
+  // Keep middleware using the original client
+  middleware: auth0Client.middleware.bind(auth0Client),
+};
