@@ -12,15 +12,11 @@ export async function POST(request: Request, { params }: RouteParams) {
   const encoder = new TextEncoder();
 
   // Parse optional body for settings
-  let colorMatch = true;        // Default to true for consistent look
-  let smoothTransition = true;  // Default to true for seamless transitions
+  let colorMatch = true;  // Default to true for consistent look
   try {
     const body = await request.json();
     if (typeof body.colorMatch === 'boolean') {
       colorMatch = body.colorMatch;
-    }
-    if (typeof body.smoothTransition === 'boolean') {
-      smoothTransition = body.smoothTransition;
     }
   } catch {
     // No body or invalid JSON, use defaults
@@ -102,15 +98,13 @@ export async function POST(request: Request, { params }: RouteParams) {
         );
 
         console.log('[Assemble] Video URLs to concatenate:', videoUrls);
-        console.log('[Assemble] Color matching:', colorMatch, '| Smooth transition:', smoothTransition);
+        console.log('[Assemble] Color matching:', colorMatch);
 
         sendEvent('progress', {
           progress: 20,
-          message: smoothTransition
-            ? `Création de transitions fluides entre ${videoUrls.length} plans...`
-            : colorMatch
-              ? `Normalisation colorimétrique de ${videoUrls.length} vidéo${videoUrls.length > 1 ? 's' : ''}...`
-              : `Assemblage de ${videoUrls.length} vidéo${videoUrls.length > 1 ? 's' : ''}...`
+          message: colorMatch
+            ? `Color matching de ${videoUrls.length} plans...`
+            : `Assemblage de ${videoUrls.length} vidéo${videoUrls.length > 1 ? 's' : ''}...`
         });
 
         // Concatenate with FFmpeg
@@ -119,7 +113,6 @@ export async function POST(request: Request, { params }: RouteParams) {
           userId: session.user.sub,
           projectId,
           colorMatch,
-          smoothTransition,
         });
 
         console.log('[Assemble] FFmpeg concatenation complete:', result.outputUrl);

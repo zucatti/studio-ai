@@ -78,12 +78,8 @@ export interface ConcatenateOptions {
   userId: string;
   projectId: string;
   outputFilename?: string;
-  // Color matching options
-  colorMatch?: boolean;           // Enable color normalization between clips
-  lutFile?: string;               // Path to custom LUT file (optional)
-  // Transition options
-  transitionFrames?: number;      // Number of interpolated frames at each junction (default: 8)
-  smoothTransition?: boolean;     // Enable motion interpolation at junctions (default: true)
+  // Color matching - matches each clip to the previous one for continuity
+  colorMatch?: boolean;           // Enable color matching between clips (default: true)
 }
 
 /**
@@ -223,9 +219,7 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
     videoUrls,
     userId,
     projectId,
-    colorMatch = false,
-    smoothTransition = true,
-    transitionFrames = 10,  // ~0.33s at 30fps
+    colorMatch = true,  // Enable by default for consistent look
   } = options;
 
   const tempFiles: string[] = [];
@@ -284,71 +278,17 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
       workingFiles = matchedFiles;
     }
 
-    // Step 2: Concatenate with xfade transitions (if enabled and multiple clips)
-    if (smoothTransition && workingFiles.length > 1) {
-      console.log(`[FFmpeg] Creating crossfade transitions between ${workingFiles.length} clips...`);
+    // Step 2: Simple concatenation (hard cut, no crossfade)
+    // Color matching already ensures visual continuity
+    const listPath = generateTempPath('txt');
+    allTempFiles.push(listPath);
+    await writeFile(listPath, workingFiles.map(f => `file '${f}'`).join('\n'));
 
-      const xfadeDuration = transitionFrames / 30; // Convert frames to seconds
-
-      // Build xfade filter chain for multiple clips
-      // For 2 clips: [0:v][1:v]xfade=transition=fade:duration=0.3:offset=X[v]
-      // For 3+ clips: chain them together
-
-      // Get durations of all clips
-      const durations: number[] = [];
-      for (const file of workingFiles) {
-        const dur = await getVideoDurationLocal(file);
-        durations.push(dur);
-      }
-
-      // Build inputs
-      const inputs = workingFiles.map(f => `-i "${f}"`).join(' ');
-
-      // Build filter complex for xfade chain
-      let filterComplex = '';
-      let currentOffset = 0;
-      let lastOutput = '[0:v]';
-      let audioMerge = '';
-
-      for (let i = 1; i < workingFiles.length; i++) {
-        // Offset = sum of previous durations minus accumulated xfade durations
-        currentOffset = durations.slice(0, i).reduce((a, b) => a + b, 0) - (i * xfadeDuration);
-        currentOffset = Math.max(0, currentOffset);
-
-        const outputLabel = i === workingFiles.length - 1 ? '[vout]' : `[v${i}]`;
-
-        filterComplex += `${lastOutput}[${i}:v]xfade=transition=fade:duration=${xfadeDuration}:offset=${currentOffset.toFixed(3)}${outputLabel}`;
-
-        if (i < workingFiles.length - 1) {
-          filterComplex += '; ';
-        }
-
-        lastOutput = outputLabel;
-      }
-
-      // For audio: amerge or concat
-      // Simple approach: concat audio streams
-      const audioInputs = workingFiles.map((_, i) => `[${i}:a]`).join('');
-      audioMerge = `; ${audioInputs}concat=n=${workingFiles.length}:v=0:a=1[aout]`;
-
-      const fullFilter = filterComplex + audioMerge;
-
-      const xfadeCmd = `ffmpeg -y ${inputs} -filter_complex "${fullFilter}" -map "[vout]" -map "[aout]" -c:v libx264 -preset fast -crf 18 -c:a aac -movflags +faststart "${outputPath}"`;
-
-      console.log(`[FFmpeg] Running xfade: ${xfadeCmd.substring(0, 200)}...`);
-      await execAsync(xfadeCmd, { timeout: 300000 });
-
-    } else {
-      // Simple concatenation without transitions
-      const listPath = generateTempPath('txt');
-      allTempFiles.push(listPath);
-      await writeFile(listPath, workingFiles.map(f => `file '${f}'`).join('\n'));
-
-      await execAsync(
-        `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy -movflags +faststart "${outputPath}"`,
-        { timeout: 300000 }
-      );
-    }
+    console.log(`[FFmpeg] Concatenating ${workingFiles.length} clips...`);
+    await execAsync(
+      `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy -movflags +faststart "${outputPath}"`,
+      { timeout: 300000 }
+    );
 
     // Read output and upload to B2
     const outputBuffer = await readFile(outputPath);
