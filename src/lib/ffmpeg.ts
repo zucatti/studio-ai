@@ -98,6 +98,116 @@ async function getVideoDurationLocal(videoPath: string): Promise<number> {
 }
 
 /**
+ * Extract a frame from a video at a specific position
+ */
+async function extractFrame(videoPath: string, position: 'first' | 'last', outputPath: string): Promise<void> {
+  if (position === 'first') {
+    await execAsync(
+      `ffmpeg -y -i "${videoPath}" -vf "select=eq(n\\,0)" -vframes 1 "${outputPath}"`,
+      { timeout: 30000 }
+    );
+  } else {
+    // Get duration and extract frame near the end
+    const duration = await getVideoDurationLocal(videoPath);
+    const seekTime = Math.max(0, duration - 0.1);
+    await execAsync(
+      `ffmpeg -y -ss ${seekTime} -i "${videoPath}" -vframes 1 "${outputPath}"`,
+      { timeout: 30000 }
+    );
+  }
+}
+
+/**
+ * Analyze frame color statistics (brightness, contrast)
+ * Returns average Y (luminance), min Y, max Y
+ */
+async function analyzeFrameColors(framePath: string): Promise<{
+  yAvg: number;
+  yMin: number;
+  yMax: number;
+  satAvg: number;
+}> {
+  try {
+    const { stdout } = await execAsync(
+      `ffprobe -f lavfi -i "movie='${framePath.replace(/'/g, "\\'")}',signalstats" -show_entries frame_tags=lavfi.signalstats.YAVG,lavfi.signalstats.YMIN,lavfi.signalstats.YMAX,lavfi.signalstats.SATAVG -of json`,
+      { timeout: 30000 }
+    );
+
+    const data = JSON.parse(stdout);
+    const tags = data.frames?.[0]?.tags || {};
+
+    return {
+      yAvg: parseFloat(tags['lavfi.signalstats.YAVG'] || '128'),
+      yMin: parseFloat(tags['lavfi.signalstats.YMIN'] || '16'),
+      yMax: parseFloat(tags['lavfi.signalstats.YMAX'] || '235'),
+      satAvg: parseFloat(tags['lavfi.signalstats.SATAVG'] || '100'),
+    };
+  } catch (error) {
+    console.error('[FFmpeg] Frame analysis error:', error);
+    return { yAvg: 128, yMin: 16, yMax: 235, satAvg: 100 };
+  }
+}
+
+/**
+ * Calculate color correction needed to match source frame to target frame
+ */
+function calculateColorCorrection(source: { yAvg: number; yMin: number; yMax: number; satAvg: number },
+                                   target: { yAvg: number; yMin: number; yMax: number; satAvg: number }): {
+  brightness: number;
+  contrast: number;
+  saturation: number;
+} {
+  // Brightness: difference in average luminance, normalized to -1..1 range
+  // FFmpeg eq brightness is in range -1 to 1
+  const brightnessDiff = (target.yAvg - source.yAvg) / 255;
+  const brightness = Math.max(-0.3, Math.min(0.3, brightnessDiff));
+
+  // Contrast: ratio of luminance ranges
+  const sourceRange = Math.max(1, source.yMax - source.yMin);
+  const targetRange = Math.max(1, target.yMax - target.yMin);
+  const contrastRatio = targetRange / sourceRange;
+  const contrast = Math.max(0.7, Math.min(1.3, contrastRatio));
+
+  // Saturation: ratio of average saturation
+  const satRatio = source.satAvg > 0 ? target.satAvg / source.satAvg : 1;
+  const saturation = Math.max(0.7, Math.min(1.3, satRatio));
+
+  return { brightness, contrast, saturation };
+}
+
+/**
+ * Apply color correction to a video to match a reference
+ */
+async function applyColorCorrection(
+  inputPath: string,
+  outputPath: string,
+  correction: { brightness: number; contrast: number; saturation: number }
+): Promise<void> {
+  const { brightness, contrast, saturation } = correction;
+
+  // Only apply if there's a meaningful difference
+  const needsCorrection =
+    Math.abs(brightness) > 0.01 ||
+    Math.abs(contrast - 1) > 0.02 ||
+    Math.abs(saturation - 1) > 0.02;
+
+  if (!needsCorrection) {
+    // Just copy if no correction needed
+    await execAsync(`ffmpeg -y -i "${inputPath}" -c copy "${outputPath}"`, { timeout: 120000 });
+    return;
+  }
+
+  console.log(`[FFmpeg] Applying color correction: brightness=${brightness.toFixed(3)}, contrast=${contrast.toFixed(3)}, saturation=${saturation.toFixed(3)}`);
+
+  const filterChain = `eq=brightness=${brightness.toFixed(4)}:contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}`;
+
+  await execAsync(
+    `ffmpeg -y -i "${inputPath}" -vf "${filterChain}" -c:v libx264 -preset fast -crf 18 -c:a copy "${outputPath}"`,
+    { timeout: 180000 }
+  );
+}
+
+/**
  * Concatenate multiple videos into one using FFmpeg
  *
  * With smoothTransition=true (default), creates crossfade transitions between clips:
@@ -133,29 +243,45 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
       console.log(`[FFmpeg] Downloaded video ${i + 1}/${videoUrls.length}`);
     }
 
-    // Step 1: Color normalization (if enabled)
+    // Step 1: Color matching - match each clip to the previous one
     let workingFiles = tempFiles;
-    if (colorMatch) {
-      console.log(`[FFmpeg] Applying color normalization...`);
-      const normalizedFiles: string[] = [];
+    if (colorMatch && tempFiles.length > 1) {
+      console.log(`[FFmpeg] Matching colors between ${tempFiles.length} clips...`);
+      const matchedFiles: string[] = [tempFiles[0]]; // First clip stays as reference
 
-      for (let i = 0; i < tempFiles.length; i++) {
-        const normalizedPath = generateTempPath('mp4');
-        normalizedFiles.push(normalizedPath);
-        allTempFiles.push(normalizedPath);
+      for (let i = 1; i < tempFiles.length; i++) {
+        const prevClip = matchedFiles[i - 1]; // Use the (possibly corrected) previous clip
+        const currClip = tempFiles[i];
 
-        const filterChain = [
-          'normalize=blackpt=black:whitept=white:smoothing=50',
-          'eq=brightness=0:contrast=1:saturation=1.05',
-        ].join(',');
+        // Extract frames for analysis
+        const prevLastFrame = generateTempPath('png');
+        const currFirstFrame = generateTempPath('png');
+        allTempFiles.push(prevLastFrame, currFirstFrame);
 
-        await execAsync(
-          `ffmpeg -y -i "${tempFiles[i]}" -vf "${filterChain}" -c:v libx264 -preset fast -crf 18 -c:a copy "${normalizedPath}"`,
-          { timeout: 180000 }
-        );
-        console.log(`[FFmpeg] Normalized video ${i + 1}/${tempFiles.length}`);
+        await extractFrame(prevClip, 'last', prevLastFrame);
+        await extractFrame(currClip, 'first', currFirstFrame);
+
+        // Analyze colors
+        console.log(`[FFmpeg] Analyzing color difference between clip ${i} and ${i + 1}...`);
+        const prevColors = await analyzeFrameColors(prevLastFrame);
+        const currColors = await analyzeFrameColors(currFirstFrame);
+
+        console.log(`[FFmpeg] Clip ${i} last frame: Y=${prevColors.yAvg.toFixed(1)}, range=${prevColors.yMin}-${prevColors.yMax}, sat=${prevColors.satAvg.toFixed(1)}`);
+        console.log(`[FFmpeg] Clip ${i + 1} first frame: Y=${currColors.yAvg.toFixed(1)}, range=${currColors.yMin}-${currColors.yMax}, sat=${currColors.satAvg.toFixed(1)}`);
+
+        // Calculate and apply correction
+        const correction = calculateColorCorrection(currColors, prevColors);
+        console.log(`[FFmpeg] Correction needed: brightness=${(correction.brightness * 100).toFixed(1)}%, contrast=${(correction.contrast * 100).toFixed(0)}%, saturation=${(correction.saturation * 100).toFixed(0)}%`);
+
+        const correctedPath = generateTempPath('mp4');
+        allTempFiles.push(correctedPath);
+
+        await applyColorCorrection(currClip, correctedPath, correction);
+        matchedFiles.push(correctedPath);
+
+        console.log(`[FFmpeg] Color matched clip ${i + 1}/${tempFiles.length}`);
       }
-      workingFiles = normalizedFiles;
+      workingFiles = matchedFiles;
     }
 
     // Step 2: Concatenate with xfade transitions (if enabled and multiple clips)
