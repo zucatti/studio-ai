@@ -118,7 +118,7 @@ export async function POST(
 
     // Submit to fal.ai queue
     try {
-      const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://studio.stevencreeks.com'}/api/jobs/webhook`;
+      const webhookUrl = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://studio.stevencreeks.com'}/api/jobs/webhook`;
 
       const { request_id } = await fal.queue.submit('fal-ai/image-apps-v2/perspective', {
         input: falInput,

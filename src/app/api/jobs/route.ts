@@ -138,7 +138,7 @@ export async function POST(request: NextRequest) {
 
     // Submit to fal.ai queue
     try {
-      const webhookUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'https://studio.stevencreeks.com'}/api/jobs/webhook`;
+      const webhookUrl = `${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://studio.stevencreeks.com'}/api/jobs/webhook`;
 
       const { request_id } = await fal.queue.submit(fal_endpoint, {
         input: input_data,

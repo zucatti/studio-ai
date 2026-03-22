@@ -259,7 +259,7 @@ export async function PUT(request: Request) {
         console.log(`\n=== Generating ${movement.value} ===`);
 
         // Call the POST handler internally
-        const response = await fetch(`${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/camera-movements/generate-preview`, {
+        const response = await fetch(`${process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://studio.stevencreeks.com'}/api/camera-movements/generate-preview`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
