@@ -433,3 +433,115 @@ export async function getVideoDuration(videoUrl: string): Promise<number> {
     await cleanup(videoPath);
   }
 }
+
+/**
+ * Get image resolution using ffprobe
+ */
+export async function getImageResolution(imageUrl: string): Promise<{ width: number; height: number }> {
+  await ensureTempDir();
+
+  // Download image
+  let resolvedUrl = imageUrl;
+  if (imageUrl.startsWith('b2://')) {
+    const parsed = parseStorageUrl(imageUrl);
+    if (parsed) {
+      resolvedUrl = await getSignedFileUrl(parsed.key, 3600);
+    }
+  }
+
+  const response = await fetch(resolvedUrl);
+  if (!response.ok) {
+    throw new Error(`Failed to download image: ${response.status}`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  const ext = imageUrl.includes('.png') ? 'png' : imageUrl.includes('.webp') ? 'webp' : 'jpg';
+  const tempPath = generateTempPath(ext);
+  await writeFile(tempPath, buffer);
+
+  try {
+    const { stdout } = await execAsync(
+      `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${tempPath}"`,
+      { timeout: 30000 }
+    );
+    const [width, height] = stdout.trim().split(',').map(Number);
+    return { width, height };
+  } finally {
+    await cleanup(tempPath);
+  }
+}
+
+export interface NormalizeVideoResult {
+  outputUrl: string;      // b2:// URL
+  signedUrl: string;      // Signed URL for playback
+}
+
+/**
+ * Normalize video resolution to match input frame
+ * This fixes resolution mismatches from AI video models
+ */
+export async function normalizeVideoToFrame(options: {
+  videoUrl: string;
+  frameUrl: string;        // First frame used to generate the video
+  userId: string;
+  projectId: string;
+  shotId: string;
+}): Promise<NormalizeVideoResult> {
+  await ensureTempDir();
+
+  const { videoUrl, frameUrl, userId, projectId, shotId } = options;
+
+  // Get target resolution from the input frame
+  const targetResolution = await getImageResolution(frameUrl);
+  console.log(`[FFmpeg] Target resolution from frame: ${targetResolution.width}x${targetResolution.height}`);
+
+  // Download video
+  const videoPath = await downloadToTemp(videoUrl, 'mp4');
+  const outputPath = generateTempPath('mp4');
+
+  try {
+    // Get current video resolution
+    const currentResolution = await getVideoResolution(videoPath);
+    console.log(`[FFmpeg] Current video resolution: ${currentResolution.width}x${currentResolution.height}`);
+
+    // Check if normalization is needed
+    const needsNormalization =
+      currentResolution.width !== targetResolution.width ||
+      currentResolution.height !== targetResolution.height;
+
+    if (!needsNormalization) {
+      console.log(`[FFmpeg] Video already at correct resolution, no normalization needed`);
+      // Still apply setsar=1:1 to ensure consistent SAR
+      await execAsync(
+        `ffmpeg -y -i "${videoPath}" -vf "setsar=1:1" -c:v libx264 -preset fast -crf 18 -c:a copy -movflags +faststart "${outputPath}"`,
+        { timeout: 180000 }
+      );
+    } else {
+      console.log(`[FFmpeg] Normalizing video from ${currentResolution.width}x${currentResolution.height} to ${targetResolution.width}x${targetResolution.height}`);
+
+      // Scale to exact target resolution with setsar=1:1
+      await execAsync(
+        `ffmpeg -y -i "${videoPath}" -vf "scale=${targetResolution.width}:${targetResolution.height}:flags=lanczos,setsar=1:1" -c:v libx264 -preset fast -crf 18 -c:a copy -movflags +faststart "${outputPath}"`,
+        { timeout: 180000 }
+      );
+    }
+
+    // Upload normalized video to B2
+    const outputBuffer = await readFile(outputPath);
+    console.log(`[FFmpeg] Normalized video size: ${outputBuffer.length} bytes`);
+
+    const sanitizedUserId = userId.replace(/[|]/g, '_');
+    const timestamp = Date.now();
+    const storageKey = `videos/${sanitizedUserId}/${projectId}/${shotId}_normalized_${timestamp}.mp4`;
+
+    const { url } = await uploadFile(storageKey, outputBuffer, 'video/mp4');
+    console.log(`[FFmpeg] Uploaded normalized video to: ${url}`);
+
+    const signedUrl = await getSignedFileUrl(storageKey, 3600);
+
+    return { outputUrl: url, signedUrl };
+
+  } finally {
+    await cleanup(videoPath, outputPath);
+  }
+}

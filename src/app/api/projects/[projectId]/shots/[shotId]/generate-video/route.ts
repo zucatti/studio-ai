@@ -117,6 +117,7 @@ import {
   PROVIDER_INFO,
 } from '@/lib/ai/video-provider';
 import { getSignedFileUrl } from '@/lib/storage';
+import { normalizeVideoToFrame } from '@/lib/ffmpeg';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 
 interface RouteParams {
@@ -957,29 +958,55 @@ export async function POST(request: Request, { params }: RouteParams) {
 
         send('progress', {
           step: 'video_complete',
-          message: `Vidéo ${modelName} générée, upload vers stockage...`,
+          message: `Vidéo ${modelName} générée, normalisation résolution...`,
           progress: 90,
         });
 
-        // Upload video to B2 for permanent storage
+        // Normalize video resolution to match input frame, then upload to B2
         let finalVideoUrl = result.videoUrl;
+        let playbackUrlFromNormalize: string | undefined;
         try {
           send('progress', {
+            step: 'normalizing',
+            message: 'Normalisation de la résolution (match frame source)...',
+            progress: 92,
+          });
+
+          // Normalize video to match input frame resolution exactly
+          // This fixes resolution mismatches from AI video models
+          const normalizeResult = await normalizeVideoToFrame({
+            videoUrl: result.videoUrl,
+            frameUrl: firstFrameSource, // Original frame URL (b2:// or signed)
+            userId: session.user.sub,
+            projectId,
+            shotId,
+          });
+
+          finalVideoUrl = normalizeResult.outputUrl;
+          playbackUrlFromNormalize = normalizeResult.signedUrl;
+          console.log(`[Video Gen] Normalized and uploaded to B2: ${finalVideoUrl}`);
+
+        } catch (normalizeError) {
+          // Fallback: upload without normalization
+          console.error('[Video Gen] Normalization failed, uploading original:', normalizeError);
+
+          send('progress', {
             step: 'uploading',
-            message: 'Sauvegarde de la vidéo...',
+            message: 'Sauvegarde de la vidéo (sans normalisation)...',
             progress: 93,
           });
 
-          finalVideoUrl = await uploadVideoToB2(
-            result.videoUrl,
-            session.user.sub,
-            projectId,
-            shotId
-          );
-          console.log(`[Video Gen] Uploaded to B2: ${finalVideoUrl}`);
-        } catch (uploadError) {
-          // Log error but continue with original URL
-          console.error('[Video Gen] Failed to upload to B2, using original URL:', uploadError);
+          try {
+            finalVideoUrl = await uploadVideoToB2(
+              result.videoUrl,
+              session.user.sub,
+              projectId,
+              shotId
+            );
+            console.log(`[Video Gen] Uploaded to B2 (no normalization): ${finalVideoUrl}`);
+          } catch (uploadError) {
+            console.error('[Video Gen] Failed to upload to B2, using original URL:', uploadError);
+          }
         }
 
         send('progress', {
@@ -1002,8 +1029,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         await completeJob(supabase, jobId, { videoUrl: finalVideoUrl, model: videoModel }, result.cost);
 
         // Get signed URL for immediate playback if it's a B2 URL
-        let playbackUrl = finalVideoUrl;
-        if (finalVideoUrl.startsWith('b2://')) {
+        let playbackUrl = playbackUrlFromNormalize || finalVideoUrl;
+        if (!playbackUrlFromNormalize && finalVideoUrl.startsWith('b2://')) {
           const key = finalVideoUrl.replace(`b2://${B2_BUCKET}/`, '');
           playbackUrl = await getSignedFileUrl(key);
         }
