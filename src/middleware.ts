@@ -4,11 +4,14 @@ import { auth0 } from "./lib/auth0";
 export async function middleware(request: NextRequest) {
   try {
     // Log all incoming requests
+    const cookieHeader = request.headers.get('cookie');
     console.log('[Middleware] Request:', {
       path: request.nextUrl.pathname,
       url: request.url,
       proto: request.headers.get('x-forwarded-proto'),
       host: request.headers.get('x-forwarded-host') || request.headers.get('host'),
+      hasCookies: !!cookieHeader,
+      sessionCookie: cookieHeader?.includes('__session') ? 'present' : 'missing',
     });
 
     const response = await auth0.middleware(request);

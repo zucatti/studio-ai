@@ -16,4 +16,12 @@ export const auth0 = new Auth0Client({
   authorizationParameters: {
     redirect_uri: `${baseUrl}/auth/callback`,
   },
+  // Cookie settings for reverse proxy setup
+  session: {
+    cookie: {
+      domain: '.stevencreeks.com',
+      secure: true,
+      sameSite: 'lax',
+    },
+  },
 });
