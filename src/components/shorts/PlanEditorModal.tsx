@@ -369,84 +369,6 @@ export function PlanEditorModal({
   // State for extracting frame from video
   const [isExtractingFrame, setIsExtractingFrame] = useState(false);
 
-  // Extract last frame from a video URL using canvas (via proxy for CORS)
-  const extractLastFrameFromVideo = useCallback(async (videoUrl: string): Promise<string> => {
-    // Use proxy to avoid CORS issues
-    const proxyUrl = `/api/proxy-video?url=${encodeURIComponent(videoUrl)}`;
-
-    return new Promise((resolve, reject) => {
-      const video = document.createElement('video');
-      video.muted = true;
-      video.playsInline = true;
-      video.preload = 'auto';
-
-      let hasResolved = false;
-
-      const captureFrame = () => {
-        if (hasResolved) return;
-
-        if (!video.videoWidth || !video.videoHeight) {
-          setTimeout(captureFrame, 100);
-          return;
-        }
-
-        try {
-          const canvas = document.createElement('canvas');
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          const ctx = canvas.getContext('2d');
-          if (!ctx) {
-            reject(new Error('Could not get canvas context'));
-            return;
-          }
-          ctx.drawImage(video, 0, 0);
-
-          hasResolved = true;
-          const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
-          resolve(dataUrl);
-        } catch (error) {
-          reject(error);
-        }
-      };
-
-      video.onloadeddata = () => {
-        const seekTime = Math.max(0, video.duration * 0.95);
-        video.currentTime = seekTime;
-      };
-
-      video.onseeked = () => {
-        requestAnimationFrame(() => setTimeout(captureFrame, 50));
-      };
-
-      video.onerror = () => {
-        reject(new Error('Failed to load video'));
-      };
-
-      setTimeout(() => {
-        if (!hasResolved) reject(new Error('Timeout'));
-      }, 30000);
-
-      video.src = proxyUrl;
-      video.load();
-    });
-  }, []);
-
-  // Upload extracted frame to B2 storage
-  const uploadExtractedFrame = useCallback(async (dataUrl: string): Promise<string> => {
-    const response = await fetch(`/api/projects/${projectId}/upload-frame`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dataUrl, type: 'extracted-frame' }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to upload frame');
-    }
-
-    const { url } = await response.json();
-    return url;
-  }, [projectId]);
-
   // Get the previous plan's linkable content
   // Priority: 1. Extract from video, 2. last_frame_url, 3. first_frame_url
   const previousVideoUrl = previousPlan?.generated_video_url;
@@ -456,23 +378,36 @@ export function PlanEditorModal({
   const willExtractFromVideo = !!previousVideoUrl;
 
   // Copy previous plan's last frame to current plan's first frame
+  // Uses server-side FFmpeg for reliable frame extraction
   const copyFromPreviousPlan = useCallback(async () => {
-    // 1. If video exists, extract the real last frame
+    // 1. If video exists, extract the real last frame using FFmpeg API
     if (previousVideoUrl) {
       setIsExtractingFrame(true);
       try {
-        toast.loading('Extraction de la dernière frame...', { id: 'extract-frame' });
+        toast.loading('Extraction de la dernière frame (FFmpeg)...', { id: 'extract-frame' });
 
-        const frameDataUrl = await extractLastFrameFromVideo(previousVideoUrl);
+        const response = await fetch(`/api/projects/${projectId}/extract-frame`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            videoUrl: previousVideoUrl,
+            position: 'last',
+            outputFormat: 'webp',
+          }),
+        });
 
-        toast.loading('Upload...', { id: 'extract-frame' });
-        const uploadedUrl = await uploadExtractedFrame(frameDataUrl);
+        if (!response.ok) {
+          const error = await response.json();
+          throw new Error(error.error || 'Failed to extract frame');
+        }
 
-        onUpdate({ storyboard_image_url: uploadedUrl, first_frame_url: uploadedUrl });
-        toast.success('Dernière frame extraite!', { id: 'extract-frame' });
+        const { frameUrl } = await response.json();
+
+        onUpdate({ storyboard_image_url: frameUrl, first_frame_url: frameUrl });
+        toast.success('Dernière frame extraite avec FFmpeg!', { id: 'extract-frame' });
         return;
       } catch (error) {
-        console.error('Frame extraction failed:', error);
+        console.error('FFmpeg frame extraction failed:', error);
         toast.error('Extraction échouée, utilisation du fallback', { id: 'extract-frame' });
         // Fall through to fallbacks
       } finally {
@@ -495,7 +430,7 @@ export function PlanEditorModal({
     }
 
     toast.error('Aucune frame disponible');
-  }, [previousVideoUrl, previousLastFrameUrl, previousFirstFrameUrl, extractLastFrameFromVideo, uploadExtractedFrame, onUpdate]);
+  }, [previousVideoUrl, previousLastFrameUrl, previousFirstFrameUrl, projectId, onUpdate]);
 
   if (!plan) return null;
 
