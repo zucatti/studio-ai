@@ -87,17 +87,31 @@ export async function POST(request: NextRequest, context: RouteContext) {
         frameTime = position.toString();
       }
 
+      // Get video resolution first
+      const { stdout: probeOutput } = await execAsync(
+        `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${tempVideoPath}"`,
+        { timeout: 30000 }
+      );
+      const [width, height] = probeOutput.trim().split(',').map(Number);
+      console.log('[ExtractFrame] Video resolution:', width, 'x', height);
+
       // Extract frame using FFmpeg
       // PNG: lossless compression (best for frame continuity)
       // WebP/JPG: use high quality setting
+      // Force exact resolution to avoid any scaling artifacts
       const qualityOpts = outputFormat === 'png'
         ? '-compression_level 6'  // PNG lossless (0-10, higher = smaller file)
         : '-q:v 1';  // Highest quality for lossy formats
 
-      const ffmpegCmd = `ffmpeg -y -ss ${frameTime} -i "${tempVideoPath}" -vframes 1 ${qualityOpts} "${tempFramePath}"`;
+      // Use scale filter to ensure exact pixel dimensions
+      // setsar=1:1 forces square pixels (removes any SAR/DAR weirdness)
+      // flags=lanczos for best quality scaling (even though we're not scaling)
+      const ffmpegCmd = `ffmpeg -y -ss ${frameTime} -i "${tempVideoPath}" -vframes 1 -vf "scale=${width}:${height}:flags=lanczos,setsar=1:1" ${qualityOpts} "${tempFramePath}"`;
       console.log('[ExtractFrame] Running:', ffmpegCmd);
 
       await execAsync(ffmpegCmd, { timeout: 60000 });
+
+      console.log('[ExtractFrame] Frame extracted at exact resolution:', width, 'x', height, '(SAR 1:1)');
 
       // Read the extracted frame
       const { readFile } = await import('fs/promises');
