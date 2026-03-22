@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
         - name: studio
-          image: oaci/studio:latest
+          image: ghcr.io/zucatti/studio-ai:latest
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
