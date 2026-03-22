@@ -16,6 +16,15 @@ COPY . .
 # Next.js collects anonymous telemetry - disable it
 ENV NEXT_TELEMETRY_DISABLED=1
 
+# Build-time env vars (placeholders - real values injected at runtime)
+ENV NEXT_PUBLIC_SUPABASE_URL=https://placeholder.supabase.co
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY=placeholder
+ENV AUTH0_SECRET=placeholder-secret-at-least-32-chars-long
+ENV AUTH0_BASE_URL=https://placeholder.com
+ENV AUTH0_ISSUER_BASE_URL=https://placeholder.auth0.com
+ENV AUTH0_CLIENT_ID=placeholder
+ENV AUTH0_CLIENT_SECRET=placeholder
+
 # Build with standalone output
 RUN npm run build
 
