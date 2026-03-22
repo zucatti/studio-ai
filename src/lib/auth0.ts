@@ -33,16 +33,24 @@ export const auth0 = new Auth0Client({
 export async function getSessionWithProxy() {
   const cookieStore = await cookies();
 
-  // Build cookie header from cookie store
+  // Build cookie header, filtering out empty cookies and old __session format
   const allCookies = cookieStore.getAll();
-  const cookieHeader = allCookies
+  const validCookies = allCookies.filter(c => {
+    // Skip empty cookies
+    if (!c.value || c.value === '') return false;
+    // Skip old __session format (without number suffix) - only use chunked format
+    if (c.name === '__session') return false;
+    return true;
+  });
+
+  const cookieHeader = validCookies
     .map(c => `${c.name}=${c.value}`)
     .join('; ');
 
-  console.log('[getSessionWithProxy] Cookies found:', {
-    count: allCookies.length,
-    names: allCookies.map(c => c.name),
-    hasSession: allCookies.some(c => c.name.startsWith('__session')),
+  console.log('[getSessionWithProxy] Cookies:', {
+    total: allCookies.length,
+    valid: validCookies.length,
+    names: validCookies.map(c => c.name),
   });
 
   // Create a request with the correct base URL (hardcoded for proxy setup)
