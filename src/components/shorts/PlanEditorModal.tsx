@@ -392,7 +392,7 @@ export function PlanEditorModal({
           body: JSON.stringify({
             videoUrl: previousVideoUrl,
             position: 'last',
-            outputFormat: 'webp',
+            outputFormat: 'png',  // Lossless for best continuity
           }),
         });
 

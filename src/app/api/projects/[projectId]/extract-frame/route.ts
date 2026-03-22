@@ -20,7 +20,7 @@ type RouteContext = { params: Promise<{ projectId: string }> };
  * Body: {
  *   videoUrl: string,       // URL of the video (b2:// or signed URL)
  *   position: 'first' | 'last' | number,  // Frame position (number = seconds)
- *   outputFormat?: 'webp' | 'png' | 'jpg'  // Default: webp
+ *   outputFormat?: 'png' | 'webp' | 'jpg'  // Default: png (lossless for best quality)
  * }
  */
 export async function POST(request: NextRequest, context: RouteContext) {
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const body = await request.json();
-    const { videoUrl, position = 'last', outputFormat = 'webp' } = body;
+    const { videoUrl, position = 'last', outputFormat = 'png' } = body;  // PNG = lossless
 
     if (!videoUrl) {
       return NextResponse.json({ error: 'videoUrl is required' }, { status: 400 });
@@ -88,7 +88,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
       }
 
       // Extract frame using FFmpeg
-      const ffmpegCmd = `ffmpeg -y -ss ${frameTime} -i "${tempVideoPath}" -vframes 1 -q:v 2 "${tempFramePath}"`;
+      // PNG: lossless compression (best for frame continuity)
+      // WebP/JPG: use high quality setting
+      const qualityOpts = outputFormat === 'png'
+        ? '-compression_level 6'  // PNG lossless (0-10, higher = smaller file)
+        : '-q:v 1';  // Highest quality for lossy formats
+
+      const ffmpegCmd = `ffmpeg -y -ss ${frameTime} -i "${tempVideoPath}" -vframes 1 ${qualityOpts} "${tempFramePath}"`;
       console.log('[ExtractFrame] Running:', ffmpegCmd);
 
       await execAsync(ffmpegCmd, { timeout: 60000 });
