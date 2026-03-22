@@ -94,6 +94,18 @@ async function getVideoDurationLocal(videoPath: string): Promise<number> {
 }
 
 /**
+ * Get video resolution using ffprobe
+ */
+async function getVideoResolution(videoPath: string): Promise<{ width: number; height: number }> {
+  const { stdout } = await execAsync(
+    `ffprobe -v error -select_streams v:0 -show_entries stream=width,height -of csv=p=0 "${videoPath}"`,
+    { timeout: 30000 }
+  );
+  const [width, height] = stdout.trim().split(',').map(Number);
+  return { width, height };
+}
+
+/**
  * Extract a frame from a video at a specific position
  */
 async function extractFrame(videoPath: string, position: 'first' | 'last', outputPath: string): Promise<void> {
@@ -172,30 +184,38 @@ function calculateColorCorrection(source: { yAvg: number; yMin: number; yMax: nu
 }
 
 /**
- * Apply color correction to a video to match a reference
+ * Apply color correction and resolution normalization to a video
+ * Always re-encodes to ensure consistent output
  */
-async function applyColorCorrection(
+async function applyColorCorrectionAndNormalize(
   inputPath: string,
   outputPath: string,
-  correction: { brightness: number; contrast: number; saturation: number }
+  correction: { brightness: number; contrast: number; saturation: number },
+  targetResolution: { width: number; height: number }
 ): Promise<void> {
   const { brightness, contrast, saturation } = correction;
+  const { width, height } = targetResolution;
 
-  // Only apply if there's a meaningful difference
-  const needsCorrection =
+  // Build filter chain
+  const filters: string[] = [];
+
+  // Always scale to target resolution with setsar=1:1 to ensure pixel-perfect match
+  filters.push(`scale=${width}:${height}:flags=lanczos,setsar=1:1`);
+
+  // Add color correction if needed
+  const needsColorCorrection =
     Math.abs(brightness) > 0.01 ||
     Math.abs(contrast - 1) > 0.02 ||
     Math.abs(saturation - 1) > 0.02;
 
-  if (!needsCorrection) {
-    // Just copy if no correction needed
-    await execAsync(`ffmpeg -y -i "${inputPath}" -c copy "${outputPath}"`, { timeout: 120000 });
-    return;
+  if (needsColorCorrection) {
+    filters.push(`eq=brightness=${brightness.toFixed(4)}:contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}`);
+    console.log(`[FFmpeg] Applying color correction: brightness=${brightness.toFixed(3)}, contrast=${contrast.toFixed(3)}, saturation=${saturation.toFixed(3)}`);
   }
 
-  console.log(`[FFmpeg] Applying color correction: brightness=${brightness.toFixed(3)}, contrast=${contrast.toFixed(3)}, saturation=${saturation.toFixed(3)}`);
+  console.log(`[FFmpeg] Normalizing to ${width}x${height} with SAR 1:1`);
 
-  const filterChain = `eq=brightness=${brightness.toFixed(4)}:contrast=${contrast.toFixed(4)}:saturation=${saturation.toFixed(4)}`;
+  const filterChain = filters.join(',');
 
   await execAsync(
     `ffmpeg -y -i "${inputPath}" -vf "${filterChain}" -c:v libx264 -preset fast -crf 18 -c:a copy "${outputPath}"`,
@@ -237,14 +257,31 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
       console.log(`[FFmpeg] Downloaded video ${i + 1}/${videoUrls.length}`);
     }
 
-    // Step 1: Color matching - match each clip to the previous one
-    let workingFiles = tempFiles;
-    if (colorMatch && tempFiles.length > 1) {
+    // Get reference resolution from first video
+    const referenceResolution = await getVideoResolution(tempFiles[0]);
+    console.log(`[FFmpeg] Reference resolution: ${referenceResolution.width}x${referenceResolution.height}`);
+
+    // Step 1: Normalize all clips to reference resolution + color matching
+    const normalizedFiles: string[] = [];
+
+    // First clip: normalize resolution only (no color correction needed)
+    const firstNormalized = generateTempPath('mp4');
+    allTempFiles.push(firstNormalized);
+    await applyColorCorrectionAndNormalize(
+      tempFiles[0],
+      firstNormalized,
+      { brightness: 0, contrast: 1, saturation: 1 }, // No color correction
+      referenceResolution
+    );
+    normalizedFiles.push(firstNormalized);
+    console.log(`[FFmpeg] Normalized clip 1/${tempFiles.length}`);
+
+    // Subsequent clips: color matching + resolution normalization
+    if (tempFiles.length > 1) {
       console.log(`[FFmpeg] Matching colors between ${tempFiles.length} clips...`);
-      const matchedFiles: string[] = [tempFiles[0]]; // First clip stays as reference
 
       for (let i = 1; i < tempFiles.length; i++) {
-        const prevClip = matchedFiles[i - 1]; // Use the (possibly corrected) previous clip
+        const prevClip = normalizedFiles[i - 1]; // Use the normalized previous clip
         const currClip = tempFiles[i];
 
         // Extract frames for analysis
@@ -263,20 +300,26 @@ export async function concatenateVideos(options: ConcatenateOptions): Promise<Co
         console.log(`[FFmpeg] Clip ${i} last frame: Y=${prevColors.yAvg.toFixed(1)}, range=${prevColors.yMin}-${prevColors.yMax}, sat=${prevColors.satAvg.toFixed(1)}`);
         console.log(`[FFmpeg] Clip ${i + 1} first frame: Y=${currColors.yAvg.toFixed(1)}, range=${currColors.yMin}-${currColors.yMax}, sat=${currColors.satAvg.toFixed(1)}`);
 
-        // Calculate and apply correction
-        const correction = calculateColorCorrection(currColors, prevColors);
-        console.log(`[FFmpeg] Correction needed: brightness=${(correction.brightness * 100).toFixed(1)}%, contrast=${(correction.contrast * 100).toFixed(0)}%, saturation=${(correction.saturation * 100).toFixed(0)}%`);
+        // Calculate correction (only if colorMatch is enabled)
+        const correction = colorMatch
+          ? calculateColorCorrection(currColors, prevColors)
+          : { brightness: 0, contrast: 1, saturation: 1 };
 
-        const correctedPath = generateTempPath('mp4');
-        allTempFiles.push(correctedPath);
+        if (colorMatch) {
+          console.log(`[FFmpeg] Correction needed: brightness=${(correction.brightness * 100).toFixed(1)}%, contrast=${(correction.contrast * 100).toFixed(0)}%, saturation=${(correction.saturation * 100).toFixed(0)}%`);
+        }
 
-        await applyColorCorrection(currClip, correctedPath, correction);
-        matchedFiles.push(correctedPath);
+        const normalizedPath = generateTempPath('mp4');
+        allTempFiles.push(normalizedPath);
 
-        console.log(`[FFmpeg] Color matched clip ${i + 1}/${tempFiles.length}`);
+        await applyColorCorrectionAndNormalize(currClip, normalizedPath, correction, referenceResolution);
+        normalizedFiles.push(normalizedPath);
+
+        console.log(`[FFmpeg] Normalized clip ${i + 1}/${tempFiles.length}`);
       }
-      workingFiles = matchedFiles;
     }
+
+    const workingFiles = normalizedFiles;
 
     // Step 2: Simple concatenation (hard cut, no crossfade)
     // Color matching already ensures visual continuity
