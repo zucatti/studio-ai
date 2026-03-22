@@ -14,7 +14,6 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   createCreditService,
   calculateFalCost,
-  calculateFalCostAsync,
   ensureCredit,
 } from '@/lib/credits';
 import { isCreditError, formatCreditError } from './credit-error';
@@ -70,8 +69,8 @@ export class FalWrapper {
   ): Promise<FalWrapperResult<TOutput>> {
     const { endpoint, input, logs, onQueueUpdate } = options;
 
-    // Step 1: Estimate cost before the call (DB-backed with fallback)
-    const estimatedCost = await calculateFalCostAsync(endpoint, 1);
+    // Step 1: Estimate cost before the call
+    const estimatedCost = calculateFalCost(endpoint, 1);
 
     // Step 2: Check budget
     try {
@@ -149,8 +148,8 @@ export class FalWrapper {
     endpoint: string,
     input: TInput
   ): Promise<FalWrapperResult<TOutput>> {
-    // Step 1: Estimate cost (DB-backed with fallback)
-    const estimatedCost = await calculateFalCostAsync(endpoint, 1);
+    // Step 1: Estimate cost
+    const estimatedCost = calculateFalCost(endpoint, 1);
 
     // Step 2: Check budget
     try {
@@ -216,8 +215,7 @@ export class FalWrapper {
     endpoint: string,
     input: TInput
   ): Promise<{ requestId: string; cost: number }> {
-    // Use DB-backed pricing with fallback
-    const estimatedCost = await calculateFalCostAsync(endpoint, 1);
+    const estimatedCost = calculateFalCost(endpoint, 1);
 
     try {
       await ensureCredit(

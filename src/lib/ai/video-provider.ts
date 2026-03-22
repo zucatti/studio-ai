@@ -41,6 +41,30 @@ export const VIDEO_PROVIDER_MODELS: Record<VideoProvider, { value: string; label
   ],
 };
 
+// Models specifically for dialogue (require audio)
+// These are shown when dialogue is enabled
+export const DIALOGUE_VIDEO_MODELS: { value: string; label: string; duration: number[]; provider: VideoProvider; supportsFrameOut: boolean }[] = [
+  // WaveSpeed models (default for dialogue)
+  { value: 'bytedance/avatar-omni-human-1.5', label: 'OmniHuman 1.5 (WaveSpeed)', duration: [5, 10, 15], provider: 'wavespeed', supportsFrameOut: false },
+  // fal.ai models
+  { value: 'omnihuman', label: 'OmniHuman 1.5 (fal)', duration: [5, 10], provider: 'fal', supportsFrameOut: false },
+];
+
+// Check if a model is dialogue-only
+export function isDialogueOnlyModel(model: string): boolean {
+  return DIALOGUE_VIDEO_MODELS.some(m => m.value === model);
+}
+
+// Check if a model supports Frame Out
+export function modelSupportsFrameOut(model: string): boolean {
+  const dialogueModel = DIALOGUE_VIDEO_MODELS.find(m => m.value === model);
+  if (dialogueModel) {
+    return dialogueModel.supportsFrameOut;
+  }
+  // Non-dialogue models support Frame Out by default
+  return true;
+}
+
 // Default models per provider
 export const DEFAULT_PROVIDER_MODEL: Record<VideoProvider, string> = {
   wavespeed: 'kwaivgi/kling-v3.0-pro/image-to-video',

@@ -2,6 +2,101 @@ import { createHash } from 'crypto';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { getPublicImageUrl } from '@/lib/fal-utils';
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+// Job helper - create video generation job
+// Note: asset_id references global_assets, not shots, so we leave it null for video jobs
+// and store shotId in input_data instead
+async function createVideoJob(
+  supabase: SupabaseClient,
+  userId: string,
+  shotId: string,
+  projectId: string,
+  shotNumber: number,
+  videoModel: string,
+  videoProvider: string,
+  duration: number,
+  estimatedCost?: number
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from('generation_jobs')
+    .insert({
+      user_id: userId,
+      // asset_id is null for video jobs (it references global_assets, not shots)
+      asset_type: 'shot',
+      asset_name: `Plan ${shotNumber}`,
+      job_type: 'video',
+      job_subtype: videoModel,
+      status: 'running',
+      progress: 0,
+      message: 'Initialisation...',
+      fal_endpoint: videoProvider,
+      input_data: { projectId, shotId, videoModel, duration },
+      estimated_cost: estimatedCost,
+      started_at: new Date().toISOString(),
+    })
+    .select('id')
+    .single();
+
+  if (error) {
+    console.error('[Video Job] Error creating job:', error);
+    return null;
+  }
+  return data?.id || null;
+}
+
+// Job helper - update job progress
+async function updateJobProgress(
+  supabase: SupabaseClient,
+  jobId: string | null,
+  progress: number,
+  message: string
+) {
+  if (!jobId) return;
+  await supabase
+    .from('generation_jobs')
+    .update({ progress, message })
+    .eq('id', jobId);
+}
+
+// Job helper - complete job
+async function completeJob(
+  supabase: SupabaseClient,
+  jobId: string | null,
+  resultData: Record<string, unknown>,
+  actualCost?: number
+) {
+  if (!jobId) return;
+  await supabase
+    .from('generation_jobs')
+    .update({
+      status: 'completed',
+      progress: 100,
+      message: 'Terminé',
+      result_data: resultData,
+      actual_cost: actualCost,
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', jobId);
+}
+
+// Job helper - fail job
+async function failJob(
+  supabase: SupabaseClient,
+  jobId: string | null,
+  errorMessage: string
+) {
+  if (!jobId) return;
+  await supabase
+    .from('generation_jobs')
+    .update({
+      status: 'failed',
+      message: 'Échec',
+      error_message: errorMessage,
+      completed_at: new Date().toISOString(),
+    })
+    .eq('id', jobId);
+}
 
 // Generate MD5 hash for dialogue text caching
 function hashDialogueText(text: string): string {
@@ -10,7 +105,6 @@ function hashDialogueText(text: string): string {
 import {
   createFalWrapper,
   generateKlingVideoFal,
-  generateKlingLipSyncFal,
   generateOmniHumanVideoFal,
   generateSora2VideoFal,
   generateVeo31VideoFal,
@@ -73,14 +167,13 @@ const CAMERA_MOVEMENT_PROMPTS: Record<string, string> = {
 };
 
 // Build optimized video prompt for motion/camera
-// For kling-dialog: includes dialogue text so Kling generates appropriate expressions
 function buildVideoPrompt(opts: {
   animation?: string | null;
   description?: string | null;
   shotType?: string | null;
   cameraAngle?: string | null;
   cameraMovement?: string | null;
-  dialogueText?: string | null;  // For kling-dialog: inject dialogue for expression context
+  dialogueText?: string | null;  // Optional: inject dialogue for expression context
 }): string {
   const parts: string[] = [];
 
@@ -109,7 +202,7 @@ function buildVideoPrompt(opts: {
     parts.push(mainPrompt);
   }
 
-  // For kling-dialog: add ONLY emotional context, not the full dialogue
+  // Add ONLY emotional context when dialogue is present, not the full dialogue text
   // (full text confuses Kling and makes it ignore the input image)
   if (opts.dialogueText) {
     // Simple emotion detection based on keywords/punctuation
@@ -145,13 +238,12 @@ function buildVideoPrompt(opts: {
 
 // Video models - all via fal.ai now
 // Standard models (no dialogue)
-type FalVideoModel = 'kling-omni' | 'sora-2' | 'veo-3' | 'omnihuman' | 'kling-dialog';
+type FalVideoModel = 'kling-omni' | 'sora-2' | 'veo-3' | 'omnihuman';
 const VIDEO_MODELS: FalVideoModel[] = [
   'kling-omni',     // Kling 3.0 Omni via fal.ai (no dialogue)
   'sora-2',         // Sora 2 via fal.ai (no dialogue)
   'veo-3',          // Veo 3.1 via fal.ai (no dialogue)
   'omnihuman',      // OmniHuman 1.5 via fal.ai (dialogue only, lip-sync)
-  'kling-dialog',   // Kling → Kling LipSync (dialogue only, preserves first/last frame)
 ];
 
 // Check if a model is Kling-based
@@ -335,6 +427,22 @@ export async function POST(request: Request, { params }: RouteParams) {
         return;
       }
 
+      const videoDuration = duration || shot.suggested_duration || 5;
+
+      // Create job for tracking in QueuePanel
+      const jobId = await createVideoJob(
+        supabase,
+        session.user.sub,
+        shotId,
+        projectId,
+        shot.shot_number || 1,
+        videoModel,
+        videoProvider,
+        videoDuration
+      );
+
+      send('progress', { step: 'job_created', message: 'Job créé', progress: 3, jobId });
+
       // Archive old video to rush_images before regenerating (keep for gallery)
       if (shot.generated_video_url) {
         send('progress', { step: 'archive', message: 'Archivage de la version précédente...', progress: 3 });
@@ -358,7 +466,6 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
       }
 
-      const videoDuration = duration || shot.suggested_duration || 5;
       let dialogueAudioUrl: string | null = null;
 
       // Step 1: Generate dialogue audio if enabled
@@ -601,8 +708,10 @@ export async function POST(request: Request, { params }: RouteParams) {
               supabase,
               operation: `generate-video-${videoProvider}`,
             },
-            (step, message, progress) => {
-              send('progress', { step, message, progress: 50 + Math.round(progress * 0.4) });
+            async (step, message, progress) => {
+              const mappedProgress = 50 + Math.round(progress * 0.4);
+              send('progress', { step, message, progress: mappedProgress });
+              await updateJobProgress(supabase, jobId, mappedProgress, message);
             }
           );
 
@@ -610,8 +719,10 @@ export async function POST(request: Request, { params }: RouteParams) {
           result = { videoUrl: unifiedResult.videoUrl, cost: unifiedResult.cost, taskId: unifiedResult.taskId };
 
         } catch (providerError) {
+          const errorMsg = providerError instanceof Error ? providerError.message : 'Unknown error';
+          await failJob(supabase, jobId, errorMsg);
           send('error', {
-            error: providerError instanceof Error ? providerError.message : 'Unknown error',
+            error: errorMsg,
             step: 'video_generation',
             provider: videoProvider,
           });
@@ -689,127 +800,6 @@ export async function POST(request: Request, { params }: RouteParams) {
 
         result = { videoUrl: veoResult.videoUrl, cost: veoResult.cost };
 
-      // Kling Dialog flow: Kling → Kling LipSync (preserves first/last frame + lip-sync)
-      } else if (videoModel === 'kling-dialog') {
-        if (!dialogueAudioUrl) {
-          send('error', {
-            error: 'Kling Dialog nécessite un dialogue avec audio. Configure le dialogue et un personnage avec voice_id.',
-            step: 'kling_dialog_validate'
-          });
-          close();
-          return;
-        }
-
-        send('progress', {
-          step: 'video_refs',
-          message: 'Récupération des références personnage...',
-          progress: 48,
-        });
-
-        // Fetch character reference images for consistency
-        let characterReferenceImages: string[] = [];
-        if (shot.dialogue_character_id) {
-          const { data: character } = await supabase
-            .from('global_assets')
-            .select('reference_images')
-            .eq('id', shot.dialogue_character_id)
-            .single();
-
-          const refImages = character?.reference_images;
-          if (refImages && refImages.length > 0) {
-            for (const refImg of refImages.slice(0, 4)) {
-              try {
-                const publicUrl = await getPublicImageUrl(refImg);
-                characterReferenceImages.push(publicUrl);
-              } catch (e) {
-                console.warn(`[Video Gen] Failed to get public URL for ref image:`, e);
-              }
-            }
-            console.log(`[Video Gen] Character references: ${characterReferenceImages.length} images`);
-          }
-        }
-
-        // Step 1: Generate Kling video with first/last frame
-        send('progress', {
-          step: 'video_request',
-          message: 'Étape 1/2: Génération Kling v3 via fal.ai...',
-          progress: 50,
-          details: {
-            model: 'kling-dialog',
-            duration: videoDuration,
-            aspectRatio,
-            characterRefs: characterReferenceImages.length,
-            hasEndFrame: !!lastFrameUrl,
-          }
-        });
-
-        const falWrapper = createFalWrapper({
-          userId: session.user.sub,
-          projectId,
-          supabase,
-          operation: 'generate-video-kling-dialog',
-        });
-
-        // Build prompt WITH dialogue text so Kling generates matching expressions
-        const klingDialogPrompt = buildVideoPrompt({
-          animation: shot.animation_prompt,
-          description: shot.description,
-          shotType: shot.shot_type,
-          cameraAngle: shot.camera_angle,
-          cameraMovement: shot.camera_movement,
-          dialogueText: shot.dialogue_text,  // Include dialogue for expression context
-        });
-
-        console.log(`[Video Gen] Kling Dialog prompt (with dialogue): ${klingDialogPrompt}`);
-
-        const klingResult = await generateKlingVideoFal(falWrapper, {
-          prompt: klingDialogPrompt,
-          imageUrl: firstFrameUrl,
-          endImageUrl: lastFrameUrl,
-          referenceImages: characterReferenceImages,
-          duration: videoDuration,
-          generateAudio: false,
-          negativePrompt: 'blur, distort, low quality, watermark, text',
-        });
-
-        console.log(`[Video Gen] Kling v3 result:`, JSON.stringify(klingResult, null, 2));
-
-        if (!klingResult.videoUrl) {
-          throw new Error('Kling v3 returned no video URL');
-        }
-
-        // Step 2: Apply Kling LipSync to the generated video
-        send('progress', {
-          step: 'video_lip_sync',
-          message: 'Étape 2/2: Application du lip-sync Kling...',
-          progress: 75,
-        });
-
-        const publicAudioUrl = await getSignedAudioUrl(dialogueAudioUrl);
-        console.log(`[Video Gen] Kling LipSync audio: ${publicAudioUrl.substring(0, 80)}...`);
-
-        const lipSyncWrapper = createFalWrapper({
-          userId: session.user.sub,
-          projectId,
-          supabase,
-          operation: 'kling-dialog-lipsync',
-        });
-
-        const lipSyncResult = await generateKlingLipSyncFal(lipSyncWrapper, {
-          videoUrl: klingResult.videoUrl,
-          audioUrl: publicAudioUrl,
-        });
-
-        console.log(`[Video Gen] Kling LipSync done: ${lipSyncResult.videoUrl}`);
-
-        send('progress', {
-          step: 'lip_sync_complete',
-          message: 'Lip-sync Kling terminé!',
-          progress: 90,
-        });
-
-        result = { videoUrl: lipSyncResult.videoUrl, cost: klingResult.cost + lipSyncResult.cost };
-
       // Kling 3.0 Omni flow via fal.ai (NO dialogue - pure video generation)
       } else if (isKlingModel(videoModel)) {
         send('progress', {
@@ -882,8 +872,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       // OmniHuman 1.5 flow: image + audio → video with lip-sync via fal.ai
       } else if (videoModel === 'omnihuman') {
         if (!dialogueAudioUrl) {
+          const errorMsg = 'OmniHuman 1.5 nécessite un dialogue avec audio. Configure le dialogue et un personnage avec voice_id.';
+          await failJob(supabase, jobId, errorMsg);
           send('error', {
-            error: 'OmniHuman 1.5 nécessite un dialogue avec audio. Configure le dialogue et un personnage avec voice_id.',
+            error: errorMsg,
             step: 'omnihuman_validate'
           });
           close();
@@ -930,8 +922,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         result = { videoUrl: omniResult.videoUrl, cost: omniResult.cost };
       } else {
         // Unsupported model - should never happen since we default to kling-omni
+        const errorMsg = `Modèle vidéo non supporté: ${videoModel}`;
+        await failJob(supabase, jobId, errorMsg);
         send('error', {
-          error: `Modèle vidéo non supporté: ${videoModel}`,
+          error: errorMsg,
           step: 'model_error'
         });
         close();
@@ -955,7 +949,6 @@ export async function POST(request: Request, { params }: RouteParams) {
           'veo-3-i2v': 'Veo 3',
           // fal.ai models
           'kling-omni': 'Kling 3.0 Omni',
-          'kling-dialog': 'Kling Dialog',
           'sora-2': 'Sora 2',
           'veo-3': 'Veo 3.1',
           'omnihuman': 'OmniHuman 1.5',
@@ -1005,6 +998,9 @@ export async function POST(request: Request, { params }: RouteParams) {
           })
           .eq('id', shotId);
 
+        // Complete the job
+        await completeJob(supabase, jobId, { videoUrl: finalVideoUrl, model: videoModel }, result.cost);
+
         // Get signed URL for immediate playback if it's a B2 URL
         let playbackUrl = finalVideoUrl;
         if (finalVideoUrl.startsWith('b2://')) {
@@ -1020,6 +1016,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           model: videoModel,
           duration: videoDuration,
           cost: result.cost,
+          jobId,
         });
         close();
         return;
@@ -1040,11 +1037,15 @@ export async function POST(request: Request, { params }: RouteParams) {
         })
         .eq('id', shotId);
 
+      // Fail the job
+      await failJob(supabase, jobId, 'No video URL returned');
+
       close();
 
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       send('error', {
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: errorMessage,
         step: 'unexpected'
       });
       close();

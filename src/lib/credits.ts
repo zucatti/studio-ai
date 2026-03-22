@@ -16,11 +16,10 @@ import {
   ApiUsageLogInsert,
 } from '@/types/database';
 import { CreditError } from '@/lib/ai/credit-error';
-import {
-  getPrice as getPriceFromDB,
-  calculateCost as calculateCostFromDB,
-  calculateClaudeCost as calculateClaudeCostFromDB,
-} from '@/lib/pricing-service';
+
+// Note: pricing-service provides DB-backed pricing with async functions
+// For now, we use hardcoded synchronous functions to avoid import issues
+// The pricing-service can be used directly where async is acceptable
 
 // ============================================================================
 // Provider Configuration
@@ -422,141 +421,6 @@ export function calculateCost(
     default:
       return 0;
   }
-}
-
-// ============================================================================
-// Async Cost Calculation (Database-backed with fallback to hardcoded)
-// ============================================================================
-
-/**
- * Async cost calculation - tries database first, falls back to hardcoded
- */
-export async function calculateCostAsync(
-  provider: ApiProvider,
-  model: string,
-  metrics: {
-    count?: number;
-    durationSeconds?: number;
-    characters?: number;
-    inputTokens?: number;
-    outputTokens?: number;
-  }
-): Promise<number> {
-  try {
-    // Try database-backed pricing service first
-    const dbCost = await calculateCostFromDB(provider, model, metrics);
-    if (dbCost > 0) {
-      return dbCost;
-    }
-  } catch (error) {
-    console.warn(`[Credits] DB pricing failed for ${provider}/${model}, using fallback`);
-  }
-
-  // Fall back to hardcoded prices
-  return calculateCost(provider, model, {
-    requestCount: metrics.count,
-    videoDuration: metrics.durationSeconds,
-    characters: metrics.characters,
-    imagesCount: metrics.count,
-  });
-}
-
-/**
- * Async WaveSpeed cost calculation
- */
-export async function calculateWavespeedCostAsync(
-  model: string,
-  count: number = 1,
-  durationSeconds?: number
-): Promise<number> {
-  try {
-    const dbPrice = await getPriceFromDB('wavespeed', model);
-    if (dbPrice) {
-      if (dbPrice.unitType === 'per_second' && durationSeconds) {
-        return dbPrice.pricePerUnit * durationSeconds;
-      }
-      return dbPrice.pricePerUnit * count;
-    }
-  } catch (error) {
-    console.warn(`[Credits] DB pricing failed for wavespeed/${model}, using fallback`);
-  }
-
-  return calculateWavespeedCost(model, count, durationSeconds);
-}
-
-/**
- * Async fal.ai cost calculation
- */
-export async function calculateFalCostAsync(endpoint: string, count: number = 1): Promise<number> {
-  try {
-    const dbPrice = await getPriceFromDB('fal', endpoint);
-    if (dbPrice) {
-      return dbPrice.pricePerUnit * count;
-    }
-  } catch (error) {
-    console.warn(`[Credits] DB pricing failed for fal/${endpoint}, using fallback`);
-  }
-
-  return calculateFalCost(endpoint, count);
-}
-
-/**
- * Async Runway cost calculation
- */
-export async function calculateRunwayCostAsync(model: string, durationSeconds: number = 5): Promise<number> {
-  try {
-    const dbPrice = await getPriceFromDB('runway', model);
-    if (dbPrice) {
-      if (dbPrice.unitType === 'per_second') {
-        return dbPrice.pricePerUnit * durationSeconds;
-      }
-      return dbPrice.pricePerUnit;
-    }
-  } catch (error) {
-    console.warn(`[Credits] DB pricing failed for runway/${model}, using fallback`);
-  }
-
-  return calculateRunwayCost(model, durationSeconds);
-}
-
-/**
- * Async ElevenLabs cost calculation
- */
-export async function calculateElevenLabsCostAsync(model: string, characters: number): Promise<number> {
-  try {
-    const dbPrice = await getPriceFromDB('elevenlabs', model);
-    if (dbPrice) {
-      if (dbPrice.unitType === 'per_character') {
-        return dbPrice.pricePerUnit * characters;
-      }
-      // per 1000 characters
-      return (dbPrice.pricePerUnit * characters) / 1000;
-    }
-  } catch (error) {
-    console.warn(`[Credits] DB pricing failed for elevenlabs/${model}, using fallback`);
-  }
-
-  return calculateElevenLabsCost(model, characters);
-}
-
-/**
- * Async Claude cost calculation
- */
-export async function calculateClaudeCostAsync(
-  model: string,
-  inputTokens: number,
-  outputTokens: number
-): Promise<number> {
-  try {
-    const dbCost = await calculateClaudeCostFromDB(model, inputTokens, outputTokens);
-    if (dbCost > 0) {
-      return dbCost;
-    }
-  } catch (error) {
-    console.warn(`[Credits] DB pricing failed for claude/${model}, using fallback`);
-  }
-
-  return calculateClaudeCost(model, inputTokens, outputTokens);
 }
 
 // ============================================================================

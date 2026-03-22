@@ -10,7 +10,6 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   createCreditService,
   calculateWavespeedCost,
-  calculateWavespeedCostAsync,
   ensureCredit,
 } from '@/lib/credits';
 import { isCreditError, formatCreditError } from './credit-error';
@@ -107,8 +106,7 @@ export class WavespeedWrapper {
    * Generate image(s)
    */
   async generateImage(input: ImageGenerationInput): Promise<WavespeedWrapperResult<WavespeedTaskResult>> {
-    // Use async DB-backed pricing (with fallback to hardcoded)
-    const estimatedCost = await calculateWavespeedCostAsync(input.model, input.num_images || 1);
+    const estimatedCost = calculateWavespeedCost(input.model, input.num_images || 1);
 
     // Check budget
     try {
@@ -194,8 +192,7 @@ export class WavespeedWrapper {
    * Generate video
    */
   async generateVideo(input: VideoGenerationInput): Promise<WavespeedWrapperResult<WavespeedTaskResult>> {
-    // Use async DB-backed pricing (with fallback to hardcoded)
-    const estimatedCost = await calculateWavespeedCostAsync(input.model, 1, input.duration || 5);
+    const estimatedCost = calculateWavespeedCost(input.model, 1, input.duration || 5);
 
     try {
       await ensureCredit(this.creditService, this.userId, 'wavespeed', estimatedCost);

@@ -32,6 +32,8 @@ import {
   VideoProvider,
   VIDEO_PROVIDER_MODELS,
   PROVIDER_INFO,
+  DIALOGUE_VIDEO_MODELS,
+  modelSupportsFrameOut,
 } from '@/lib/ai/video-provider';
 
 // Shot types
@@ -124,16 +126,49 @@ export function PlanEditorModal({
   const [videoProvider, setVideoProvider] = useState<VideoProvider>('wavespeed');
   const [videoModel, setVideoModel] = useState('kwaivgi/kling-v3.0-pro/image-to-video');
 
-  // Get appropriate video models based on provider
-  const availableVideoModels = VIDEO_PROVIDER_MODELS[videoProvider];
+  // Get appropriate video models based on provider and dialogue state
+  const availableVideoModels = useMemo(() => {
+    if (hasDialogue) {
+      // When dialogue is enabled, only show dialogue-specific models
+      return DIALOGUE_VIDEO_MODELS;
+    }
+    return VIDEO_PROVIDER_MODELS[videoProvider];
+  }, [hasDialogue, videoProvider]);
 
-  // Auto-switch video model when provider changes
+  // Auto-switch model when dialogue is toggled
   useEffect(() => {
+    if (hasDialogue) {
+      // Set default dialogue model if current model is not a dialogue model
+      const isDialogueModel = DIALOGUE_VIDEO_MODELS.some(m => m.value === videoModel);
+      if (!isDialogueModel) {
+        const defaultModel = DIALOGUE_VIDEO_MODELS[0];
+        setVideoModel(defaultModel.value);
+        setVideoProvider(defaultModel.provider);
+      }
+    }
+  }, [hasDialogue, videoModel]);
+
+  // Auto-switch provider when dialogue model changes
+  useEffect(() => {
+    if (hasDialogue) {
+      const dialogueModel = DIALOGUE_VIDEO_MODELS.find(m => m.value === videoModel);
+      if (dialogueModel && dialogueModel.provider !== videoProvider) {
+        setVideoProvider(dialogueModel.provider);
+      }
+    }
+  }, [hasDialogue, videoModel, videoProvider]);
+
+  // Auto-switch video model when provider changes (non-dialogue mode)
+  useEffect(() => {
+    if (hasDialogue) return; // Skip in dialogue mode
     const providerModels = VIDEO_PROVIDER_MODELS[videoProvider];
     if (providerModels.length > 0 && !providerModels.find(m => m.value === videoModel)) {
       setVideoModel(providerModels[0].value);
     }
-  }, [videoProvider, videoModel]);
+  }, [videoProvider, videoModel, hasDialogue]);
+
+  // Check if current model supports Frame Out
+  const showFrameOut = !hasDialogue || modelSupportsFrameOut(videoModel);
 
   // Hover states
   const [hoveredFrame, setHoveredFrame] = useState<'in' | 'out' | null>(null);
@@ -1032,8 +1067,8 @@ export function PlanEditorModal({
                 </div>
               </div>
 
-              {/* Frame Out - right (hidden when dialogue is enabled - OmniHuman doesn't support it) */}
-              {!hasDialogue && (
+              {/* Frame Out - right (hidden for OmniHuman, shown for Kling Dialog) */}
+              {showFrameOut && (
                 <div className="flex-shrink-0 flex items-center">
                   {renderFrame('out')}
                 </div>
@@ -1052,30 +1087,40 @@ export function PlanEditorModal({
               </h3>
 
               <div className="space-y-3">
-                {/* Provider selector - group buttons */}
+                {/* Provider selector - group buttons (auto-selected in dialogue mode based on model) */}
                 <div>
-                  <Label className="text-slate-400 text-xs mb-1.5 block">Provider</Label>
+                  <Label className="text-slate-400 text-xs mb-1.5 block">
+                    Provider {hasDialogue && <span className="text-blue-400">(auto par modèle)</span>}
+                  </Label>
                   <div className="inline-flex rounded-lg bg-white/5 p-1 w-full">
-                    {(['wavespeed', 'modelslab', 'fal'] as VideoProvider[]).map((provider) => (
-                      <button
-                        key={provider}
-                        onClick={() => setVideoProvider(provider)}
-                        className={cn(
-                          "flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all",
-                          videoProvider === provider
-                            ? "bg-white/10 text-white"
-                            : "text-slate-400 hover:text-white"
-                        )}
-                      >
-                        {PROVIDER_INFO[provider].name}
-                      </button>
-                    ))}
+                    {(['wavespeed', 'modelslab', 'fal'] as VideoProvider[]).map((provider) => {
+                      // In dialogue mode, only show providers that have dialogue models
+                      const hasDialogueModels = DIALOGUE_VIDEO_MODELS.some(m => m.provider === provider);
+                      const isDisabled = hasDialogue && !hasDialogueModels;
+
+                      return (
+                        <button
+                          key={provider}
+                          onClick={() => !hasDialogue && setVideoProvider(provider)}
+                          disabled={isDisabled}
+                          className={cn(
+                            "flex-1 px-2 py-1.5 text-xs font-medium rounded-md transition-all",
+                            videoProvider === provider
+                              ? "bg-white/10 text-white"
+                              : "text-slate-400 hover:text-white",
+                            isDisabled && "opacity-30 cursor-not-allowed"
+                          )}
+                        >
+                          {PROVIDER_INFO[provider].name}
+                        </button>
+                      );
+                    })}
                   </div>
                 </div>
 
                 <div>
                   <Label className="text-slate-300 text-xs mb-1 block">
-                    Modèle
+                    Modèle {hasDialogue && <span className="text-green-400">(dialogue)</span>}
                   </Label>
                   <Select value={videoModel} onValueChange={setVideoModel}>
                     <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs">
@@ -1092,6 +1137,11 @@ export function PlanEditorModal({
                       ))}
                     </SelectContent>
                   </Select>
+                  {hasDialogue && (videoModel === 'omnihuman' || videoModel.includes('omni-human')) && (
+                    <p className="text-[10px] text-purple-400 mt-1">
+                      OmniHuman 1.5 (Frame In uniquement)
+                    </p>
+                  )}
                 </div>
 
                 <Button

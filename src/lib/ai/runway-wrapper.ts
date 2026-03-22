@@ -9,7 +9,6 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import {
   createCreditService,
   calculateRunwayCost,
-  calculateRunwayCostAsync,
   ensureCredit,
 } from '@/lib/credits';
 import { isCreditError, formatCreditError } from './credit-error';
@@ -84,8 +83,7 @@ export class RunwayWrapper {
    * Generate video from image (Gen-4, Gen-4.5)
    */
   async generateVideo(input: VideoGenerationInput): Promise<RunwayWrapperResult<RunwayTaskResult>> {
-    // Use DB-backed pricing with fallback
-    const estimatedCost = await calculateRunwayCostAsync(input.model, input.duration || 5);
+    const estimatedCost = calculateRunwayCost(input.model, input.duration || 5);
 
     try {
       await ensureCredit(this.creditService, this.userId, 'runway', estimatedCost);
@@ -189,8 +187,7 @@ export class RunwayWrapper {
    * Generate image (Gen-4 Image)
    */
   async generateImage(input: ImageGenerationInput): Promise<RunwayWrapperResult<RunwayTaskResult>> {
-    // Use DB-backed pricing with fallback
-    const estimatedCost = await calculateRunwayCostAsync('gen4-image', 1);
+    const estimatedCost = calculateRunwayCost('gen4-image', 1);
 
     try {
       await ensureCredit(this.creditService, this.userId, 'runway', estimatedCost);

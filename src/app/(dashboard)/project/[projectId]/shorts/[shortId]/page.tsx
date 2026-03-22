@@ -10,6 +10,7 @@ import { VideoCard } from '@/components/shorts/VideoCard';
 import { ProjectBibleButton } from '@/components/bible/ProjectBible';
 import { formatDuration } from '@/components/shorts/DurationPicker';
 import { useShortsStore, type Plan } from '@/store/shorts-store';
+import { useJobsStore } from '@/store/jobs-store';
 import type { AspectRatio } from '@/types/database';
 import {
   ArrowLeft,
@@ -43,6 +44,9 @@ export default function ShortDetailPage() {
     reorderPlans,
     getShortById,
   } = useShortsStore();
+
+  // Jobs store for QueuePanel integration
+  const { fetchJobs, startPolling } = useJobsStore();
 
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -243,6 +247,13 @@ export default function ShortDetailPage() {
               // Handle different event types
               switch (currentEvent) {
                 case 'progress':
+                  // If this is the job_created step, refresh jobs store
+                  if (data.step === 'job_created' && data.jobId) {
+                    console.log('[Video Gen] Job created:', data.jobId);
+                    fetchJobs();
+                    startPolling();
+                  }
+
                   const progressMsg = `[${data.progress}%] ${data.message}`;
                   toast.loading(progressMsg, { id: toastId });
                   console.log('[Video Gen]', data.step, data.message, data.details || '');
