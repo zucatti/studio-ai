@@ -1,11 +1,11 @@
 import { redirect } from 'next/navigation';
-import { auth0 } from '@/lib/auth0';
+import { getSessionWithProxy } from '@/lib/auth0';
 
 export default async function HomePage() {
   console.log('[HomePage] Loading...');
 
   try {
-    const session = await auth0.getSession();
+    const session = await getSessionWithProxy();
     console.log('[HomePage] Session result:', {
       hasSession: !!session,
       hasUser: !!session?.user,
@@ -19,6 +19,6 @@ export default async function HomePage() {
     }
   } catch (error) {
     console.error('[HomePage] ERROR getting session:', error);
-    throw error; // Re-throw to see the actual error
+    throw error;
   }
 }

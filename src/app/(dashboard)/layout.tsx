@@ -1,4 +1,4 @@
-import { auth0 } from '@/lib/auth0';
+import { getSessionWithProxy } from '@/lib/auth0';
 import { redirect } from 'next/navigation';
 import { Sidebar } from '@/components/layout/sidebar';
 import { Topbar } from '@/components/layout/topbar';
@@ -11,7 +11,7 @@ export default async function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const session = await auth0.getSession();
+  const session = await getSessionWithProxy();
 
   if (!session?.user) {
     redirect('/auth/login');
