@@ -792,7 +792,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           imageUrl: firstFrameUrl,
           duration: veoDuration as '4s' | '6s' | '8s',
           aspectRatio: aspectRatio === '1:1' ? '16:9' : aspectRatio,
-          resolution: '720p',
+          resolution: '1080p',
           generateAudio: false,
         });
 
@@ -909,7 +909,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           imageUrl: firstFrameUrl,
           audioUrl: publicAudioUrl,
           prompt: shot.animation_prompt || undefined,
-          resolution: '720p',
+          resolution: '1080p',
           turboMode: true,  // Faster generation
         });
 
