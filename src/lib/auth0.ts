@@ -28,9 +28,16 @@ export async function getSessionWithProxy() {
   const cookieStore = await cookies();
 
   // Build cookie header from cookie store
-  const cookieHeader = cookieStore.getAll()
+  const allCookies = cookieStore.getAll();
+  const cookieHeader = allCookies
     .map(c => `${c.name}=${c.value}`)
     .join('; ');
+
+  console.log('[getSessionWithProxy] Cookies found:', {
+    count: allCookies.length,
+    names: allCookies.map(c => c.name),
+    hasSession: allCookies.some(c => c.name.startsWith('__session')),
+  });
 
   // Create a request with the correct base URL (hardcoded for proxy setup)
   const correctedRequest = new NextRequest(new URL('/', baseUrl), {
@@ -39,5 +46,7 @@ export async function getSessionWithProxy() {
     }),
   });
 
-  return auth0.getSession(correctedRequest);
+  const session = await auth0.getSession(correctedRequest);
+  console.log('[getSessionWithProxy] Result:', { hasSession: !!session });
+  return session;
 }

@@ -33,11 +33,13 @@ export async function middleware(request: NextRequest) {
 
     // Log response details for auth routes AND homepage
     if (request.nextUrl.pathname.startsWith('/auth') || request.nextUrl.pathname === '/') {
+      const setCookie = response.headers.get('set-cookie');
       console.log('[Middleware] Response:', {
         path: request.nextUrl.pathname,
         status: response.status,
         location: response.headers.get('location'),
-        cookies: response.headers.get('set-cookie')?.substring(0, 100),
+        setCookieLength: setCookie?.length,
+        setCookiePreview: setCookie?.substring(0, 150),
       });
     }
 
