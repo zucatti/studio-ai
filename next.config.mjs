@@ -1,5 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Standalone output for Docker/K8s deployment
+  output: 'standalone',
   images: {
     remotePatterns: [
       {
