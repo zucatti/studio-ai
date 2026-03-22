@@ -3,10 +3,18 @@ import { auth0 } from "./lib/auth0";
 
 export async function middleware(request: NextRequest) {
   try {
+    // Log all incoming requests
+    console.log('[Middleware] Request:', {
+      path: request.nextUrl.pathname,
+      url: request.url,
+      proto: request.headers.get('x-forwarded-proto'),
+      host: request.headers.get('x-forwarded-host') || request.headers.get('host'),
+    });
+
     const response = await auth0.middleware(request);
 
-    // Log response details for auth routes
-    if (request.nextUrl.pathname.startsWith('/auth')) {
+    // Log response details for auth routes AND homepage
+    if (request.nextUrl.pathname.startsWith('/auth') || request.nextUrl.pathname === '/') {
       console.log('[Middleware] Response:', {
         path: request.nextUrl.pathname,
         status: response.status,
