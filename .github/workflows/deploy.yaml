@@ -51,6 +51,9 @@ jobs:
     needs: build-and-push
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Set up kubectl
         uses: azure/setup-kubectl@v3
 
@@ -60,8 +63,21 @@ jobs:
           echo "${{ secrets.KUBE_CONFIG }}" > ~/.kube/config
           chmod 600 ~/.kube/config
 
-      - name: Deploy to k3s
+      - name: Configure nginx ingress for forwarded headers
         run: |
-          kubectl config view
+          kubectl patch configmap ingress-nginx-controller -n ingress-nginx --type merge \
+            -p '{"data":{"use-forwarded-headers":"true","compute-full-forwarded-for":"true","proxy-real-ip-cidr":"0.0.0.0/0"}}' \
+            || echo "ConfigMap patch skipped or already applied"
+
+      - name: Apply ingress
+        run: |
+          kubectl apply -f k8s/ingress.yaml -n ia-studio
+
+      - name: Restart nginx ingress if configmap changed
+        run: |
+          kubectl rollout restart deployment/ingress-nginx-controller -n ingress-nginx || true
+
+      - name: Deploy application
+        run: |
           kubectl rollout restart deployment/studio -n ia-studio
           kubectl rollout status deployment/studio -n ia-studio --timeout=120s

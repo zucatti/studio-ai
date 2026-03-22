@@ -8,6 +8,10 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-body-size: "100m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    # Preserve original host and proto for Auth0
+    nginx.ingress.kubernetes.io/use-forwarded-headers: "true"
+    nginx.ingress.kubernetes.io/forwarded-for-header: "X-Forwarded-For"
+    nginx.ingress.kubernetes.io/proxy-set-headers: "ingress-nginx/custom-headers"
 spec:
   ingressClassName: nginx
   rules:
