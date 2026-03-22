@@ -411,8 +411,9 @@ export function PlanEditorModal({
         toast.success('Dernière frame extraite avec FFmpeg!', { id: 'extract-frame' });
         return;
       } catch (error) {
-        console.error('FFmpeg frame extraction failed:', error);
-        toast.error('Extraction échouée, utilisation du fallback', { id: 'extract-frame' });
+        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
+        console.error('FFmpeg frame extraction failed:', errorMsg);
+        toast.error(`Extraction FFmpeg échouée: ${errorMsg}`, { id: 'extract-frame' });
         // Fall through to fallbacks
       } finally {
         setIsExtractingFrame(false);
