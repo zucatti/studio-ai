@@ -52,11 +52,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Deploy to k3s
-        uses: appleboy/ssh-action@v1.0.3
+        uses: actions-hub/kubectl@master
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
         with:
-          host: ${{ secrets.K3S_HOST }}
-          username: ${{ secrets.K3S_USER }}
-          key: ${{ secrets.K3S_SSH_KEY }}
-          script: |
-            kubectl rollout restart deployment/studio
-            kubectl rollout status deployment/studio --timeout=120s
+          args: rollout restart deployment/studio
+
+      - name: Wait for rollout
+        uses: actions-hub/kubectl@master
+        env:
+          KUBE_CONFIG: ${{ secrets.KUBE_CONFIG }}
+        with:
+          args: rollout status deployment/studio --timeout=120s
