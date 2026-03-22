@@ -30,7 +30,7 @@ function generateTempPath(ext: string): string {
 
 /**
  * Download a file from URL to a temp path
- * Handles both regular URLs and b2:// URLs
+ * Handles b2:// URLs and expired signed URLs
  */
 async function downloadToTemp(url: string, ext: string = 'mp4'): Promise<string> {
   let resolvedUrl = url;
@@ -40,6 +40,29 @@ async function downloadToTemp(url: string, ext: string = 'mp4'): Promise<string>
     const parsed = parseStorageUrl(url);
     if (parsed) {
       resolvedUrl = await getSignedFileUrl(parsed.key, 3600);
+    }
+  } else if (url.includes('backblazeb2.com') || url.includes('s3.')) {
+    // Looks like a signed URL (possibly expired) - extract key and re-sign
+    try {
+      const parsedUrl = new URL(url);
+      let key = parsedUrl.pathname;
+
+      // Remove leading slash
+      if (key.startsWith('/')) {
+        key = key.substring(1);
+      }
+
+      // If path starts with bucket name, remove it
+      const bucket = STORAGE_BUCKET;
+      if (key.startsWith(`${bucket}/`)) {
+        key = key.substring(bucket.length + 1);
+      }
+
+      console.log('[FFmpeg] Re-signing expired URL, key:', key);
+      resolvedUrl = await getSignedFileUrl(key, 3600);
+    } catch (e) {
+      console.error('[FFmpeg] Failed to re-sign URL:', e);
+      // Keep original URL and hope for the best
     }
   }
 

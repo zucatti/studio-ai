@@ -39,12 +39,38 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ error: 'videoUrl is required' }, { status: 400 });
     }
 
-    // Resolve the video URL (handle b2:// URLs)
+    // Resolve the video URL (handle b2:// URLs and expired signed URLs)
     let resolvedVideoUrl = videoUrl;
     if (videoUrl.startsWith('b2://')) {
+      // b2:// URL - get fresh signed URL
       const parsed = parseStorageUrl(videoUrl);
       if (parsed) {
         resolvedVideoUrl = await getSignedFileUrl(parsed.key, 3600);
+      }
+    } else if (videoUrl.includes('backblazeb2.com') || videoUrl.includes('s3.')) {
+      // Looks like a signed URL (possibly expired) - extract key and re-sign
+      try {
+        // URL format: https://{bucket}.s3.{region}.backblazeb2.com/{key}?X-Amz-...
+        // Or: https://s3.{region}.backblazeb2.com/{bucket}/{key}?X-Amz-...
+        const url = new URL(videoUrl);
+        let key = url.pathname;
+
+        // Remove leading slash
+        if (key.startsWith('/')) {
+          key = key.substring(1);
+        }
+
+        // If path starts with bucket name, remove it
+        const bucket = process.env.S3_BUCKET || 'studio-assets';
+        if (key.startsWith(`${bucket}/`)) {
+          key = key.substring(bucket.length + 1);
+        }
+
+        console.log('[ExtractFrame] Re-signing expired URL, key:', key);
+        resolvedVideoUrl = await getSignedFileUrl(key, 3600);
+      } catch (e) {
+        console.error('[ExtractFrame] Failed to re-sign URL:', e);
+        // Keep original URL and hope for the best
       }
     }
 
