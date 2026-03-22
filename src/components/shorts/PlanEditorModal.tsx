@@ -336,7 +336,10 @@ export function PlanEditorModal({
     const url = type === 'in' ? plan?.storyboard_image_url : plan?.last_frame_url;
     if (!url) return;
 
-    const filename = `plan-${plan?.shot_number}-frame-${type}.jpg`;
+    // Get extension from URL (default to png since we now extract in PNG)
+    const urlPath = url.split('?')[0]; // Remove query params
+    const ext = urlPath.match(/\.(png|jpg|jpeg|webp)$/i)?.[1] || 'png';
+    const filename = `plan-${plan?.shot_number}-frame-${type}.${ext}`;
     const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
 
     const iframe = document.createElement('iframe');
