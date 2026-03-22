@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { createElevenLabsWrapper } from '@/lib/ai/elevenlabs-wrapper';
-import { createCreatomateWrapper } from '@/lib/ai/creatomate-wrapper';
+import { mergeVideoAudio } from '@/lib/ffmpeg';
 import { uploadFile, getSignedFileUrl, STORAGE_BUCKET } from '@/lib/storage';
 
 interface RouteParams {
@@ -24,19 +24,6 @@ function cleanDialogueForTTS(text: string): string {
     // Clean up extra whitespace
     .replace(/\s+/g, ' ')
     .trim();
-}
-
-// Get video dimensions from aspect ratio
-function getVideoDimensions(aspectRatio: string): { width: number; height: number } {
-  const dimensions: Record<string, { width: number; height: number }> = {
-    '16:9': { width: 1920, height: 1080 },
-    '9:16': { width: 1080, height: 1920 },
-    '1:1': { width: 1080, height: 1080 },
-    '4:5': { width: 1080, height: 1350 },
-    '2:3': { width: 1080, height: 1620 },
-    '21:9': { width: 2560, height: 1080 },
-  };
-  return dimensions[aspectRatio] || dimensions['16:9'];
 }
 
 export async function POST(request: Request, { params }: RouteParams) {
@@ -151,55 +138,35 @@ export async function POST(request: Request, { params }: RouteParams) {
       .update({ dialogue_audio_url: dialogueAudioUrl })
       .eq('id', shotId);
 
-    // Step 3: Merge audio with video using Creatomate
+    // Step 3: Merge audio with video using FFmpeg
     const publicAudioUrl = await getSignedFileUrl(audioKey, 3600);
-    let finalVideoUrl: string | undefined;
 
-    console.log(`[AddAudio] Using Creatomate merge (model: ${shot.video_provider || 'unknown'})...`);
+    console.log(`[AddAudio] Using FFmpeg merge...`);
     console.log(`[AddAudio] Video: ${shot.generated_video_url}`);
     console.log(`[AddAudio] Audio: ${publicAudioUrl.substring(0, 80)}...`);
 
-    const creatomate = createCreatomateWrapper({
-      userId: session.user.sub,
-      projectId,
-      supabase,
-      operation: 'add-audio-merge',
-    });
-
-    const dimensions = getVideoDimensions(project.aspect_ratio || '16:9');
-    console.log(`[AddAudio] Dimensions: ${dimensions.width}x${dimensions.height}`);
-
-    const mergeResult = await creatomate.mergeVideoAudio({
+    const mergeResult = await mergeVideoAudio({
       videoUrl: shot.generated_video_url,
       audioUrl: publicAudioUrl,
-      width: dimensions.width,
-      height: dimensions.height,
+      userId: session.user.sub,
+      projectId,
+      shotId,
     });
 
-    console.log(`[AddAudio] Creatomate render started: ${mergeResult.renderId}`);
-
-    // Wait for render to complete
-    const renderResult = await creatomate.waitForRender(mergeResult.renderId!, 60, 2000);
-
-    if (!renderResult.url) {
-      return NextResponse.json({ error: 'Creatomate render failed - no URL returned' }, { status: 500 });
-    }
-
-    finalVideoUrl = renderResult.url;
-    console.log(`[AddAudio] Creatomate merge complete: ${finalVideoUrl}`);
+    console.log(`[AddAudio] FFmpeg merge complete: ${mergeResult.outputUrl}`);
 
     // Step 4: Update shot with merged video
     await supabase
       .from('shots')
-      .update({ generated_video_url: finalVideoUrl })
+      .update({ generated_video_url: mergeResult.outputUrl })
       .eq('id', shotId);
 
     return NextResponse.json({
       success: true,
-      videoUrl: finalVideoUrl,
+      videoUrl: mergeResult.outputUrl,
       audioUrl: dialogueAudioUrl,
       message: 'Audio added successfully',
-      method: 'creatomate',
+      method: 'ffmpeg',
     });
 
   } catch (error) {

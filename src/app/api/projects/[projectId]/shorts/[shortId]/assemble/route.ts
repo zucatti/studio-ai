@@ -1,30 +1,9 @@
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { createCreatomateWrapper } from '@/lib/ai/creatomate-wrapper';
-import { getSignedFileUrl } from '@/lib/storage';
+import { concatenateVideos } from '@/lib/ffmpeg';
 
 interface RouteParams {
   params: Promise<{ projectId: string; shortId: string }>;
-}
-
-// Helper to get dimensions from aspect ratio
-function getAspectRatioDimensions(aspectRatio: string): { width: number; height: number } {
-  switch (aspectRatio) {
-    case '9:16':
-      return { width: 1080, height: 1920 };
-    case '16:9':
-      return { width: 1920, height: 1080 };
-    case '1:1':
-      return { width: 1080, height: 1080 };
-    case '4:5':
-      return { width: 1080, height: 1350 };
-    case '2:3':
-      return { width: 1080, height: 1620 };
-    case '21:9':
-      return { width: 2560, height: 1080 };
-    default:
-      return { width: 1080, height: 1920 };
-  }
 }
 
 // POST /api/projects/[projectId]/shorts/[shortId]/assemble - Assemble all plan videos into one
@@ -101,100 +80,31 @@ export async function POST(request: Request, { params }: RouteParams) {
           return;
         }
 
-        // Get signed URLs for B2 videos (Creatomate needs public URLs)
-        const videoUrls: string[] = [];
-        for (const shot of sortedShots) {
-          let url = shot.generated_video_url;
-          if (url.startsWith('b2://')) {
-            // Extract key from b2://bucket/key format
-            const match = url.match(/^b2:\/\/[^/]+\/(.+)$/);
-            if (match) {
-              url = await getSignedFileUrl(match[1]);
-            }
-          }
-          videoUrls.push(url);
-        }
+        // Collect video URLs (FFmpeg utility handles b2:// URLs)
+        const videoUrls: string[] = sortedShots.map(
+          (shot: { generated_video_url: string }) => shot.generated_video_url
+        );
 
         console.log('[Assemble] Video URLs to concatenate:', videoUrls);
 
         sendEvent('progress', {
-          progress: 15,
-          message: `Assemblage de ${videoUrls.length} vidéo${videoUrls.length > 1 ? 's' : ''}...`
+          progress: 20,
+          message: `Assemblage de ${videoUrls.length} vidéo${videoUrls.length > 1 ? 's' : ''} avec FFmpeg...`
         });
 
-        // Get dimensions
-        const { width, height } = getAspectRatioDimensions(project.aspect_ratio || '9:16');
-
-        // Create Creatomate wrapper
-        const creatomate = createCreatomateWrapper({
+        // Concatenate with FFmpeg
+        const result = await concatenateVideos({
+          videoUrls,
           userId: session.user.sub,
           projectId,
-          supabase,
-          operation: 'short-assembly',
         });
 
-        sendEvent('progress', { progress: 20, message: 'Envoi à Creatomate...' });
+        console.log('[Assemble] FFmpeg concatenation complete:', result.outputUrl);
 
-        console.log('[Assemble] Starting concatenation with:', {
-          videoCount: videoUrls.length,
-          videoUrls,
-          width,
-          height,
+        sendEvent('progress', { progress: 100, message: 'Terminé!' });
+        sendEvent('complete', {
+          videoUrl: result.outputUrl,
         });
-
-        // Start concatenation
-        const { result, renderId } = await creatomate.concatenateVideos({
-          videoUrls,
-          width,
-          height,
-        });
-
-        console.log('[Assemble] Creatomate response:', result);
-
-        if (!renderId) {
-          sendEvent('error', { error: 'Failed to start render' });
-          controller.close();
-          return;
-        }
-
-        sendEvent('progress', { progress: 30, message: 'Rendu en cours...', renderId });
-
-        // Poll for completion
-        const maxAttempts = 120; // 4 minutes max
-        const pollInterval = 2000;
-
-        for (let i = 0; i < maxAttempts; i++) {
-          const renderStatus = await creatomate.getRender(renderId);
-
-          if (renderStatus.status === 'succeeded' && renderStatus.url) {
-            sendEvent('progress', { progress: 100, message: 'Terminé!' });
-            sendEvent('complete', {
-              videoUrl: renderStatus.url,
-              renderId,
-            });
-            controller.close();
-            return;
-          }
-
-          if (renderStatus.status === 'failed') {
-            console.error('[Assemble] Render failed:', renderStatus);
-            sendEvent('error', { error: renderStatus.error || 'Render failed' });
-            controller.close();
-            return;
-          }
-
-          // Calculate progress (30-95%)
-          const progress = Math.min(30 + Math.floor((i / maxAttempts) * 65), 95);
-          sendEvent('progress', {
-            progress,
-            message: `Rendu en cours... ${renderStatus.status}`,
-            renderId,
-          });
-
-          await new Promise(resolve => setTimeout(resolve, pollInterval));
-        }
-
-        sendEvent('error', { error: 'Render timeout' });
         controller.close();
 
       } catch (error) {
