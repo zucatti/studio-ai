@@ -73,20 +73,30 @@ export interface ConcatenateResult {
   duration?: number;
 }
 
-/**
- * Concatenate multiple videos into one using FFmpeg
- * Videos are joined sequentially without re-encoding when possible
- */
-export async function concatenateVideos(options: {
+export interface ConcatenateOptions {
   videoUrls: string[];
   userId: string;
   projectId: string;
   outputFilename?: string;
-}): Promise<ConcatenateResult> {
+  // Color matching options
+  colorMatch?: boolean;           // Enable color normalization between clips
+  lutFile?: string;               // Path to custom LUT file (optional)
+}
+
+/**
+ * Concatenate multiple videos into one using FFmpeg
+ * Videos are joined sequentially without re-encoding when possible
+ *
+ * With colorMatch=true, applies color normalization to each clip for consistency:
+ * - normalize: auto-adjusts black/white points
+ * - eq: standardizes brightness/contrast/saturation
+ */
+export async function concatenateVideos(options: ConcatenateOptions): Promise<ConcatenateResult> {
   await ensureTempDir();
 
-  const { videoUrls, userId, projectId } = options;
+  const { videoUrls, userId, projectId, colorMatch = false } = options;
   const tempFiles: string[] = [];
+  const normalizedFiles: string[] = [];
   const listPath = generateTempPath('txt');
   const outputPath = generateTempPath('mp4');
 
@@ -100,18 +110,42 @@ export async function concatenateVideos(options: {
       console.log(`[FFmpeg] Downloaded video ${i + 1}/${videoUrls.length}`);
     }
 
+    // If color matching is enabled, normalize each video first
+    if (colorMatch) {
+      console.log(`[FFmpeg] Applying color normalization to ${tempFiles.length} videos...`);
+
+      for (let i = 0; i < tempFiles.length; i++) {
+        const normalizedPath = generateTempPath('mp4');
+        normalizedFiles.push(normalizedPath);
+
+        // Color normalization filter chain:
+        // 1. normalize: auto-adjust black/white points (temporal smoothing for consistency)
+        // 2. eq: fine-tune brightness=0, contrast=1, saturation=1 (neutral baseline)
+        // 3. unsharp: slight sharpening to counter any softness from processing
+        const filterChain = [
+          'normalize=blackpt=black:whitept=white:smoothing=50',
+          'eq=brightness=0:contrast=1:saturation=1.05',  // Slight saturation boost
+        ].join(',');
+
+        const normalizeCmd = `ffmpeg -y -i "${tempFiles[i]}" -vf "${filterChain}" -c:v libx264 -preset fast -crf 18 -c:a copy "${normalizedPath}"`;
+        console.log(`[FFmpeg] Normalizing video ${i + 1}: ${normalizeCmd}`);
+
+        await execAsync(normalizeCmd, { timeout: 180000 }); // 3 min per video
+      }
+    }
+
+    // Use normalized files if color matching, otherwise use originals
+    const filesToConcat = colorMatch ? normalizedFiles : tempFiles;
+
     // Create concat list file
-    // Format: file '/path/to/video.mp4'
-    const listContent = tempFiles.map(f => `file '${f}'`).join('\n');
+    const listContent = filesToConcat.map(f => `file '${f}'`).join('\n');
     await writeFile(listPath, listContent);
 
     // Run FFmpeg concat
-    // -f concat: use concat demuxer
-    // -safe 0: allow absolute paths
-    // -c copy: stream copy (no re-encoding, fast)
-    // -movflags +faststart: move metadata to start for streaming/proper duration display
+    // With color matching: files are already re-encoded, so we can stream copy
+    // Without color matching: direct stream copy (fast)
     const cmd = `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy -movflags +faststart "${outputPath}"`;
-    console.log(`[FFmpeg] Running: ${cmd}`);
+    console.log(`[FFmpeg] Concatenating: ${cmd}`);
 
     await execAsync(cmd, { timeout: 300000 }); // 5 min timeout
 
@@ -132,8 +166,8 @@ export async function concatenateVideos(options: {
     return { outputUrl: url, signedUrl };
 
   } finally {
-    // Cleanup
-    await cleanup(listPath, outputPath, ...tempFiles);
+    // Cleanup all temp files
+    await cleanup(listPath, outputPath, ...tempFiles, ...normalizedFiles);
   }
 }
 

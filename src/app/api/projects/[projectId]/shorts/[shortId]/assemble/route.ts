@@ -7,8 +7,20 @@ interface RouteParams {
 }
 
 // POST /api/projects/[projectId]/shorts/[shortId]/assemble - Assemble all plan videos into one
+// Body (optional): { colorMatch?: boolean } - Enable color normalization between clips
 export async function POST(request: Request, { params }: RouteParams) {
   const encoder = new TextEncoder();
+
+  // Parse optional body for settings
+  let colorMatch = true; // Default to true for consistent look
+  try {
+    const body = await request.json();
+    if (typeof body.colorMatch === 'boolean') {
+      colorMatch = body.colorMatch;
+    }
+  } catch {
+    // No body or invalid JSON, use defaults
+  }
 
   // Create readable stream for SSE
   const stream = new ReadableStream({
@@ -86,10 +98,13 @@ export async function POST(request: Request, { params }: RouteParams) {
         );
 
         console.log('[Assemble] Video URLs to concatenate:', videoUrls);
+        console.log('[Assemble] Color matching:', colorMatch);
 
         sendEvent('progress', {
           progress: 20,
-          message: `Assemblage de ${videoUrls.length} vidéo${videoUrls.length > 1 ? 's' : ''} avec FFmpeg...`
+          message: colorMatch
+            ? `Normalisation colorimétrique de ${videoUrls.length} vidéo${videoUrls.length > 1 ? 's' : ''}...`
+            : `Assemblage de ${videoUrls.length} vidéo${videoUrls.length > 1 ? 's' : ''}...`
         });
 
         // Concatenate with FFmpeg
@@ -97,6 +112,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           videoUrls,
           userId: session.user.sub,
           projectId,
+          colorMatch,
         });
 
         console.log('[Assemble] FFmpeg concatenation complete:', result.outputUrl);
