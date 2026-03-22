@@ -4,7 +4,17 @@ import { auth0 } from "./lib/auth0";
 export async function middleware(request: NextRequest) {
   try {
     const response = await auth0.middleware(request);
-    console.log('[Middleware] OK:', request.nextUrl.pathname);
+
+    // Log response details for auth routes
+    if (request.nextUrl.pathname.startsWith('/auth')) {
+      console.log('[Middleware] Response:', {
+        path: request.nextUrl.pathname,
+        status: response.status,
+        location: response.headers.get('location'),
+        cookies: response.headers.get('set-cookie')?.substring(0, 100),
+      });
+    }
+
     return response;
   } catch (error) {
     console.error('[Middleware] ERROR:', error);
