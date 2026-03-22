@@ -22,7 +22,7 @@ import {
 import { DurationPicker } from './DurationPicker';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { VideoGenerationCard, type VideoGenerationProgress } from './VideoGenerationCard';
-import { Loader2, ImageIcon, Film, Play, Pause, Mic, Images, Video, Link, Maximize2, Volume2, VolumeX, Download, X } from 'lucide-react';
+import { Loader2, ImageIcon, Film, Play, Pause, Mic, Images, Video, Link, Maximize2, Volume2, VolumeX, Download, X, Clock } from 'lucide-react';
 import { useBibleStore } from '@/store/bible-store';
 import type { Plan } from '@/store/shorts-store';
 import type { ShotType, CameraAngle, CameraMovement, AspectRatio } from '@/types/database';
@@ -178,6 +178,10 @@ export function PlanEditorModal({
 
   // Audio generation state
   const [isAddingAudio, setIsAddingAudio] = useState(false);
+
+  // Duration estimation for dialogue mode
+  const [estimatedDuration, setEstimatedDuration] = useState<number | null>(null);
+  const [isEstimatingDuration, setIsEstimatingDuration] = useState(false);
 
   // Custom video player state
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -432,6 +436,41 @@ export function PlanEditorModal({
     toast.error('Aucune frame disponible');
   }, [previousVideoUrl, previousLastFrameUrl, previousFirstFrameUrl, projectId, onUpdate]);
 
+  // Estimate dialogue duration using Claude
+  const estimateDialogueDuration = useCallback(async () => {
+    if (!dialogueText.trim()) {
+      toast.error('Ajoutez du texte de dialogue');
+      return;
+    }
+
+    setIsEstimatingDuration(true);
+    try {
+      const response = await fetch('/api/ai/estimate-duration', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: dialogueText }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to estimate duration');
+      }
+
+      const { duration } = await response.json();
+      setEstimatedDuration(duration);
+      toast.success(`Durée estimée: ~${duration}s`);
+    } catch (error) {
+      console.error('Duration estimation error:', error);
+      toast.error('Erreur lors de l\'estimation');
+    } finally {
+      setIsEstimatingDuration(false);
+    }
+  }, [dialogueText]);
+
+  // Reset estimated duration when dialogue text changes significantly
+  useEffect(() => {
+    setEstimatedDuration(null);
+  }, [dialogueText]);
+
   if (!plan) return null;
 
   // Handle animation prompt change
@@ -631,13 +670,48 @@ export function PlanEditorModal({
 
           {/* Camera Settings Row */}
           <div className="flex items-center gap-4 mt-4">
+            {/* Duration: show picker or estimate button based on dialogue mode */}
             <div className="flex items-center gap-2">
               <Label className="text-slate-400 text-xs whitespace-nowrap">Durée</Label>
-              <DurationPicker
-                value={plan.duration}
-                onChange={(duration) => onUpdate({ duration })}
-                compact
-              />
+              {hasDialogue ? (
+                // In dialogue mode: show estimate button or estimated value
+                <div className="flex items-center gap-2">
+                  {estimatedDuration ? (
+                    <span className="text-white text-sm font-medium px-2 py-1 bg-white/5 rounded">
+                      ~{estimatedDuration}s
+                    </span>
+                  ) : (
+                    <span className="text-slate-500 text-xs px-2">auto</span>
+                  )}
+                  <button
+                    onClick={estimateDialogueDuration}
+                    disabled={isEstimatingDuration || !dialogueText.trim()}
+                    className={cn(
+                      "flex items-center gap-1 px-2 py-1 rounded text-xs transition-colors",
+                      isEstimatingDuration
+                        ? "bg-blue-500/20 text-blue-300 cursor-wait"
+                        : dialogueText.trim()
+                          ? "bg-blue-500/20 text-blue-400 hover:bg-blue-500/30"
+                          : "bg-white/5 text-slate-500 cursor-not-allowed"
+                    )}
+                    title="Estimer la durée du dialogue"
+                  >
+                    {isEstimatingDuration ? (
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Clock className="w-3 h-3" />
+                    )}
+                    Estimer
+                  </button>
+                </div>
+              ) : (
+                // Normal mode: duration picker
+                <DurationPicker
+                  value={plan.duration}
+                  onChange={(duration) => onUpdate({ duration })}
+                  compact
+                />
+              )}
             </div>
 
             <div className="flex items-center gap-2">
