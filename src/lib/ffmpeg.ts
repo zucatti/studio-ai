@@ -68,7 +68,8 @@ async function cleanup(...paths: string[]) {
 }
 
 export interface ConcatenateResult {
-  outputUrl: string;
+  outputUrl: string;      // b2:// URL for storage
+  signedUrl: string;      // Signed URL for immediate playback
   duration?: number;
 }
 
@@ -125,7 +126,10 @@ export async function concatenateVideos(options: {
     const { url } = await uploadFile(storageKey, outputBuffer, 'video/mp4');
     console.log(`[FFmpeg] Uploaded to: ${url}`);
 
-    return { outputUrl: url };
+    // Get signed URL for immediate playback
+    const signedUrl = await getSignedFileUrl(storageKey, 3600);
+
+    return { outputUrl: url, signedUrl };
 
   } finally {
     // Cleanup
@@ -134,7 +138,8 @@ export async function concatenateVideos(options: {
 }
 
 export interface MergeAudioResult {
-  outputUrl: string;
+  outputUrl: string;      // b2:// URL for storage
+  signedUrl: string;      // Signed URL for immediate playback
 }
 
 /**
@@ -183,7 +188,10 @@ export async function mergeVideoAudio(options: {
     const { url } = await uploadFile(storageKey, outputBuffer, 'video/mp4');
     console.log(`[FFmpeg] Uploaded to: ${url}`);
 
-    return { outputUrl: url };
+    // Get signed URL for immediate playback
+    const signedUrl = await getSignedFileUrl(storageKey, 3600);
+
+    return { outputUrl: url, signedUrl };
 
   } finally {
     // Cleanup

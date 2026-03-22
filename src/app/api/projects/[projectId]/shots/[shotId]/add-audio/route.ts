@@ -155,7 +155,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     console.log(`[AddAudio] FFmpeg merge complete: ${mergeResult.outputUrl}`);
 
-    // Step 4: Update shot with merged video
+    // Step 4: Update shot with merged video (store b2:// URL)
     await supabase
       .from('shots')
       .update({ generated_video_url: mergeResult.outputUrl })
@@ -163,7 +163,8 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     return NextResponse.json({
       success: true,
-      videoUrl: mergeResult.outputUrl,
+      videoUrl: mergeResult.signedUrl,     // Signed URL for immediate playback
+      storageUrl: mergeResult.outputUrl,   // b2:// URL for reference
       audioUrl: dialogueAudioUrl,
       message: 'Audio added successfully',
       method: 'ffmpeg',

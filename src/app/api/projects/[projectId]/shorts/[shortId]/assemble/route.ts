@@ -100,10 +100,12 @@ export async function POST(request: Request, { params }: RouteParams) {
         });
 
         console.log('[Assemble] FFmpeg concatenation complete:', result.outputUrl);
+        console.log('[Assemble] Signed URL for playback:', result.signedUrl);
 
         sendEvent('progress', { progress: 100, message: 'Terminé!' });
         sendEvent('complete', {
-          videoUrl: result.outputUrl,
+          videoUrl: result.signedUrl,      // Use signed URL for immediate playback
+          storageUrl: result.outputUrl,    // b2:// URL for storage reference
         });
         controller.close();
 
