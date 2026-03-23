@@ -130,8 +130,15 @@ async function processAssembly(data: FFmpegJobData): Promise<void> {
     await writeFile(concatPath, concatContent);
     tempFiles.push(concatPath);
 
-    // Run FFmpeg concat
-    await updateJobProgress(jobId, 60, 'Fusion des vidéos...');
+    // Get total duration for progress calculation
+    let totalDuration = 0;
+    for (const file of tempFiles.filter(f => f.endsWith('.mp4'))) {
+      totalDuration += await getVideoDuration(file);
+    }
+    console.log(`[FFmpeg] Total input duration: ${totalDuration.toFixed(2)}s`);
+
+    // Run FFmpeg concat with progress
+    await updateJobProgress(jobId, 55, `Fusion de ${tempFiles.filter(f => f.endsWith('.mp4')).length} vidéos (${totalDuration.toFixed(1)}s)...`);
 
     await runFFmpeg([
       '-f', 'concat',
@@ -145,7 +152,13 @@ async function processAssembly(data: FFmpegJobData): Promise<void> {
       '-movflags', '+faststart',
       '-y',
       outputPath,
-    ]);
+    ], {
+      jobId,
+      baseProgress: 55,
+      progressRange: 30,
+      totalDuration,
+      onProgress: (progress, message) => updateJobProgress(jobId, progress, message),
+    });
 
     tempFiles.push(outputPath);
 
@@ -303,10 +316,20 @@ async function processMusicOverlay(data: FFmpegJobData): Promise<void> {
       ];
     }
 
-    await runFFmpeg(ffmpegArgs);
+    // Get video duration for progress
+    const videoDuration = await getVideoDuration(videoPath);
+    console.log(`[FFmpeg] Video duration: ${videoDuration.toFixed(2)}s`);
+
+    await runFFmpeg(ffmpegArgs, {
+      jobId,
+      baseProgress: 50,
+      progressRange: 35,
+      totalDuration: videoDuration,
+      onProgress: (progress, message) => updateJobProgress(jobId, progress, message),
+    });
 
     // Upload result
-    await updateJobProgress(jobId, 85, 'Sauvegarde du résultat...');
+    await updateJobProgress(jobId, 88, 'Sauvegarde du résultat...');
 
     const { readFile } = await import('fs/promises');
     const outputBuffer = await readFile(outputPath);
@@ -379,9 +402,97 @@ async function checkVideoHasAudio(videoPath: string): Promise<boolean> {
 }
 
 /**
- * Run FFmpeg with the given arguments
+ * Parse FFmpeg progress line and extract info
  */
-function runFFmpeg(args: string[]): Promise<void> {
+function parseFFmpegProgress(line: string): {
+  frame?: number;
+  fps?: number;
+  time?: string;
+  speed?: string;
+  size?: string;
+  bitrate?: string;
+} | null {
+  // FFmpeg progress format: frame=  120 fps= 30 q=28.0 size=    1024kB time=00:00:04.00 bitrate=2099.2kbits/s speed=1.5x
+  const frameMatch = line.match(/frame=\s*(\d+)/);
+  const fpsMatch = line.match(/fps=\s*([\d.]+)/);
+  const timeMatch = line.match(/time=(\d{2}:\d{2}:\d{2}\.\d{2})/);
+  const speedMatch = line.match(/speed=\s*([\d.]+x|N\/A)/);
+  const sizeMatch = line.match(/size=\s*(\d+\w+)/);
+  const bitrateMatch = line.match(/bitrate=\s*([\d.]+\w+\/s)/);
+
+  if (!frameMatch && !timeMatch) {
+    return null;
+  }
+
+  return {
+    frame: frameMatch ? parseInt(frameMatch[1], 10) : undefined,
+    fps: fpsMatch ? parseFloat(fpsMatch[1]) : undefined,
+    time: timeMatch ? timeMatch[1] : undefined,
+    speed: speedMatch ? speedMatch[1] : undefined,
+    size: sizeMatch ? sizeMatch[1] : undefined,
+    bitrate: bitrateMatch ? bitrateMatch[1] : undefined,
+  };
+}
+
+/**
+ * Get video duration using ffprobe
+ */
+async function getVideoDuration(videoPath: string): Promise<number> {
+  return new Promise((resolve) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'error',
+      '-show_entries', 'format=duration',
+      '-of', 'csv=p=0',
+      videoPath,
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.on('close', () => {
+      const duration = parseFloat(stdout.trim());
+      resolve(isNaN(duration) ? 0 : duration);
+    });
+
+    proc.on('error', () => {
+      resolve(0);
+    });
+  });
+}
+
+/**
+ * Convert time string (HH:MM:SS.ms) to seconds
+ */
+function timeToSeconds(time: string): number {
+  const parts = time.split(':');
+  if (parts.length !== 3) return 0;
+  const hours = parseInt(parts[0], 10);
+  const minutes = parseInt(parts[1], 10);
+  const seconds = parseFloat(parts[2]);
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+interface FFmpegProgressCallback {
+  (progress: number, message: string): Promise<void>;
+}
+
+/**
+ * Run FFmpeg with the given arguments and progress reporting
+ */
+function runFFmpeg(
+  args: string[],
+  options?: {
+    jobId?: string;
+    baseProgress?: number;
+    progressRange?: number;
+    totalDuration?: number;
+    onProgress?: FFmpegProgressCallback;
+  }
+): Promise<void> {
   return new Promise((resolve, reject) => {
     console.log(`[FFmpeg] Running: ffmpeg ${args.join(' ')}`);
 
@@ -390,13 +501,57 @@ function runFFmpeg(args: string[]): Promise<void> {
     });
 
     let stderr = '';
+    let lastProgressUpdate = 0;
+    const { baseProgress = 50, progressRange = 30, totalDuration = 0, onProgress } = options || {};
 
     process.stderr?.on('data', (data) => {
-      stderr += data.toString();
+      const chunk = data.toString();
+      stderr += chunk;
+
+      // Parse progress from each line
+      const lines = chunk.split('\n');
+      for (const line of lines) {
+        const progress = parseFFmpegProgress(line);
+        if (progress) {
+          // Log progress
+          const parts: string[] = [];
+          if (progress.frame) parts.push(`frame=${progress.frame}`);
+          if (progress.fps) parts.push(`fps=${progress.fps}`);
+          if (progress.time) parts.push(`time=${progress.time}`);
+          if (progress.speed) parts.push(`speed=${progress.speed}`);
+          if (progress.size) parts.push(`size=${progress.size}`);
+
+          console.log(`[FFmpeg] Progress: ${parts.join(' ')}`);
+
+          // Calculate and report progress percentage
+          if (onProgress && progress.time) {
+            const currentTime = timeToSeconds(progress.time);
+            const now = Date.now();
+
+            // Throttle updates to every 2 seconds
+            if (now - lastProgressUpdate >= 2000) {
+              lastProgressUpdate = now;
+
+              let progressPercent = baseProgress;
+              if (totalDuration > 0) {
+                progressPercent = baseProgress + (currentTime / totalDuration) * progressRange;
+              }
+
+              // Build message
+              const msg = progress.speed && progress.speed !== 'N/A'
+                ? `Encodage: ${progress.time} (${progress.speed})`
+                : `Encodage: ${progress.time}`;
+
+              onProgress(Math.min(progressPercent, baseProgress + progressRange), msg).catch(() => {});
+            }
+          }
+        }
+      }
     });
 
     process.on('close', (code) => {
       if (code === 0) {
+        console.log('[FFmpeg] Completed successfully');
         resolve();
       } else {
         console.error(`[FFmpeg] Error output:\n${stderr}`);
