@@ -40,6 +40,7 @@ export interface ImageGenJobData {
   falEndpoint: string;
   frontReferenceUrl?: string;
   sourceImageUrl?: string;
+  inspirationImageUrls?: string[]; // Reference images for image-to-image generation
   lookId?: string;
   lookName?: string;
   lookDescription?: string;
@@ -95,10 +96,12 @@ export async function processImageGenJob(job: Job<ImageGenJobData>): Promise<voi
     falEndpoint,
     frontReferenceUrl,
     sourceImageUrl,
+    inspirationImageUrls,
     lookId,
     lookName,
     lookDescription,
     resolution,
+    aspectRatio,
   } = data;
 
   console.log(`[ImageGen] Processing job ${jobId} for asset ${assetId}`);
@@ -115,15 +118,18 @@ export async function processImageGenJob(job: Job<ImageGenJobData>): Promise<voi
     if (mode === 'generate_single') {
       // Generate a single view
       const isModifyingFront = imageType === 'front' && sourceImageUrl;
-      await updateJobProgress(jobId, 20, isModifyingFront ? 'Modification du visage...' : `Génération de la vue ${imageType}...`);
+      const hasInspirationImage = inspirationImageUrls && inspirationImageUrls.length > 0;
+      await updateJobProgress(jobId, 20, hasInspirationImage ? 'Génération image-to-image...' : (isModifyingFront ? 'Modification du visage...' : `Génération de la vue ${imageType}...`));
 
       const imageUrl = await generateSingleImage({
         fullPrompt,
         falEndpoint,
         styleConfig,
         resolution,
+        aspectRatio,
         frontReferenceUrl,
         sourceImageUrl: isModifyingFront ? sourceImageUrl : undefined, // For front modification
+        inspirationImageUrl: hasInspirationImage ? inspirationImageUrls[0] : undefined, // First inspiration image for i2i
         imageType: imageType || 'front',
       });
 
@@ -416,18 +422,152 @@ async function generateSingleImage(options: {
   falEndpoint: string;
   styleConfig: ImageGenJobData['styleConfig'];
   resolution?: string;
+  aspectRatio?: string;
   frontReferenceUrl?: string;
   sourceImageUrl?: string; // For modifying existing front image
+  inspirationImageUrl?: string; // Reference image for image-to-image (locations)
   imageType?: string;
 }): Promise<string | undefined> {
-  const { fullPrompt, falEndpoint, styleConfig, resolution, frontReferenceUrl, sourceImageUrl, imageType } = options;
+  const { fullPrompt, falEndpoint, styleConfig, resolution, aspectRatio, frontReferenceUrl, sourceImageUrl, inspirationImageUrl, imageType } = options;
 
-  // If modifying an existing front image, use Ideogram with the source as reference
+  // If we have an inspiration image (for locations), use image-to-image model
+  if (inspirationImageUrl) {
+    console.log(`[ImageGen] Using inspiration image for image-to-image with model: ${falEndpoint}`);
+    const publicUrl = await getPublicUrl(inspirationImageUrl);
+    console.log(`[ImageGen] Inspiration image URL: ${publicUrl.substring(0, 80)}...`);
+
+    const effectiveAspectRatio = aspectRatio || '16:9';
+    console.log(`[ImageGen] Using aspect ratio: ${effectiveAspectRatio}`);
+
+    try {
+      // Kling O1 - uses @Image1 syntax
+      if (falEndpoint === 'kling-omni' || falEndpoint.includes('kling')) {
+        const klingPrompt = `Based on @Image1, ${fullPrompt}`;
+        console.log(`[ImageGen] Kling O1 prompt: ${klingPrompt}`);
+
+        const result = await fal.subscribe('fal-ai/kling-image/o1', {
+          input: {
+            prompt: klingPrompt,
+            image_urls: [publicUrl],
+            aspect_ratio: effectiveAspectRatio,
+            output_resolution: resolution === '4K' ? '2k' : '1k',
+            num_images: 1,
+          } as any,
+          logs: true,
+        });
+
+        const outputUrl = (result.data as any)?.images?.[0]?.url;
+        if (outputUrl) {
+          console.log(`[ImageGen] Kling O1 generation succeeded`);
+          return outputUrl;
+        }
+        throw new Error('Kling O1 returned no image');
+      }
+
+      // Flux Dev Image-to-Image
+      if (falEndpoint === 'flux-i2i' || falEndpoint.includes('flux')) {
+        console.log(`[ImageGen] Flux Dev image-to-image prompt: ${fullPrompt}`);
+
+        const result = await fal.subscribe('fal-ai/flux/dev/image-to-image', {
+          input: {
+            image_url: publicUrl,
+            prompt: fullPrompt,
+            strength: 0.85,
+            num_inference_steps: 28,
+            guidance_scale: 7.5,
+          } as any,
+          logs: true,
+        });
+
+        const outputUrl = (result.data as any)?.images?.[0]?.url;
+        if (outputUrl) {
+          console.log(`[ImageGen] Flux Dev i2i generation succeeded`);
+          return outputUrl;
+        }
+        throw new Error('Flux Dev i2i returned no image');
+      }
+
+      // Seedream Edit
+      if (falEndpoint === 'seedream-edit' || falEndpoint.includes('seedream')) {
+        console.log(`[ImageGen] Seedream Edit prompt: ${fullPrompt}`);
+
+        const result = await fal.subscribe('fal-ai/bytedance/seedream/v4/edit', {
+          input: {
+            image_url: publicUrl,
+            prompt: fullPrompt,
+            aspect_ratio: effectiveAspectRatio,
+          } as any,
+          logs: true,
+        });
+
+        const outputUrl = (result.data as any)?.images?.[0]?.url;
+        if (outputUrl) {
+          console.log(`[ImageGen] Seedream Edit generation succeeded`);
+          return outputUrl;
+        }
+        throw new Error('Seedream Edit returned no image');
+      }
+
+      // Fallback to Kling O1 if model not recognized
+      console.log(`[ImageGen] Unrecognized i2i model ${falEndpoint}, falling back to Kling O1`);
+      const klingPrompt = `Based on @Image1, ${fullPrompt}`;
+      const result = await fal.subscribe('fal-ai/kling-image/o1', {
+        input: {
+          prompt: klingPrompt,
+          image_urls: [publicUrl],
+          aspect_ratio: effectiveAspectRatio,
+          output_resolution: resolution === '4K' ? '2k' : '1k',
+          num_images: 1,
+        } as any,
+        logs: true,
+      });
+
+      const outputUrl = (result.data as any)?.images?.[0]?.url;
+      if (outputUrl) return outputUrl;
+      throw new Error('Fallback Kling O1 returned no image');
+
+    } catch (error) {
+      console.error(`[ImageGen] Image-to-image failed:`, error);
+      throw error;
+    }
+  }
+
+  // If modifying an existing front image
   if (sourceImageUrl && imageType === 'front') {
-    console.log(`[ImageGen] Modifying existing front image with Ideogram`);
     const publicUrl = await getPublicUrl(sourceImageUrl);
     console.log(`[ImageGen] Source image URL: ${publicUrl.substring(0, 80)}...`);
 
+    // Check if using Kling O1
+    if (falEndpoint.includes('kling-image')) {
+      console.log(`[ImageGen] Modifying front image with Kling O1`);
+      try {
+        const klingPrompt = `Based on the person in @Image1, ${fullPrompt}`;
+        console.log(`[ImageGen] Kling O1 prompt: ${klingPrompt}`);
+
+        const result = await fal.subscribe('fal-ai/kling-image/o1', {
+          input: {
+            prompt: klingPrompt,
+            image_urls: [publicUrl],
+            aspect_ratio: '3:4',
+            output_resolution: resolution === '4K' ? '2k' : '1k',
+            num_images: 1,
+          } as any,
+          logs: true,
+        });
+
+        const outputUrl = (result.data as any)?.images?.[0]?.url;
+        if (outputUrl) {
+          console.log(`[ImageGen] Kling O1 generation succeeded`);
+          return outputUrl;
+        }
+      } catch (error) {
+        console.error(`[ImageGen] Kling O1 failed:`, error);
+        throw error;
+      }
+    }
+
+    // Use Ideogram for other models
+    console.log(`[ImageGen] Modifying existing front image with Ideogram`);
     return generateWithIdeogram({
       prompt: fullPrompt,
       referenceUrl: publicUrl,
@@ -441,6 +581,36 @@ async function generateSingleImage(options: {
     const viewConfig = CHARACTER_VIEWS.find(v => v.name === imageType);
     const publicUrl = await getPublicUrl(frontReferenceUrl);
     console.log(`[ImageGen] Reference URL: ${publicUrl.substring(0, 80)}...`);
+
+    // Check if using Kling O1
+    if (falEndpoint.includes('kling-image')) {
+      console.log(`[ImageGen] Generating ${imageType} view with Kling O1`);
+      try {
+        const viewSuffix = viewConfig?.promptSuffix || imageType;
+        const klingPrompt = `Based on the person in @Image1, create a ${viewSuffix}. ${fullPrompt}`;
+        console.log(`[ImageGen] Kling O1 prompt: ${klingPrompt}`);
+
+        const result = await fal.subscribe('fal-ai/kling-image/o1', {
+          input: {
+            prompt: klingPrompt,
+            image_urls: [publicUrl],
+            aspect_ratio: '3:4',
+            output_resolution: resolution === '4K' ? '2k' : '1k',
+            num_images: 1,
+          } as any,
+          logs: true,
+        });
+
+        const outputUrl = (result.data as any)?.images?.[0]?.url;
+        if (outputUrl) {
+          console.log(`[ImageGen] Kling O1 generation succeeded`);
+          return outputUrl;
+        }
+      } catch (error) {
+        console.error(`[ImageGen] Kling O1 failed:`, error);
+        throw error;
+      }
+    }
 
     if (viewConfig) {
       console.log(`[ImageGen] Found view config: ${viewConfig.name}, perspectiveTarget: ${viewConfig.perspectiveTarget}`);
@@ -465,7 +635,7 @@ async function generateSingleImage(options: {
   }
 
   // Build input based on model
-  const input = buildTextToImageInput(fullPrompt, falEndpoint, resolution || styleConfig.resolution);
+  const input = buildTextToImageInput(fullPrompt, falEndpoint, resolution || styleConfig.resolution, aspectRatio);
 
   const result = await fal.subscribe(falEndpoint, {
     input,
@@ -529,24 +699,51 @@ async function generateWithIdeogram(options: {
 /**
  * Build text-to-image input based on model
  */
-function buildTextToImageInput(prompt: string, falEndpoint: string, resolution: string): Record<string, unknown> {
+function buildTextToImageInput(prompt: string, falEndpoint: string, resolution: string, aspectRatio?: string): Record<string, unknown> {
+  // Default aspect ratio for characters vs locations
+  const ratio = aspectRatio || '3:4';
+
+  // Map aspect ratios to image_size for models that use that parameter
+  const getImageSize = (ar: string) => {
+    switch (ar) {
+      case '16:9': return 'landscape_16_9';
+      case '9:16': return 'portrait_16_9';
+      case '1:1': return 'square';
+      case '3:4': return 'portrait_4_3';
+      case '4:3': return 'landscape_4_3';
+      default: return 'portrait_4_3';
+    }
+  };
+
+  // Map aspect ratios to GPT image sizes
+  const getGptImageSize = (ar: string) => {
+    switch (ar) {
+      case '16:9': return '1536x1024';
+      case '9:16': return '1024x1536';
+      case '1:1': return '1024x1024';
+      case '3:4': return '1024x1536';
+      case '4:3': return '1536x1024';
+      default: return '1024x1536';
+    }
+  };
+
   if (falEndpoint.includes('seedream')) {
     return {
       prompt,
-      aspect_ratio: '3:4',
+      aspect_ratio: ratio,
       num_images: 1,
       output_format: 'png',
     };
   } else if (falEndpoint.includes('flux-2-pro')) {
     return {
       prompt,
-      image_size: 'portrait_4_3',
+      image_size: getImageSize(ratio),
       output_format: 'png',
     };
   } else if (falEndpoint.includes('gpt-image')) {
     return {
       prompt,
-      image_size: '1024x1536',
+      image_size: getGptImageSize(ratio),
       quality: 'high',
       output_format: 'png',
       num_images: 1,
@@ -555,7 +752,7 @@ function buildTextToImageInput(prompt: string, falEndpoint: string, resolution: 
     // Nano Banana 2 and others
     return {
       prompt,
-      aspect_ratio: '3:4',
+      aspect_ratio: ratio,
       image_resolution: resolution,
       num_images: 1,
     };

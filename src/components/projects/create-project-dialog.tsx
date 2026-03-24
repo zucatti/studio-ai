@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -14,11 +14,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { StorageImg } from '@/components/ui/storage-image';
-import type { Project, AspectRatio, ProjectType } from '@/types/database';
+import type { Project, AspectRatio, ProjectType, GlobalAsset } from '@/types/database';
 import { getProjectTypeConfig, getAspectRatiosForType } from '@/lib/project-types';
-import { Sparkles, Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Sparkles, Upload, X, Image as ImageIcon, Loader2, Music, ChevronDown, Clock, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { PROJECT_TYPE_ICONS } from '@/components/icons/project-type-icons';
+import type { AudioData } from '@/store/bible-store';
+import dynamic from 'next/dynamic';
+
+// Lazy load WaveformTimeline to avoid SSR issues with WaveSurfer
+const WaveformTimeline = dynamic(
+  () => import('@/components/audio/WaveformTimeline').then(mod => mod.WaveformTimeline),
+  { ssr: false, loading: () => <div className="h-20 bg-slate-900/50 rounded-lg animate-pulse" /> }
+);
 
 // Compact project types config
 const COMPACT_PROJECT_TYPES: { value: ProjectType; label: string; simplified: boolean }[] = [
@@ -103,11 +111,16 @@ interface FocalPoint {
   y: number;
 }
 
+// Audio asset with typed data
+interface AudioAssetWithData extends Omit<GlobalAsset, 'data'> {
+  data: AudioData;
+}
+
 interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   editProject?: Project | null;
-  onSubmit: (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio, projectType?: ProjectType, focalPoint?: FocalPoint) => Promise<void>;
+  onSubmit: (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio, projectType?: ProjectType, focalPoint?: FocalPoint, masterAudioId?: string) => Promise<void>;
 }
 
 export function CreateProjectDialog({
@@ -130,7 +143,91 @@ export function CreateProjectDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const thumbnailContainerRef = useRef<HTMLDivElement>(null);
 
+  // Audio selection for Clip projects
+  const [audioAssets, setAudioAssets] = useState<AudioAssetWithData[]>([]);
+  const [selectedAudioId, setSelectedAudioId] = useState<string | null>(null);
+  const [signedAudioUrl, setSignedAudioUrl] = useState<string | null>(null);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+  const [showAudioSelector, setShowAudioSelector] = useState(false);
+
   const isEditing = !!editProject;
+
+  // Get selected audio asset
+  const selectedAudio = audioAssets.find(a => a.id === selectedAudioId);
+
+  // Sign audio URL when selected
+  useEffect(() => {
+    const signUrl = async () => {
+      if (!selectedAudio?.data?.fileUrl) {
+        setSignedAudioUrl(null);
+        return;
+      }
+
+      const fileUrl = selectedAudio.data.fileUrl;
+
+      // If already a public URL, use directly
+      if (fileUrl.startsWith('http://') || fileUrl.startsWith('https://')) {
+        setSignedAudioUrl(fileUrl);
+        return;
+      }
+
+      // Sign b2:// URLs
+      if (fileUrl.startsWith('b2://')) {
+        try {
+          const res = await fetch('/api/storage/sign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls: [fileUrl] }),
+          });
+          if (res.ok) {
+            const data = await res.json();
+            setSignedAudioUrl(data.signedUrls?.[0] || null);
+          }
+        } catch (error) {
+          console.error('Error signing audio URL:', error);
+          setSignedAudioUrl(null);
+        }
+      }
+    };
+
+    signUrl();
+  }, [selectedAudio?.data?.fileUrl]);
+
+  // Format duration helper
+  const formatDuration = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Fetch audio assets from bible when dialog opens and type is music_video
+  const fetchAudioAssets = useCallback(async () => {
+    if (projectType !== 'music_video') return;
+
+    setIsLoadingAudio(true);
+    try {
+      const res = await fetch('/api/global-assets?type=audio');
+      if (res.ok) {
+        const data = await res.json();
+        // Filter only music type audio
+        const musicAssets = (data.assets || []).filter(
+          (a: AudioAssetWithData) => a.data?.audioType === 'music' && a.data?.fileUrl
+        );
+        setAudioAssets(musicAssets);
+      }
+    } catch (error) {
+      console.error('Error fetching audio assets:', error);
+    } finally {
+      setIsLoadingAudio(false);
+    }
+  }, [projectType]);
+
+  // Fetch audio when project type changes to music_video
+  useEffect(() => {
+    if (open && projectType === 'music_video') {
+      fetchAudioAssets();
+    }
+  }, [open, projectType, fetchAudioAssets]);
 
   useEffect(() => {
     if (open && editProject) {
@@ -151,6 +248,9 @@ export function CreateProjectDialog({
       setThumbnailFile(null);
       setExistingThumbnailUrl(null);
       setFocalPoint({ x: 50, y: 25 });
+      setSelectedAudioId(null);
+      setSignedAudioUrl(null);
+      setShowAudioSelector(false);
     }
   }, [open, editProject]);
 
@@ -317,7 +417,7 @@ export function CreateProjectDialog({
         thumbnailUrl = undefined;
       }
 
-      await onSubmit(name.trim(), description.trim() || undefined, thumbnailUrl, aspectRatio, projectType, focalPoint);
+      await onSubmit(name.trim(), description.trim() || undefined, thumbnailUrl, aspectRatio, projectType, focalPoint, selectedAudioId || undefined);
       setName('');
       setDescription('');
       setProjectType('short');
@@ -326,6 +426,9 @@ export function CreateProjectDialog({
       setThumbnailFile(null);
       setExistingThumbnailUrl(null);
       setFocalPoint({ x: 50, y: 25 });
+      setSelectedAudioId(null);
+      setSignedAudioUrl(null);
+      setShowAudioSelector(false);
     } finally {
       setIsLoading(false);
       setIsUploading(false);
@@ -503,6 +606,150 @@ export function CreateProjectDialog({
                     ? 'Mode Quick Shot : génération rapide d\'images'
                     : 'Pipeline complet : brainstorming → script → storyboard'
                   }
+                </p>
+              </div>
+            )}
+
+            {/* Audio Selection for Clip projects */}
+            {!isEditing && projectType === 'music_video' && (
+              <div className="grid gap-2">
+                <Label className="text-slate-300 flex items-center gap-2">
+                  <Music className="w-4 h-4 text-purple-400" />
+                  Musique du clip
+                  <span className="text-slate-500 font-normal text-xs">(depuis la Bible)</span>
+                </Label>
+
+                {selectedAudio ? (
+                  // Selected audio display with waveform
+                  <div className="rounded-xl border border-purple-500/30 bg-purple-500/5 overflow-hidden">
+                    {/* Audio info header */}
+                    <div className="flex items-center justify-between px-4 py-2 border-b border-purple-500/20">
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-purple-500/20">
+                          <Music className="w-4 h-4 text-purple-400" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-medium text-white">{selectedAudio.name}</p>
+                          <p className="text-xs text-slate-400 flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {selectedAudio.data?.duration ? formatDuration(selectedAudio.data.duration) : '--:--'}
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setSelectedAudioId(null)}
+                        className="text-slate-400 hover:text-white hover:bg-white/10"
+                      >
+                        <X className="w-4 h-4 mr-1" />
+                        Retirer
+                      </Button>
+                    </div>
+
+                    {/* Waveform preview */}
+                    {signedAudioUrl && (
+                      <div className="p-3">
+                        <WaveformTimeline
+                          audioUrl={signedAudioUrl}
+                          height={60}
+                          waveColor="#a855f7"
+                          progressColor="#c084fc"
+                          showTimeline={false}
+                          showControls={true}
+                          readOnly={true}
+                        />
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  // Audio selector dropdown
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => setShowAudioSelector(!showAudioSelector)}
+                      className={cn(
+                        'w-full flex items-center justify-between px-4 py-3 rounded-xl border-2 border-dashed transition-all',
+                        showAudioSelector
+                          ? 'border-purple-500 bg-purple-500/10'
+                          : 'border-white/10 hover:border-purple-500/50 hover:bg-white/5'
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded-lg bg-slate-800">
+                          <Music className="w-5 h-5 text-slate-400" />
+                        </div>
+                        <div className="text-left">
+                          <p className="text-sm text-slate-300">
+                            {isLoadingAudio ? 'Chargement...' : 'Sélectionner une musique'}
+                          </p>
+                          <p className="text-xs text-slate-500">
+                            {audioAssets.length} musique{audioAssets.length > 1 ? 's' : ''} disponible{audioAssets.length > 1 ? 's' : ''}
+                          </p>
+                        </div>
+                      </div>
+                      <ChevronDown className={cn(
+                        'w-5 h-5 text-slate-400 transition-transform',
+                        showAudioSelector && 'rotate-180'
+                      )} />
+                    </button>
+
+                    {/* Dropdown list */}
+                    {showAudioSelector && (
+                      <div className="absolute z-50 top-full left-0 right-0 mt-2 max-h-64 overflow-y-auto rounded-xl border border-white/10 bg-[#1a2e44] shadow-xl">
+                        {isLoadingAudio ? (
+                          <div className="flex items-center justify-center py-8">
+                            <Loader2 className="w-6 h-6 animate-spin text-purple-400" />
+                          </div>
+                        ) : audioAssets.length === 0 ? (
+                          <div className="py-8 text-center">
+                            <Music className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                            <p className="text-sm text-slate-400">Aucune musique dans la Bible</p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Ajoutez des musiques depuis l&apos;onglet Audio
+                            </p>
+                          </div>
+                        ) : (
+                          <div className="p-2 space-y-1">
+                            {audioAssets.map((audio) => (
+                              <button
+                                key={audio.id}
+                                type="button"
+                                onClick={() => {
+                                  setSelectedAudioId(audio.id);
+                                  setShowAudioSelector(false);
+                                }}
+                                className={cn(
+                                  'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all',
+                                  selectedAudioId === audio.id
+                                    ? 'bg-purple-500/20 text-white'
+                                    : 'hover:bg-white/5 text-slate-300'
+                                )}
+                              >
+                                <div className="p-1.5 rounded-lg bg-purple-500/20">
+                                  <Music className="w-4 h-4 text-purple-400" />
+                                </div>
+                                <div className="flex-1 text-left">
+                                  <p className="text-sm font-medium">{audio.name}</p>
+                                  <p className="text-xs text-slate-500">
+                                    {audio.data?.duration ? formatDuration(audio.data.duration) : '--:--'}
+                                  </p>
+                                </div>
+                                {selectedAudioId === audio.id && (
+                                  <Check className="w-4 h-4 text-purple-400" />
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <p className="text-[10px] text-slate-500">
+                  La musique définira la structure et la durée de votre clip
                 </p>
               </div>
             )}

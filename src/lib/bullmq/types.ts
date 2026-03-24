@@ -63,6 +63,7 @@ export interface ImageGenJobData extends BaseJobData {
   // Reference images (for variations or character consistency)
   frontReferenceUrl?: string;
   sourceImageUrl?: string;
+  inspirationImageUrls?: string[]; // For image-to-image generation (locations)
   // For generate_look
   lookId?: string;
   lookName?: string;

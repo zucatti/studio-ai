@@ -48,7 +48,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json();
-    const { name, description, thumbnail_url, thumbnail_focal_point, aspect_ratio, project_type } = body;
+    const { name, description, thumbnail_url, thumbnail_focal_point, aspect_ratio, project_type, master_audio_id } = body;
 
     if (!name || typeof name !== 'string') {
       return NextResponse.json(
@@ -90,6 +90,28 @@ export async function POST(request: Request) {
           project_id: project.id,
           content: '',
         });
+    }
+
+    // Link master audio asset to project for music_video projects
+    if (master_audio_id && projectTypeValue === 'music_video') {
+      // First verify the audio asset exists and belongs to the user
+      const { data: audioAsset, error: audioError } = await supabase
+        .from('global_assets')
+        .select('id, data')
+        .eq('id', master_audio_id)
+        .eq('user_id', session.user.sub)
+        .single();
+
+      if (audioAsset && !audioError) {
+        // Create project_assets link with master flag
+        await supabase
+          .from('project_assets')
+          .insert({
+            project_id: project.id,
+            global_asset_id: master_audio_id,
+            local_overrides: { is_master_audio: true },
+          });
+      }
     }
 
     return NextResponse.json({ project }, { status: 201 });

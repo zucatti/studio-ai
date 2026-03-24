@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { createClaudeWrapper, extractTextContent, isCreditError, formatCreditError } from '@/lib/ai';
 import { createCreditService, ensureCredit, calculateFalCost } from '@/lib/credits';
 import { enqueueImageGen, type ImageGenJobData } from '@/lib/bullmq';
+import { getPublicImageUrl } from '@/lib/fal-utils';
 
 interface RouteParams {
   params: Promise<{ assetId: string }>;
@@ -61,6 +62,28 @@ const MODEL_CONFIG: Record<string, {
     description: 'Consistance de personnage avec référence',
     supportsReference: true,
     aspectRatioParam: 'image_size',
+  },
+  // Image-to-image models
+  'kling-omni': {
+    name: 'Kling O1',
+    description: 'Kuaishou - Multi-référence image-to-image',
+    supportsReference: true,
+    aspectRatioParam: 'aspect_ratio',
+    falEndpoint: 'kling-omni', // Handled specially in worker
+  },
+  'flux-i2i': {
+    name: 'Flux Dev I2I',
+    description: 'Black Forest Labs - Image-to-image',
+    supportsReference: true,
+    aspectRatioParam: 'aspect_ratio',
+    falEndpoint: 'flux-i2i',
+  },
+  'seedream-edit': {
+    name: 'Seedream Edit',
+    description: 'ByteDance - Image editing',
+    supportsReference: true,
+    aspectRatioParam: 'aspect_ratio',
+    falEndpoint: 'seedream-edit',
   },
 };
 
@@ -124,12 +147,42 @@ const CHARACTER_VIEWS: { name: CharacterImageType; label: string; promptSuffix: 
   { name: 'back', label: 'Dos (Vue arrière)', promptSuffix: 'back view, facing away from camera, rear view, back of head visible' },
 ];
 
+// Fetch image and convert to base64
+async function fetchImageAsBase64(url: string): Promise<{ base64: string; mediaType: string } | null> {
+  try {
+    // Convert b2:// URLs to signed HTTPS URLs
+    const publicUrl = await getPublicImageUrl(url);
+
+    const response = await fetch(publicUrl);
+    if (!response.ok) {
+      console.error(`Failed to fetch image: ${response.status} ${response.statusText}`);
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type') || 'image/jpeg';
+    const arrayBuffer = await response.arrayBuffer();
+    const base64 = Buffer.from(arrayBuffer).toString('base64');
+
+    // Map content type to Claude's expected format
+    let mediaType = 'image/jpeg';
+    if (contentType.includes('png')) mediaType = 'image/png';
+    else if (contentType.includes('gif')) mediaType = 'image/gif';
+    else if (contentType.includes('webp')) mediaType = 'image/webp';
+
+    return { base64, mediaType };
+  } catch (error) {
+    console.error('Error fetching image:', error);
+    return null;
+  }
+}
+
 // Translate and optimize prompt using Claude
 async function optimizePrompt(
   frenchDescription: string,
   style: string,
   claudeWrapper: ReturnType<typeof createClaudeWrapper>,
-  assetType: 'character' | 'location' | 'prop' = 'character'
+  assetType: 'character' | 'location' | 'prop' = 'character',
+  inspirationImageUrls?: string[]
 ): Promise<string> {
   if (!process.env.AI_CLAUDE_KEY) {
     return frenchDescription;
@@ -138,26 +191,31 @@ async function optimizePrompt(
   let systemPrompt: string;
 
   if (assetType === 'location') {
-    systemPrompt = `Convert this French description into an optimized English prompt for location/environment image generation.
+    const hasInspiration = inspirationImageUrls && inspirationImageUrls.length > 0;
+    systemPrompt = `You are a prompt engineer. Your task is to write an optimized English prompt that will be sent to an AI image generator (like Stable Diffusion or DALL-E).
 
-Style: ${style}
-Focus on the PLACE: architecture, lighting, atmosphere, colors, textures, spatial composition.
-CRITICAL: This is an EMPTY location with ABSOLUTELY NO PEOPLE, NO HUMANS, NO FIGURES, NO SILHOUETTES.
+You are NOT generating the image yourself - you are writing the TEXT PROMPT that another AI will use to generate the image.
 
-French description:
+CONTEXT:
+- The user describes a location/environment in French
+- Style requested: ${style}
+${hasInspiration ? '- The user has attached reference images showing the visual style, mood, colors, and atmosphere they want. Analyze these images and incorporate their visual characteristics into your prompt.' : ''}
+
+USER'S DESCRIPTION (in French):
 "${frenchDescription}"
 
-Rules:
-- Translate to English
-- Keep it concise (max 60 words)
-- Focus on architectural and environmental details
-- Describe lighting, mood, atmosphere
-- Include specific details about materials, colors, textures
-- CRITICAL: NEVER mention any people, characters, human figures, silhouettes, or crowds
-- Add "empty scene, no people, no humans, uninhabited" to ensure the scene is deserted
-- This should be a completely EMPTY location
+YOUR TASK:
+Write a concise English prompt (max 60 words) that describes this location for image generation.
 
-Return ONLY the optimized English prompt, nothing else.`;
+REQUIREMENTS:
+- Translate and enhance the French description to English
+- Focus on: architecture, lighting, atmosphere, colors, textures, spatial composition
+- Include specific visual details about materials, colors, textures
+- CRITICAL: This must be an EMPTY scene - NO PEOPLE, NO HUMANS, NO FIGURES, NO SILHOUETTES
+- Add "empty scene, no people, uninhabited" to enforce this
+${hasInspiration ? '- Capture the visual style, color palette, lighting, and mood from the reference images' : ''}
+
+Return ONLY the English prompt text, nothing else. No explanations, no quotes, just the prompt.`;
   } else if (assetType === 'prop') {
     systemPrompt = `Convert this French description into an optimized English prompt for object/prop image generation.
 
@@ -197,10 +255,34 @@ Rules:
 Return ONLY the optimized English prompt, nothing else.`;
   }
 
+  // Build message content with optional images
+  type ImageMediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+  const messageContent: Array<{ type: 'text'; text: string } | { type: 'image'; source: { type: 'base64'; media_type: ImageMediaType; data: string } }> = [];
+
+  // Add inspiration images if provided (for locations)
+  if (assetType === 'location' && inspirationImageUrls && inspirationImageUrls.length > 0) {
+    for (const imageUrl of inspirationImageUrls.slice(0, 4)) {
+      const imageData = await fetchImageAsBase64(imageUrl);
+      if (imageData) {
+        messageContent.push({
+          type: 'image' as const,
+          source: {
+            type: 'base64' as const,
+            media_type: imageData.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+            data: imageData.base64,
+          },
+        });
+      }
+    }
+  }
+
+  // Add the text prompt
+  messageContent.push({ type: 'text' as const, text: systemPrompt });
+
   const result = await claudeWrapper.createMessage({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 300,
-    messages: [{ role: 'user', content: systemPrompt }],
+    messages: [{ role: 'user', content: messageContent.length === 1 ? systemPrompt : messageContent }],
   });
 
   return extractTextContent(result.message).trim() || frenchDescription;
@@ -282,6 +364,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       model,
       resolution = '2K',
       visualDescription: overrideVisualDescription,
+      inspirationImageUrls, // Reference images for Claude to understand visual style (locations)
     } = body;
 
     const textToImageModel = model && MODEL_CONFIG[model] ? model : DEFAULT_TEXT_TO_IMAGE_MODEL;
@@ -369,7 +452,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       optimizedPrompt = await buildLookPrompt(assetData, lookDescription, style, claudeWrapper);
       fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, full body portrait, standing pose, fashion photography${styleConfig.promptSuffix}`;
     } else if (visualDescription) {
-      optimizedPrompt = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
+      optimizedPrompt = await optimizePrompt(
+        visualDescription,
+        style,
+        claudeWrapper,
+        asset.asset_type as 'character' | 'location' | 'prop',
+        inspirationImageUrls
+      );
 
       if (asset.asset_type === 'location') {
         fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, empty scene, no people, no humans, uninhabited, wide angle architectural photography${styleConfig.promptSuffix}`;
@@ -454,6 +543,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       falEndpoint: getFalEndpoint(textToImageModel),
       frontReferenceUrl,
       sourceImageUrl,
+      inspirationImageUrls, // For image-to-image generation (locations)
       lookId,
       lookName,
       lookDescription,
@@ -489,6 +579,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       message: 'Job enqueued successfully',
       // For backward compatibility with frontend expecting immediate results
       async: true,
+      // Include optimized prompt for debugging/display
+      optimizedPrompt,
     });
 
   } catch (error) {

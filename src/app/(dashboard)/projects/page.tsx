@@ -39,7 +39,7 @@ export default function ProjectsPage() {
     }
   };
 
-  const handleCreateOrUpdate = async (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio, projectType?: ProjectType, focalPoint?: { x: number; y: number }) => {
+  const handleCreateOrUpdate = async (name: string, description?: string, thumbnailUrl?: string, aspectRatio?: AspectRatio, projectType?: ProjectType, focalPoint?: { x: number; y: number }, masterAudioId?: string) => {
     if (editingProject) {
       await updateProject(editingProject.id, {
         name,
@@ -49,7 +49,7 @@ export default function ProjectsPage() {
         aspect_ratio: aspectRatio || '16:9',
       });
     } else {
-      await createProject(name, description, thumbnailUrl, aspectRatio, projectType, focalPoint);
+      await createProject(name, description, thumbnailUrl, aspectRatio, projectType, focalPoint, masterAudioId);
     }
     setDialogOpen(false);
     setEditingProject(null);

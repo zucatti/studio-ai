@@ -52,6 +52,8 @@ import {
   Images,
   Download,
   Clock,
+  Circle,
+  CheckCircle2,
 } from 'lucide-react';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { generateReferenceName, generateLookReferenceName } from '@/lib/reference-name';
@@ -95,8 +97,8 @@ const STYLE_OPTIONS = [
 const MODEL_OPTIONS = [
   { value: 'fal-ai/nano-banana-2', label: 'Nano Banana 2' },
   { value: 'seedream-5', label: 'Seedream 5' },
-  { value: 'flux-2-pro', label: 'Flux 2 Pro' },
-  { value: 'gpt-image-1.5', label: 'GPT Image 1.5' },
+  { value: 'gpt-image-1.5', label: 'GPT 4.5' },
+  { value: 'flux-2-pro', label: 'Flux Pro' },
 ] as const;
 
 const RESOLUTION_OPTIONS = [
@@ -165,6 +167,9 @@ export function CharacterFormDialog({
     (character?.data as CharacterData)?.rushes || []
   );
   const [showRushesFor, setShowRushesFor] = useState<CharacterImageType | null>(null);
+
+  // Selected source image for modification
+  const [selectedSourceUrl, setSelectedSourceUrl] = useState<string | null>(null);
 
   // Looks state
   const [looks, setLooks] = useState<LookVariation[]>(
@@ -289,6 +294,7 @@ export function CharacterFormDialog({
     setSavedCharacterId(null);
     setShowRushesFor(null);
     setPendingFiles(new Map());
+    setSelectedSourceUrl(null);
   }, [character]);
 
   // Reset form when dialog opens or character changes
@@ -590,12 +596,19 @@ export function CharacterFormDialog({
     }
 
     // Now generate the image (either queue or synchronous)
-    // If regenerating front view with an existing front image, pass it as source for modification
+    // Always use the front image as reference for character consistency
     const existingFrontImage = referenceImages.find((img) => img.type === 'front');
-    const sourceImageUrl = viewType === 'front' && existingFrontImage ? existingFrontImage.url : undefined;
+    const sourceImageUrl = existingFrontImage?.url;
+
+    // Clear selection immediately when starting generation
+    setSelectedSourceUrl(null);
 
     if (useQueue) {
-      // Queue mode - submit job and return immediately
+      // Queue mode - show immediate feedback, then submit job
+      setGeneratingView(viewType);
+      const viewLabel = IMAGE_TYPES.find((t) => t.value === viewType)?.label || viewType;
+      toast.loading(`Préparation de "${viewLabel}"...`, { id: `prep-${viewType}` });
+
       const jobId = await queueCharacterImageGeneration({
         assetId: characterId,
         assetName: name,
@@ -608,10 +621,11 @@ export function CharacterFormDialog({
       });
 
       setGeneratingView(null);
+      toast.dismiss(`prep-${viewType}`);
 
       if (jobId) {
-        toast.success(`Génération de "${viewType}" ajoutée à la file d'attente`, {
-          description: 'Vous pouvez continuer à travailler pendant la génération.',
+        toast.success(`"${viewLabel}" ajouté à la file d'attente`, {
+          description: 'Vous pouvez continuer à travailler.',
         });
       } else {
         toast.error('Erreur lors de la mise en file d\'attente');
@@ -890,6 +904,12 @@ export function CharacterFormDialog({
   // Allow generation if we have a front image (even during creation - will auto-save first)
   const canGenerate = hasFrontImage;
 
+  // Get the selected source image and its type
+  const selectedSourceImage = selectedSourceUrl
+    ? referenceImages.find((img) => img.url === selectedSourceUrl)
+    : null;
+  const selectedViewType = selectedSourceImage?.type || 'front';
+
   // Filter voices based on search
   const filteredVoices = voiceSearch
     ? voices.filter(
@@ -1076,41 +1096,63 @@ export function CharacterFormDialog({
 
                   <div className="grid gap-2">
                     <Label htmlFor="visual_description" className="text-slate-300">
-                      {hasFrontImage ? 'Modifications à apporter' : 'Description visuelle'}{' '}
-                      {!hasFrontImage && <span className="text-red-400">*</span>}
+                      {selectedSourceUrl || hasFrontImage ? 'Modifications à apporter' : 'Description visuelle'}{' '}
+                      {!selectedSourceUrl && !hasFrontImage && <span className="text-red-400">*</span>}
+                      {selectedSourceUrl && (
+                        <span className="text-yellow-500 text-xs font-normal ml-2">
+                          ({IMAGE_TYPES.find((t) => t.value === selectedViewType)?.label} sélectionnée)
+                        </span>
+                      )}
                     </Label>
                     <Textarea
                       id="visual_description"
                       value={visualDescription}
                       onChange={(e) => setVisualDescription(e.target.value)}
                       placeholder={
-                        hasFrontImage
+                        selectedSourceUrl || hasFrontImage
                           ? "Décrivez les modifications: expression neutre, en tenue de soirée, sans lunettes, cheveux attachés..."
                           : "Décrivez l'apparence physique: cheveux, yeux, morphologie, vêtements typiques, style vestimentaire..."
                       }
                       className="bg-white/5 border-white/10 text-white min-h-[140px] resize-none"
                     />
                     <div className="flex items-center justify-between">
-                      <p className="text-xs text-slate-500">
-                        {hasFrontImage
-                          ? "L'IA partira de l'image existante et appliquera vos modifications."
-                          : "Cette description sera utilisée pour générer les images de référence avec l'IA."}
-                      </p>
+                      <div className="flex-1 mr-4">
+                        <p className="text-xs text-slate-500">
+                          {selectedSourceUrl && selectedViewType !== 'front'
+                            ? `L'IA utilisera la face comme référence et régénérera "${IMAGE_TYPES.find((t) => t.value === selectedViewType)?.label}".`
+                            : hasFrontImage
+                            ? "L'IA partira de l'image de face et appliquera vos modifications."
+                            : "Cette description sera utilisée pour générer les images de référence avec l'IA."}
+                        </p>
+                        {selectedSourceUrl && (
+                          <button
+                            onClick={() => setSelectedSourceUrl(null)}
+                            className="text-xs text-yellow-500 hover:text-yellow-400 mt-1 flex items-center gap-1"
+                          >
+                            <X className="w-3 h-3" />
+                            Désélectionner (revenir à Face)
+                          </button>
+                        )}
+                      </div>
                       <Button
                         type="button"
-                        onClick={() => handleGenerateSingle('front')}
-                        disabled={!visualDescription.trim() || !name.trim() || generatingView === 'front' || isGenerating}
+                        onClick={() => handleGenerateSingle(selectedViewType)}
+                        disabled={!visualDescription.trim() || !name.trim() || generatingView === selectedViewType || isGenerating}
                         className="bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-lg shadow-purple-500/25"
                       >
-                        {generatingView === 'front' ? (
+                        {generatingView === selectedViewType ? (
                           <>
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            {hasFrontImage ? 'Modification...' : 'Génération...'}
+                            {selectedSourceUrl || hasFrontImage ? 'Modification...' : 'Génération...'}
                           </>
                         ) : (
                           <>
                             <Wand2 className="w-4 h-4 mr-2" />
-                            {hasFrontImage ? 'Modifier le visage' : 'Générer le visage IA'}
+                            {selectedSourceUrl
+                              ? `Modifier ${IMAGE_TYPES.find((t) => t.value === selectedViewType)?.label || 'l\'image'}`
+                              : hasFrontImage
+                              ? 'Modifier le visage'
+                              : 'Générer le visage IA'}
                           </>
                         )}
                       </Button>
@@ -1211,6 +1253,8 @@ export function CharacterFormDialog({
                             'relative rounded-xl group transition-all cursor-pointer break-inside-avoid mb-4 overflow-hidden',
                             hasPendingJob
                               ? 'ring-2 ring-purple-500/50'
+                              : existingImage && selectedSourceUrl === existingImage.url
+                              ? 'ring-2 ring-yellow-500 shadow-lg shadow-yellow-500/20'
                               : existingImage
                               ? 'ring-1 ring-white/20'
                               : 'border-2 border-dashed border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
@@ -1268,6 +1312,28 @@ export function CharacterFormDialog({
                                 alt={imageType.label}
                                 className="w-full h-auto rounded-xl"
                               />
+                              {/* Selection circle in top-left */}
+                              <button
+                                className={cn(
+                                  'absolute top-2 left-2 z-10 rounded-full transition-all',
+                                  selectedSourceUrl === existingImage.url
+                                    ? 'text-yellow-500 scale-110'
+                                    : 'text-white/50 hover:text-white/80 opacity-0 group-hover:opacity-100'
+                                )}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedSourceUrl(
+                                    selectedSourceUrl === existingImage.url ? null : existingImage.url
+                                  );
+                                }}
+                                title={selectedSourceUrl === existingImage.url ? 'Désélectionner' : 'Utiliser comme source pour la modification'}
+                              >
+                                {selectedSourceUrl === existingImage.url ? (
+                                  <CheckCircle2 className="w-6 h-6 drop-shadow-lg" />
+                                ) : (
+                                  <Circle className="w-6 h-6 drop-shadow-lg" />
+                                )}
+                              </button>
                               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 rounded-xl">
                                 <div className="flex items-center gap-2">
                                   <Button
