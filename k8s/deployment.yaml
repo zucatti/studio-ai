@@ -25,6 +25,11 @@ spec:
           envFrom:
             - secretRef:
                 name: studio-secrets
+          env:
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
           resources:
             requests:
               memory: "256Mi"
