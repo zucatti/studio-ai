@@ -22,6 +22,7 @@ import {
   Archive,
   Play,
   BookOpen,
+  Music,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -84,6 +85,17 @@ const shortsNavigation: NavSection = {
   ],
 };
 
+// Music video (Clip) navigation - audio-first workflow
+const musicVideoNavigation: NavSection = {
+  title: 'PROJET',
+  items: [
+    { name: 'Clip', href: '/clip', icon: Music },
+    { name: 'Bible', href: '/bible', icon: BookOpen },
+    { name: 'Storyboard', href: '/storyboard', icon: ImageIcon },
+    { name: 'Production', href: '/production', icon: PlayCircle },
+  ],
+};
+
 export function Sidebar() {
   const pathname = usePathname();
   const [searchQuery, setSearchQuery] = useState('');
@@ -128,6 +140,8 @@ export function Sidebar() {
   // Get the appropriate navigation based on project type
   const projectNavigation = projectType === 'shorts_project'
     ? shortsNavigation
+    : projectType === 'music_video'
+    ? musicVideoNavigation
     : projectType && isSimplifiedProject(projectType)
     ? simplifiedNavigation
     : fullPipelineNavigation;

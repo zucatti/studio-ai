@@ -19,6 +19,7 @@ export type ShotStatus = 'draft' | 'selected' | 'rush' | 'archived';
 export type ScriptElementType = 'action' | 'dialogue' | 'transition' | 'note';
 export type DialogueExtension = 'V.O.' | 'O.S.' | "CONT'D" | 'FILTERED' | 'PRE-LAP';
 export type GlobalAssetType = 'character' | 'location' | 'prop' | 'audio';
+export type MusicSectionType = 'intro' | 'verse' | 'chorus' | 'bridge' | 'outro' | 'instrumental' | 'custom';
 // Note: ReferenceType kept for database compatibility (tables still exist)
 export type ReferenceType = 'pose' | 'composition' | 'style';
 export type SceneIntExt = 'INT' | 'EXT' | 'INT/EXT';
@@ -174,6 +175,50 @@ export interface Database {
           updated_at?: string;
         };
       };
+      music_sections: {
+        Row: {
+          id: string;
+          project_id: string;
+          name: string;
+          section_type: MusicSectionType;
+          start_time: number;
+          end_time: number;
+          color: string;
+          mood: string | null;
+          notes: string | null;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          project_id: string;
+          name: string;
+          section_type?: MusicSectionType;
+          start_time: number;
+          end_time: number;
+          color?: string;
+          mood?: string | null;
+          notes?: string | null;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          project_id?: string;
+          name?: string;
+          section_type?: MusicSectionType;
+          start_time?: number;
+          end_time?: number;
+          color?: string;
+          mood?: string | null;
+          notes?: string | null;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+      };
       scenes: {
         Row: {
           id: string;
@@ -219,8 +264,10 @@ export interface Database {
         Row: {
           id: string;
           scene_id: string | null;
+          section_id: string | null;
           project_id: string | null;
           shot_number: number;
+          relative_start: number | null;
           description: string;
           shot_type: ShotType | null;
           camera_angle: CameraAngle | null;
@@ -252,8 +299,10 @@ export interface Database {
         Insert: {
           id?: string;
           scene_id?: string | null;
+          section_id?: string | null;
           project_id?: string | null;
           shot_number: number;
+          relative_start?: number | null;
           description?: string;
           shot_type?: ShotType | null;
           camera_angle?: CameraAngle | null;
@@ -285,8 +334,10 @@ export interface Database {
         Update: {
           id?: string;
           scene_id?: string | null;
+          section_id?: string | null;
           project_id?: string | null;
           shot_number?: number;
+          relative_start?: number | null;
           description?: string;
           shot_type?: ShotType | null;
           camera_angle?: CameraAngle | null;
@@ -663,6 +714,7 @@ export type UpdateTables<T extends keyof Database['public']['Tables']> = Databas
 // Convenience types
 export type Project = Tables<'projects'>;
 export type Brainstorming = Tables<'brainstorming'>;
+export type MusicSection = Tables<'music_sections'>;
 export type Scene = Tables<'scenes'>;
 export type Shot = Tables<'shots'>;
 export type Dialogue = Tables<'dialogues'>;

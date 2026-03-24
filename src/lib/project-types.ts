@@ -90,14 +90,24 @@ const SHORTS_NAVIGATION: NavigationItem[] = [
   { name: 'Bible', href: '/bible', icon: 'BookOpen' },
 ];
 
+// Music video (Clip) navigation - audio-first workflow
+const MUSIC_VIDEO_NAVIGATION: NavigationItem[] = [
+  { name: 'Clip', href: '/clip', icon: 'Music' },
+  { name: 'Bible', href: '/bible', icon: 'BookOpen' },
+  { name: 'Storyboard', href: '/storyboard', icon: 'ImageIcon' },
+  { name: 'Production', href: '/production', icon: 'PlayCircle' },
+];
+
 export function getNavigationForType(type: ProjectType): NavigationItem[] {
   if (type === 'shorts_project') return SHORTS_NAVIGATION;
+  if (type === 'music_video') return MUSIC_VIDEO_NAVIGATION;
   return isSimplifiedProject(type) ? SIMPLIFIED_NAVIGATION : FULL_PIPELINE_NAVIGATION;
 }
 
 // Get the default landing page for a project type
 export function getDefaultPageForType(type: ProjectType): string {
   if (type === 'shorts_project') return '/shorts';
+  if (type === 'music_video') return '/clip';
   return isSimplifiedProject(type) ? '/quick-shot' : '/brainstorming';
 }
 
