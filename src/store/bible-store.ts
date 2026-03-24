@@ -94,6 +94,7 @@ export interface QueueJobInput {
   model?: string;
   resolution?: '1K' | '2K' | '4K';
   visualDescription?: string;
+  sourceImageUrl?: string; // Existing image to modify (for regenerating front)
 }
 
 interface BibleStore {
@@ -484,6 +485,7 @@ export const useBibleStore = create<BibleStore>()(
               model: input.model || 'fal-ai/nano-banana-2',
               resolution: input.resolution || '2K',
               visualDescription: input.visualDescription,
+              sourceImageUrl: input.sourceImageUrl, // For modifying existing front image
             }),
           });
 

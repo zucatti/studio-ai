@@ -114,7 +114,8 @@ export async function processImageGenJob(job: Job<ImageGenJobData>): Promise<voi
 
     if (mode === 'generate_single') {
       // Generate a single view
-      await updateJobProgress(jobId, 20, `Génération de la vue ${imageType}...`);
+      const isModifyingFront = imageType === 'front' && sourceImageUrl;
+      await updateJobProgress(jobId, 20, isModifyingFront ? 'Modification du visage...' : `Génération de la vue ${imageType}...`);
 
       const imageUrl = await generateSingleImage({
         fullPrompt,
@@ -122,6 +123,7 @@ export async function processImageGenJob(job: Job<ImageGenJobData>): Promise<voi
         styleConfig,
         resolution,
         frontReferenceUrl,
+        sourceImageUrl: isModifyingFront ? sourceImageUrl : undefined, // For front modification
         imageType: imageType || 'front',
       });
 
@@ -415,9 +417,23 @@ async function generateSingleImage(options: {
   styleConfig: ImageGenJobData['styleConfig'];
   resolution?: string;
   frontReferenceUrl?: string;
+  sourceImageUrl?: string; // For modifying existing front image
   imageType?: string;
 }): Promise<string | undefined> {
-  const { fullPrompt, falEndpoint, styleConfig, resolution, frontReferenceUrl, imageType } = options;
+  const { fullPrompt, falEndpoint, styleConfig, resolution, frontReferenceUrl, sourceImageUrl, imageType } = options;
+
+  // If modifying an existing front image, use Ideogram with the source as reference
+  if (sourceImageUrl && imageType === 'front') {
+    console.log(`[ImageGen] Modifying existing front image with Ideogram`);
+    const publicUrl = await getPublicUrl(sourceImageUrl);
+    console.log(`[ImageGen] Source image URL: ${publicUrl.substring(0, 80)}...`);
+
+    return generateWithIdeogram({
+      prompt: fullPrompt,
+      referenceUrl: publicUrl,
+      styleConfig,
+    });
+  }
 
   // If we have a front reference and it's not a front view, try perspective change first
   if (frontReferenceUrl && imageType && imageType !== 'front') {

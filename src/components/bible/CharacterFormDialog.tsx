@@ -590,6 +590,10 @@ export function CharacterFormDialog({
     }
 
     // Now generate the image (either queue or synchronous)
+    // If regenerating front view with an existing front image, pass it as source for modification
+    const existingFrontImage = referenceImages.find((img) => img.type === 'front');
+    const sourceImageUrl = viewType === 'front' && existingFrontImage ? existingFrontImage.url : undefined;
+
     if (useQueue) {
       // Queue mode - submit job and return immediately
       const jobId = await queueCharacterImageGeneration({
@@ -600,6 +604,7 @@ export function CharacterFormDialog({
         model: selectedModel,
         resolution,
         visualDescription,
+        sourceImageUrl, // Pass existing front image for modification
       });
 
       setGeneratingView(null);
@@ -1071,18 +1076,25 @@ export function CharacterFormDialog({
 
                   <div className="grid gap-2">
                     <Label htmlFor="visual_description" className="text-slate-300">
-                      Description visuelle <span className="text-red-400">*</span>
+                      {hasFrontImage ? 'Modifications à apporter' : 'Description visuelle'}{' '}
+                      {!hasFrontImage && <span className="text-red-400">*</span>}
                     </Label>
                     <Textarea
                       id="visual_description"
                       value={visualDescription}
                       onChange={(e) => setVisualDescription(e.target.value)}
-                      placeholder="Décrivez l'apparence physique: cheveux, yeux, morphologie, vêtements typiques, style vestimentaire..."
+                      placeholder={
+                        hasFrontImage
+                          ? "Décrivez les modifications: expression neutre, en tenue de soirée, sans lunettes, cheveux attachés..."
+                          : "Décrivez l'apparence physique: cheveux, yeux, morphologie, vêtements typiques, style vestimentaire..."
+                      }
                       className="bg-white/5 border-white/10 text-white min-h-[140px] resize-none"
                     />
                     <div className="flex items-center justify-between">
                       <p className="text-xs text-slate-500">
-                        Cette description sera utilisée pour générer les images de référence avec l'IA.
+                        {hasFrontImage
+                          ? "L'IA partira de l'image existante et appliquera vos modifications."
+                          : "Cette description sera utilisée pour générer les images de référence avec l'IA."}
                       </p>
                       <Button
                         type="button"
@@ -1093,12 +1105,12 @@ export function CharacterFormDialog({
                         {generatingView === 'front' ? (
                           <>
                             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Génération...
+                            {hasFrontImage ? 'Modification...' : 'Génération...'}
                           </>
                         ) : (
                           <>
                             <Wand2 className="w-4 h-4 mr-2" />
-                            Générer le visage IA
+                            {hasFrontImage ? 'Modifier le visage' : 'Générer le visage IA'}
                           </>
                         )}
                       </Button>
