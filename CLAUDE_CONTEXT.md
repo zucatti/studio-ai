@@ -20,6 +20,7 @@ Application de pré-production vidéo avec génération IA d'images et de conten
 - `/project/[projectId]/script` - Éditeur de script
 - `/project/[projectId]/storyboard` - Storyboard
 - `/project/[projectId]/decoupage` - Découpage technique
+- `/project/[projectId]/clip` - Timeline clip musical avec sections et plans
 
 ### Composants clés
 
@@ -77,3 +78,55 @@ Application de pré-production vidéo avec génération IA d'images et de conten
 - Spinner pendant l'upload d'images
 - Bouton + pour importer un personnage dans un projet
 - Click sur carte = ouvre modification (avec stopPropagation sur boutons)
+
+## Clip Timeline (Music Videos)
+
+### Vue d'ensemble
+Timeline pour clips musicaux avec waveform audio (WaveSurfer.js), sections musicales et plans (shots).
+
+### Structure
+```
+Audio Track (WaveSurfer.js + RegionsPlugin)
+├── Sections (verse, chorus, bridge, etc.)
+│   └── Shots/Plans (filmstrip sub-timeline)
+```
+
+### Contraintes des plans
+- **Durée minimum**: 3 secondes (limite IA video generators comme Kling, Runway)
+- **Durée maximum**: 15 secondes (idem)
+- **Mode "collé"**: Les plans sont toujours adjacents (pas de gaps)
+
+### Comportement resize
+- Resize d'un plan pousse/tire le plan adjacent pour maintenir la continuité
+- Limites physiques: le resize s'arrête aux bornes (3s min, 15s max) sans toast
+- Split: cliquer sur un plan le divise en deux, avec auto-ajustement pour respecter les contraintes
+
+### Fichiers clés
+
+#### Composant principal
+- `src/components/clip/ClipTimeline.tsx` - Timeline avec waveform et gestion des shots
+  - Constantes: `MIN_SHOT_DURATION = 3`, `MAX_SHOT_DURATION = 15`
+  - État: `resizingShot`, `shots` par section
+  - Handlers: `handleResizeMove`, `handleFilmstripClick` (split), `handleShotDelete`
+
+#### API Routes
+- `api/projects/[projectId]/sections/[sectionId]/shots/route.ts`
+  - GET: récupère tous les shots d'une section
+  - POST: crée un shot (valide contraintes 3-15s)
+- `api/projects/[projectId]/sections/[sectionId]/shots/[shotId]/route.ts`
+  - PATCH: met à jour un shot (position, description)
+  - DELETE: supprime un shot
+
+#### Hooks
+- `src/hooks/use-sections.ts` - CRUD sections musicales
+
+### Base de données
+- Table `music_sections`: sections avec start_time, end_time, section_type, color
+- Table `shots`: plans avec section_id, relative_start, sort_order
+  - `relative_start`: position du plan par rapport au début de la section
+  - `sort_order`: `Math.round(relative_start * 1000)` pour tri integer
+
+### Notes techniques
+- Audio B2 via proxy temporaire (`/api/storage/proxy`) pendant propagation CORS
+- Création automatique d'une scène par défaut si aucune n'existe
+- Shot `sort_order` doit être un integer (utiliser `Math.round()`)
