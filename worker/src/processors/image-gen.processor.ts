@@ -423,10 +423,11 @@ async function generateSingleImage(options: {
   if (frontReferenceUrl && imageType && imageType !== 'front') {
     console.log(`[ImageGen] Using reference image for ${imageType} view`);
     const viewConfig = CHARACTER_VIEWS.find(v => v.name === imageType);
+    const publicUrl = await getPublicUrl(frontReferenceUrl);
+    console.log(`[ImageGen] Reference URL: ${publicUrl.substring(0, 80)}...`);
+
     if (viewConfig) {
       console.log(`[ImageGen] Found view config: ${viewConfig.name}, perspectiveTarget: ${viewConfig.perspectiveTarget}`);
-      const publicUrl = await getPublicUrl(frontReferenceUrl);
-      console.log(`[ImageGen] Reference URL: ${publicUrl.substring(0, 80)}...`);
 
       const perspectiveUrl = await tryPerspectiveChange(publicUrl, viewConfig.perspectiveTarget);
       if (perspectiveUrl) {
@@ -435,15 +436,16 @@ async function generateSingleImage(options: {
       }
 
       console.log(`[ImageGen] Perspective change failed, falling back to Ideogram`);
-      // Fallback to ideogram
-      return generateWithIdeogram({
-        prompt: fullPrompt,
-        referenceUrl: publicUrl,
-        styleConfig,
-      });
     } else {
-      console.warn(`[ImageGen] No view config found for imageType: ${imageType}`);
+      console.log(`[ImageGen] Custom view type: ${imageType}, using Ideogram with reference`);
     }
+
+    // Use Ideogram with reference for all non-front views (including custom)
+    return generateWithIdeogram({
+      prompt: fullPrompt,
+      referenceUrl: publicUrl,
+      styleConfig,
+    });
   }
 
   // Build input based on model
