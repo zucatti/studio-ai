@@ -13,11 +13,23 @@ import {
   FFmpegJobData,
 } from './types';
 
+// Parse Redis port handling K8s service discovery format (tcp://host:port)
+function getRedisPort(): number {
+  const portEnv = process.env.REDIS_SERVICE_PORT || process.env.REDIS_PORT || '6379';
+  // K8s injects REDIS_PORT as "tcp://host:port" for services named "redis"
+  if (portEnv.startsWith('tcp://')) {
+    const match = portEnv.match(/:(\d+)$/);
+    return match ? parseInt(match[1], 10) : 6379;
+  }
+  const parsed = parseInt(portEnv, 10);
+  return isNaN(parsed) ? 6379 : parsed;
+}
+
 // Redis connection config - lazy loaded to avoid errors at build time
 function getRedisConnection() {
   return {
     host: process.env.REDIS_HOST || 'localhost',
-    port: parseInt(process.env.REDIS_PORT || '6379', 10),
+    port: getRedisPort(),
     // Password is optional (for local dev without auth)
     ...(process.env.REDIS_PASSWORD && { password: process.env.REDIS_PASSWORD }),
     maxRetriesPerRequest: null, // Required for BullMQ
