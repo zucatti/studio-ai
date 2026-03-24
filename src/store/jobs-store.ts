@@ -62,6 +62,7 @@ interface JobsStore {
   // Computed
   activeJobsCount: () => number;
   getJobsByAsset: (assetId: string) => GenerationJob[];
+  getJobsForShot: (shotId: string) => GenerationJob[];
 }
 
 export const useJobsStore = create<JobsStore>((set, get) => ({
@@ -178,21 +179,30 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
           ),
         }));
 
-        // If job just completed and has an asset_id, emit event for UI to refresh
-        if (justCompleted && updatedJob.asset_id) {
-          console.log(`[JobsStore] Job ${jobId} completed for asset ${updatedJob.asset_id}`);
-          // Emit custom event for UI components to react
-          window.dispatchEvent(
-            new CustomEvent('job-completed', {
-              detail: {
-                jobId: updatedJob.id,
-                assetId: updatedJob.asset_id,
-                assetType: updatedJob.asset_type,
-                jobType: updatedJob.job_type,
-                jobSubtype: updatedJob.job_subtype,
-              },
-            })
-          );
+        // If job just completed, emit event for UI to refresh
+        if (justCompleted) {
+          // For shots, get shotId from input_data; for shorts, get shortId; for assets, use asset_id
+          const shotId = (updatedJob.input_data as { shotId?: string })?.shotId;
+          const shortId = (updatedJob.input_data as { shortId?: string })?.shortId;
+          const assetId = updatedJob.asset_id || shotId || shortId;
+
+          if (assetId) {
+            console.log(`[JobsStore] Job ${jobId} completed for ${updatedJob.asset_type} ${assetId}`);
+            // Emit custom event for UI components to react
+            window.dispatchEvent(
+              new CustomEvent('job-completed', {
+                detail: {
+                  jobId: updatedJob.id,
+                  assetId,
+                  shotId, // Include shotId explicitly for shot handlers
+                  shortId, // Include shortId explicitly for short/assembly handlers
+                  assetType: updatedJob.asset_type,
+                  jobType: updatedJob.job_type,
+                  jobSubtype: updatedJob.job_subtype,
+                },
+              })
+            );
+          }
         }
       }
     } catch (error) {
@@ -251,6 +261,15 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
   getJobsByAsset: (assetId) => {
     const { jobs } = get();
     return jobs.filter((job) => job.asset_id === assetId);
+  },
+
+  getJobsForShot: (shotId: string) => {
+    const { jobs } = get();
+    return jobs.filter(
+      (job) =>
+        job.asset_type === 'shot' &&
+        (job.input_data as { shotId?: string })?.shotId === shotId
+    );
   },
 }));
 

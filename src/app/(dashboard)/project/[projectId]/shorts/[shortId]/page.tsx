@@ -46,7 +46,7 @@ export default function ShortDetailPage() {
   } = useShortsStore();
 
   // Jobs store for QueuePanel integration
-  const { fetchJobs, startPolling } = useJobsStore();
+  const { jobs, fetchJobs, startPolling } = useJobsStore();
 
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -190,14 +190,12 @@ export default function ShortDetailPage() {
     await reorderPlans(projectId, shortId, orderedIds);
   };
 
-  // Generate video from frames with SSE progress streaming
+  // Generate video using BullMQ queue
   const handleGenerateVideo = async (
     planId: string,
     options: VideoGenerationOptions
   ) => {
     setIsGeneratingVideo(true);
-
-    // Don't close modal - it will auto-switch to video tab via videoGenerationProgress
 
     // Initialize generation progress for this plan
     setGenerationProgress(prev => {
@@ -205,20 +203,16 @@ export default function ShortDetailPage() {
       newMap.set(planId, {
         planId,
         progress: 0,
-        step: 'init',
-        message: 'Initialisation...',
+        step: 'queuing',
+        message: 'Mise en file d\'attente...',
         status: 'generating',
       });
       return newMap;
     });
 
-    // Create a persistent toast for progress
-    const toastId = toast.loading('Initialisation de la génération vidéo...', {
-      duration: Infinity,
-    });
-
     try {
-      const res = await fetch(`/api/projects/${projectId}/shots/${planId}/generate-video`, {
+      // Use the queue endpoint instead of SSE
+      const res = await fetch(`/api/projects/${projectId}/shots/${planId}/queue-video`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -229,7 +223,7 @@ export default function ShortDetailPage() {
       });
 
       if (!res.ok) {
-        let errorMessage = 'Erreur lors de la génération';
+        let errorMessage = 'Erreur lors de la mise en file d\'attente';
         try {
           const errorData = await res.json();
           errorMessage = typeof errorData.error === 'string'
@@ -238,21 +232,7 @@ export default function ShortDetailPage() {
         } catch {
           errorMessage = `Erreur HTTP ${res.status}`;
         }
-        toast.error(errorMessage, { id: toastId });
-        setIsGeneratingVideo(false);
-        // Remove from progress
-        setGenerationProgress(prev => {
-          const newMap = new Map(prev);
-          newMap.delete(planId);
-          return newMap;
-        });
-        return;
-      }
-
-      // Handle SSE stream
-      const reader = res.body?.getReader();
-      if (!reader) {
-        toast.error('Erreur: pas de stream disponible', { id: toastId });
+        toast.error(errorMessage);
         setIsGeneratingVideo(false);
         setGenerationProgress(prev => {
           const newMap = new Map(prev);
@@ -262,157 +242,49 @@ export default function ShortDetailPage() {
         return;
       }
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+      const data = await res.json();
+      const jobId = data.jobId;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-
-        // Parse SSE events from buffer
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-        let currentEvent = '';
-        for (const line of lines) {
-          if (line.startsWith('event: ')) {
-            currentEvent = line.slice(7);
-          } else if (line.startsWith('data: ') && currentEvent) {
-            try {
-              const data = JSON.parse(line.slice(6));
-
-              // Handle different event types
-              switch (currentEvent) {
-                case 'progress':
-                  // If this is the job_created step, refresh jobs store
-                  if (data.step === 'job_created' && data.jobId) {
-                    console.log('[Video Gen] Job created:', data.jobId);
-                    fetchJobs();
-                    startPolling();
-                  }
-
-                  const progressMsg = `[${data.progress}%] ${data.message}`;
-                  toast.loading(progressMsg, { id: toastId });
-                  console.log('[Video Gen]', data.step, data.message, data.details || '');
-
-                  // Update generation progress
-                  setGenerationProgress(prev => {
-                    const newMap = new Map(prev);
-                    newMap.set(planId, {
-                      planId,
-                      progress: data.progress || 0,
-                      step: data.step,
-                      message: data.message,
-                      status: 'generating',
-                    });
-                    return newMap;
-                  });
-                  break;
-
-                case 'warning':
-                  console.warn('[Video Gen Warning]', data.step, data.message, data.error || '');
-                  break;
-
-                case 'error':
-                  const errorMsg = typeof data.error === 'string'
-                    ? data.error
-                    : JSON.stringify(data.error) || 'Erreur inconnue';
-                  toast.error(`Erreur: ${errorMsg}`, { id: toastId });
-                  console.error('[Video Gen Error]', data.step, data.error, data.details || '');
-                  setIsGeneratingVideo(false);
-                  // Mark as failed
-                  setGenerationProgress(prev => {
-                    const newMap = new Map(prev);
-                    newMap.set(planId, {
-                      planId,
-                      progress: 0,
-                      step: 'error',
-                      message: errorMsg,
-                      status: 'failed',
-                    });
-                    return newMap;
-                  });
-                  // Remove after delay
-                  setTimeout(() => {
-                    setGenerationProgress(prev => {
-                      const newMap = new Map(prev);
-                      newMap.delete(planId);
-                      return newMap;
-                    });
-                  }, 3000);
-                  return;
-
-                case 'complete':
-                  // Format duration for display
-                  const durationDisplay = data.duration
-                    ? `${Math.floor(data.duration / 60)}:${Math.round(data.duration % 60).toString().padStart(2, '0')}`
-                    : `${data.duration}s`;
-                  console.log('[Video Gen Complete]', data);
-
-                  // Music overlay is now handled server-side in the generate-video route
-                  const completeMsg = data.hasMusic
-                    ? `Vidéo avec musique générée! (${data.model}, ${durationDisplay})`
-                    : `Vidéo générée! (${data.model}, ${durationDisplay})`;
-
-                  toast.success(completeMsg, { id: toastId });
-
-                  // Update plan with generated video and real duration
-                  updatePlan(projectId, planId, {
-                    generated_video_url: data.videoUrl,
-                    generation_status: 'completed',
-                    duration: data.duration,
-                    dialogue_audio_url: data.hasDialogueAudio ? data.dialogueAudioUrl : undefined,
-                  });
-
-                  // Mark as completed in progress
-                  setGenerationProgress(prev => {
-                    const newMap = new Map(prev);
-                    newMap.set(planId, {
-                      planId,
-                      progress: 100,
-                      step: 'complete',
-                      message: data.hasMusic ? 'Vidéo avec musique générée!' : 'Vidéo générée!',
-                      status: 'completed',
-                      videoUrl: data.videoUrl,
-                    });
-                    return newMap;
-                  });
-
-                  // Remove from progress after transition delay
-                  setTimeout(() => {
-                    setGenerationProgress(prev => {
-                      const newMap = new Map(prev);
-                      newMap.delete(planId);
-                      return newMap;
-                    });
-                  }, 2000);
-
-                  setIsGeneratingVideo(false);
-                  return;
-              }
-
-              currentEvent = '';
-            } catch (parseError) {
-              console.error('Error parsing SSE data:', parseError, line);
-            }
-          }
-        }
+      if (!jobId) {
+        toast.error('Erreur: pas de job ID retourné');
+        setIsGeneratingVideo(false);
+        setGenerationProgress(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(planId);
+          return newMap;
+        });
+        return;
       }
 
-      // Stream ended without complete event
-      toast.dismiss(toastId);
-      setIsGeneratingVideo(false);
+      console.log('[Video Gen] Job queued:', jobId);
+
+      // Fetch jobs and start polling
+      await fetchJobs();
+      startPolling();
+
+      // Show success toast
+      toast.success('Génération vidéo ajoutée à la file d\'attente', {
+        description: 'Vous pouvez continuer à travailler pendant la génération.',
+      });
+
+      // Update progress to show queued state
       setGenerationProgress(prev => {
         const newMap = new Map(prev);
-        newMap.delete(planId);
+        newMap.set(planId, {
+          planId,
+          progress: 5,
+          step: 'queued',
+          message: 'En file d\'attente...',
+          status: 'generating',
+        });
         return newMap;
       });
 
+      setIsGeneratingVideo(false);
+
     } catch (error) {
-      console.error('Error generating video:', error);
-      toast.error('Erreur lors de la génération', { id: toastId });
+      console.error('Error queuing video:', error);
+      toast.error('Erreur lors de la mise en file d\'attente');
       setIsGeneratingVideo(false);
       setGenerationProgress(prev => {
         const newMap = new Map(prev);
@@ -421,6 +293,104 @@ export default function ShortDetailPage() {
       });
     }
   };
+
+  // Listen for job completion events to update plans and assembly
+  useEffect(() => {
+    const handleJobCompleted = async (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        jobId: string;
+        assetId: string;
+        assetType: string;
+        jobType: string;
+        jobSubtype: string;
+        shotId?: string;
+      }>;
+      const { assetType, jobType, jobSubtype } = customEvent.detail;
+
+      // Check if this is an assembly job for this short
+      if (assetType === 'short' && jobSubtype === 'assembly') {
+        console.log('[Assembly] Job completed, refreshing shorts...');
+        await fetchShorts(projectId);
+        setIsAssembling(false);
+        setAssemblyProgress(100);
+        toast.success('Short assemblé');
+        return;
+      }
+
+      // Check if this is a video job for a shot
+      if (assetType !== 'shot' || jobType !== 'video') return;
+
+      console.log('[Video Gen] Job completed, refreshing plans...');
+
+      // Refresh shorts data to get updated video URLs
+      await fetchShorts(projectId);
+
+      // Clear generation progress for all plans (the updated data will show the video)
+      setGenerationProgress(new Map());
+    };
+
+    window.addEventListener('job-completed', handleJobCompleted);
+
+    return () => {
+      window.removeEventListener('job-completed', handleJobCompleted);
+    };
+  }, [projectId, fetchShorts]);
+
+  // Sync job progress from jobs store to generationProgress map
+  useEffect(() => {
+    if (!short?.plans) return;
+
+    const planIds = new Set(short.plans.map(p => p.id));
+
+    // Find active video jobs for plans in this short
+    const activeVideoJobs = jobs.filter(job =>
+      job.job_type === 'video' &&
+      job.asset_type === 'shot' &&
+      ['pending', 'queued', 'running'].includes(job.status) &&
+      planIds.has((job.input_data as { shotId?: string })?.shotId || '')
+    );
+
+    if (activeVideoJobs.length === 0) return;
+
+    // Update progress map with real job progress
+    setGenerationProgress(prev => {
+      const newMap = new Map(prev);
+
+      for (const job of activeVideoJobs) {
+        const shotId = (job.input_data as { shotId?: string })?.shotId;
+        if (!shotId) continue;
+
+        newMap.set(shotId, {
+          planId: shotId,
+          progress: job.progress,
+          step: job.status,
+          message: job.message || 'En cours...',
+          status: 'generating',
+        });
+      }
+
+      return newMap;
+    });
+  }, [jobs, short?.plans]);
+
+  // Sync assembly job progress from jobs store
+  useEffect(() => {
+    if (!shortId) return;
+
+    // Find active assembly job for this short
+    const assemblyJob = jobs.find(job =>
+      job.job_type === 'video' &&
+      job.asset_type === 'short' &&
+      job.job_subtype === 'assembly' &&
+      ['pending', 'queued', 'running'].includes(job.status) &&
+      (job.input_data as { shortId?: string })?.shortId === shortId
+    );
+
+    if (assemblyJob) {
+      setIsAssembling(true);
+      setAssemblyProgress(assemblyJob.progress);
+    }
+  }, [jobs, shortId]);
 
   if (isLoading) {
     return (
@@ -752,68 +722,29 @@ export default function ShortDetailPage() {
                 setAssemblyProgress(0);
 
                 try {
-                  const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/assemble`, {
+                  // Use queue-based assembly
+                  const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/queue-assemble`, {
                     method: 'POST',
                   });
 
                   if (!res.ok) {
-                    throw new Error('Failed to start assembly');
+                    const error = await res.json();
+                    throw new Error(error.error || 'Failed to start assembly');
                   }
 
-                  // Handle SSE stream
-                  const reader = res.body?.getReader();
-                  if (!reader) {
-                    throw new Error('No stream available');
+                  const data = await res.json();
+                  const jobId = data.jobId;
+
+                  if (!jobId) {
+                    throw new Error('No job ID returned');
                   }
 
-                  const decoder = new TextDecoder();
-                  let buffer = '';
+                  toast.success('Assemblage ajouté à la file d\'attente');
 
-                  while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
+                  // Start polling for job status
+                  await fetchJobs();
+                  startPolling();
 
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    let currentEvent = '';
-                    for (const line of lines) {
-                      if (line.startsWith('event: ')) {
-                        currentEvent = line.slice(7);
-                      } else if (line.startsWith('data: ') && currentEvent) {
-                        try {
-                          const data = JSON.parse(line.slice(6));
-
-                          switch (currentEvent) {
-                            case 'progress':
-                              setAssemblyProgress(data.progress || 0);
-                              break;
-                            case 'complete':
-                              setAssemblyProgress(100);
-                              setAssembledVideoUrl(data.videoUrl);
-                              setIsAssembling(false);
-                              // Show duration in toast if available
-                              if (data.duration) {
-                                const mins = Math.floor(data.duration / 60);
-                                const secs = Math.round(data.duration % 60);
-                                toast.success(`Short assemblé (${mins}:${secs.toString().padStart(2, '0')})`);
-                              } else {
-                                toast.success('Short assemblé');
-                              }
-                              // Refetch shorts to update store with new duration
-                              fetchShorts(projectId);
-                              return;
-                            case 'error':
-                              throw new Error(data.error || 'Assembly failed');
-                          }
-                          currentEvent = '';
-                        } catch (parseError) {
-                          if (currentEvent === 'error') throw parseError;
-                        }
-                      }
-                    }
-                  }
                 } catch (error) {
                   console.error('Assembly error:', error);
                   toast.error(error instanceof Error ? error.message : 'Erreur lors de l\'assemblage');

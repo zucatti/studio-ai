@@ -22,6 +22,14 @@ export interface ReferenceImage {
   label: string;
 }
 
+// Rush image - a previous generation kept for comparison/selection
+export interface RushImage {
+  url: string;
+  type: CharacterImageType;
+  label: string;
+  createdAt: string; // ISO timestamp
+}
+
 export interface LookVariation {
   id: string;
   name: string;
@@ -35,6 +43,7 @@ export interface CharacterData {
   age?: string;
   gender?: string;
   reference_images_metadata?: ReferenceImage[];
+  rushes?: RushImage[]; // Previous generations kept for comparison/selection
   looks?: LookVariation[];
   voice_id?: string;
   voice_name?: string;
@@ -401,7 +410,7 @@ export const useBibleStore = create<BibleStore>()(
         }
       },
 
-      // Character image generation
+      // Character image generation - now always async via BullMQ
       generateCharacterImages: async (assetId: string, input: GenerateImagesInput) => {
         set({ isGenerating: true });
         try {
@@ -413,7 +422,27 @@ export const useBibleStore = create<BibleStore>()(
 
           if (res.ok) {
             const data = await res.json();
-            // Update the asset in place without full refetch to avoid closing modal
+
+            // Check if response is async (new BullMQ flow)
+            if (data.jobId && data.async) {
+              // Fetch the full job data and add to jobs store
+              const jobRes = await fetch(`/api/jobs/${data.jobId}`);
+              if (jobRes.ok) {
+                const jobData = await jobRes.json();
+                const job = jobData.job;
+                if (job) {
+                  console.log('[BibleStore] Adding job to queue:', job.id, job.status);
+                  useJobsStore.setState((state) => ({
+                    jobs: [job, ...state.jobs.filter((j) => j.id !== job.id)],
+                  }));
+                  useJobsStore.getState().startPolling();
+                }
+              }
+              // Return null to indicate async processing
+              return null;
+            }
+
+            // Legacy sync response (fallback)
             const { globalAssets } = get();
             const updatedAssets = globalAssets.map((asset) => {
               if (asset.id === assetId) {
@@ -444,10 +473,12 @@ export const useBibleStore = create<BibleStore>()(
 
       queueCharacterImageGeneration: async (input: QueueJobInput) => {
         try {
-          const res = await fetch(`/api/global-assets/${input.assetId}/queue-generate`, {
+          // Now uses the same generate-images endpoint which enqueues to BullMQ
+          const res = await fetch(`/api/global-assets/${input.assetId}/generate-images`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              mode: 'generate_single',
               viewType: input.viewType,
               style: input.style || 'photorealistic',
               model: input.model || 'fal-ai/nano-banana-2',
@@ -458,19 +489,26 @@ export const useBibleStore = create<BibleStore>()(
 
           if (res.ok) {
             const data = await res.json();
-            const job = data.job;
+            const jobId = data.jobId;
 
-            if (job) {
-              // Add job to jobs store and start polling
-              console.log('[BibleStore] Adding job to queue:', job.id, job.status);
-              useJobsStore.setState((state) => ({
-                jobs: [job, ...state.jobs.filter((j) => j.id !== job.id)],
-              }));
-              useJobsStore.getState().startPolling();
-              console.log('[BibleStore] Polling started, jobs count:', useJobsStore.getState().jobs.length);
+            if (jobId) {
+              // Fetch the full job data and add to jobs store
+              const jobRes = await fetch(`/api/jobs/${jobId}`);
+              if (jobRes.ok) {
+                const jobData = await jobRes.json();
+                const job = jobData.job;
+                if (job) {
+                  console.log('[BibleStore] Adding job to queue:', job.id, job.status);
+                  useJobsStore.setState((state) => ({
+                    jobs: [job, ...state.jobs.filter((j) => j.id !== job.id)],
+                  }));
+                  useJobsStore.getState().startPolling();
+                  console.log('[BibleStore] Polling started, jobs count:', useJobsStore.getState().jobs.length);
+                }
+              }
             }
 
-            return job?.id || null;
+            return jobId || null;
           } else {
             const errorText = await res.text();
             console.error('Error queuing job:', res.status, errorText);

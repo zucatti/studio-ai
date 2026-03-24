@@ -35,6 +35,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { useJobsStore } from '@/store/jobs-store';
 
 interface Scene {
   id: string;
@@ -110,6 +111,9 @@ export default function PreprodPage() {
   const params = useParams();
   const projectId = params.projectId as string;
 
+  // Jobs store for queue management
+  const { fetchJobs, startPolling } = useJobsStore();
+
   const [shots, setShots] = useState<Shot[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingFrames, setGeneratingFrames] = useState<Record<string, string>>({});
@@ -140,39 +144,15 @@ export default function PreprodPage() {
     fetchShots();
   }, [fetchShots]);
 
-  // Poll for video generation progress
+  // Start polling if there are queued/generating shots
   useEffect(() => {
-    const generatingShots = shots.filter(s => s.generation_status === 'generating');
-    if (generatingShots.length === 0) return;
-
-    const interval = setInterval(async () => {
-      for (const shot of generatingShots) {
-        try {
-          const res = await fetch(`/api/projects/${projectId}/shots/${shot.id}/generate-video`);
-          if (res.ok) {
-            const data = await res.json();
-            setShots(prev => prev.map(s =>
-              s.id === shot.id
-                ? {
-                    ...s,
-                    generation_status: data.generation_status,
-                    generated_video_url: data.generated_video_url,
-                    video_generation_progress: data.video_generation_progress
-                      ? JSON.parse(data.video_generation_progress)
-                      : null,
-                    generation_error: data.generation_error,
-                  }
-                : s
-            ));
-          }
-        } catch (e) {
-          console.error('Error polling status:', e);
-        }
-      }
-    }, 3000);
-
-    return () => clearInterval(interval);
-  }, [shots, projectId]);
+    const activeShots = shots.filter(s =>
+      ['queued', 'generating', 'running'].includes(s.generation_status || '')
+    );
+    if (activeShots.length > 0) {
+      startPolling();
+    }
+  }, [shots, startPolling]);
 
   const stats = {
     total: shots.length,
@@ -288,12 +268,13 @@ export default function PreprodPage() {
     // Update local state to show generating
     setShots(prev => prev.map(s =>
       s.id === shotId
-        ? { ...s, generation_status: 'generating', video_provider: provider }
+        ? { ...s, generation_status: 'queued', video_provider: provider }
         : s
     ));
 
     try {
-      const res = await fetch(`/api/projects/${projectId}/shots/${shotId}/generate-video`, {
+      // Use the queue endpoint instead of synchronous
+      const res = await fetch(`/api/projects/${projectId}/shots/${shotId}/queue-video`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider, duration }),
@@ -301,25 +282,22 @@ export default function PreprodPage() {
 
       if (!res.ok) {
         const data = await res.json();
-        throw new Error(data.error || 'Failed to generate video');
+        throw new Error(data.error || 'Failed to queue video generation');
       }
 
       const data = await res.json();
+      console.log('[Preprod] Video queued:', data.jobId);
 
-      setShots(prev => prev.map(s =>
-        s.id === shotId
-          ? {
-              ...s,
-              generated_video_url: data.videoUrl,
-              generation_status: 'completed',
-              video_duration: data.duration,
-            }
-          : s
-      ));
+      // Start polling for job updates
+      await fetchJobs();
+      startPolling();
 
-      toast.success('Vidéo générée avec succès');
+      toast.success('Génération vidéo ajoutée à la file d\'attente', {
+        description: 'Vous pouvez continuer à travailler pendant la génération.',
+      });
+
     } catch (error) {
-      console.error('Error generating video:', error);
+      console.error('Error queuing video:', error);
       toast.error(String(error));
 
       setShots(prev => prev.map(s =>
@@ -335,6 +313,32 @@ export default function PreprodPage() {
       });
     }
   };
+
+  // Listen for job completion to refresh shots
+  useEffect(() => {
+    const handleJobCompleted = async (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        jobId: string;
+        assetId: string;
+        assetType: string;
+        jobType: string;
+        jobSubtype: string;
+      }>;
+      const { assetType, jobType } = customEvent.detail;
+
+      // Check if this is a video job for a shot
+      if (assetType !== 'shot' || jobType !== 'video') return;
+
+      console.log('[Preprod] Video job completed, refreshing shots...');
+      await fetchShots();
+    };
+
+    window.addEventListener('job-completed', handleJobCompleted);
+
+    return () => {
+      window.removeEventListener('job-completed', handleJobCompleted);
+    };
+  }, [fetchShots]);
 
   const handleProviderChange = async (shotId: string, provider: string) => {
     setShots(prev => prev.map(s =>

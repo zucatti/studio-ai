@@ -1,9 +1,10 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import { Play, Pause, Volume2, VolumeX, Maximize2, Download } from 'lucide-react';
+import { Play, Pause, Volume2, VolumeX, Maximize2, Download, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { StorageImg } from '@/components/ui/storage-image';
+import { useSignedUrl, isB2Url } from '@/hooks/use-signed-url';
 
 interface VideoCardProps {
   videoUrl: string;
@@ -35,6 +36,20 @@ export function VideoCard({
   const [isMuted, setIsMuted] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [showControls, setShowControls] = useState(false);
+
+  // Sign B2 URLs
+  const { signedUrl, isLoading: isSigningUrl, error: signError } = useSignedUrl(videoUrl);
+  const finalVideoUrl = signedUrl || (isB2Url(videoUrl) ? null : videoUrl);
+
+  // Debug logging
+  useEffect(() => {
+    if (isB2Url(videoUrl)) {
+      console.log('[VideoCard] B2 URL:', videoUrl);
+      console.log('[VideoCard] Signed URL:', signedUrl);
+      console.log('[VideoCard] Error:', signError);
+      console.log('[VideoCard] Loading:', isSigningUrl);
+    }
+  }, [videoUrl, signedUrl, signError, isSigningUrl]);
 
   // Aspect ratio classes
   const aspectStyles: Record<string, string> = {
@@ -117,6 +132,37 @@ export function VideoCard({
 
   const progress = duration > 0 ? (currentTime / duration) * 100 : 0;
 
+  // Show error state
+  if (signError) {
+    return (
+      <div
+        className={cn(
+          "relative rounded-lg overflow-hidden border-2 border-red-500/50 flex flex-col items-center justify-center bg-black text-red-400",
+          aspectClass,
+          className
+        )}
+      >
+        <span className="text-sm">Erreur de chargement</span>
+        <span className="text-xs text-red-400/70 mt-1">{signError.message}</span>
+      </div>
+    );
+  }
+
+  // Show loading state while signing B2 URL
+  if (isSigningUrl || (isB2Url(videoUrl) && !finalVideoUrl)) {
+    return (
+      <div
+        className={cn(
+          "relative rounded-lg overflow-hidden border-2 border-white/10 flex items-center justify-center bg-black",
+          aspectClass,
+          className
+        )}
+      >
+        <Loader2 className="w-8 h-8 text-white/50 animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div
       className={cn(
@@ -131,7 +177,7 @@ export function VideoCard({
       {/* Video element - hidden controls */}
       <video
         ref={videoRef}
-        src={videoUrl}
+        src={finalVideoUrl || ''}
         loop
         muted={isMuted}
         playsInline

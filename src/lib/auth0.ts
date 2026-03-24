@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { NextRequest } from "next/server";
 
 const baseUrl = process.env.AUTH0_BASE_URL || 'https://studio.stevencreeks.com';
+const isLocalhost = baseUrl.includes('localhost');
 
 const auth0Client = new Auth0Client({
   domain: process.env.AUTH0_ISSUER_BASE_URL?.replace("https://", ""),
@@ -18,9 +19,9 @@ const auth0Client = new Auth0Client({
   authorizationParameters: {
     redirect_uri: `${baseUrl}/auth/callback`,
   },
-  // Force cookie domain for reverse proxy setup
+  // Force cookie domain for reverse proxy setup (only in production)
   session: {
-    cookie: {
+    cookie: isLocalhost ? {} : {
       domain: 'studio.stevencreeks.com',
     },
   },

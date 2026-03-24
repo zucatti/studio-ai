@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: studio-worker
+  labels:
+    app: studio-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: studio-worker
+  template:
+    metadata:
+      labels:
+        app: studio-worker
+    spec:
+      terminationGracePeriodSeconds: 120
+      imagePullSecrets:
+        - name: ghcr-secret
+      containers:
+        - name: worker
+          image: ghcr.io/zucatti/studio-worker:latest
+          imagePullPolicy: Always
+          envFrom:
+            - secretRef:
+                name: studio-secrets
+          env:
+            - name: REDIS_HOST
+              value: redis
+            - name: REDIS_PORT
+              value: "6379"
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          livenessProbe:
+            exec:
+              command:
+                - node
+                - -e
+                - "process.exit(0)"
+            initialDelaySeconds: 30
+            periodSeconds: 60

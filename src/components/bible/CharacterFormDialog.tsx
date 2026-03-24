@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -26,7 +26,9 @@ import {
   type ReferenceImage,
   type CharacterImageType,
   type LookVariation,
+  type RushImage,
 } from '@/store/bible-store';
+import { useJobsStore, type GenerationJob } from '@/store/jobs-store';
 import type { GlobalAsset } from '@/types/database';
 import {
   User,
@@ -158,6 +160,12 @@ export function CharacterFormDialog({
   const [generatingView, setGeneratingView] = useState<CharacterImageType | null>(null);
   const [savedCharacterId, setSavedCharacterId] = useState<string | null>(null);
 
+  // Rushes state - previous generations for comparison/selection
+  const [rushes, setRushes] = useState<RushImage[]>(
+    (character?.data as CharacterData)?.rushes || []
+  );
+  const [showRushesFor, setShowRushesFor] = useState<CharacterImageType | null>(null);
+
   // Looks state
   const [looks, setLooks] = useState<LookVariation[]>(
     (character?.data as CharacterData)?.looks || []
@@ -181,6 +189,73 @@ export function CharacterFormDialog({
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lookFileInputRef = useRef<HTMLInputElement>(null);
 
+  // Jobs store for tracking pending generations
+  const { jobs, startPolling, fetchJobs } = useJobsStore();
+
+  // Track pending jobs for this character's view types
+  const pendingJobsByView = useMemo(() => {
+    if (!character?.id) return new Map<CharacterImageType, GenerationJob>();
+
+    const map = new Map<CharacterImageType, GenerationJob>();
+    const characterJobs = jobs.filter(
+      (job) =>
+        job.asset_id === character.id &&
+        job.job_type === 'image' &&
+        ['pending', 'queued', 'running'].includes(job.status)
+    );
+
+    for (const job of characterJobs) {
+      const viewType = job.job_subtype as CharacterImageType;
+      if (viewType && IMAGE_TYPES.some((t) => t.value === viewType)) {
+        map.set(viewType, job);
+      }
+    }
+    return map;
+  }, [jobs, character?.id]);
+
+  // Listen for job-completed events to refresh images
+  useEffect(() => {
+    if (!character?.id || !open) return;
+
+    const handleJobCompleted = async (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        jobId: string;
+        assetId: string;
+        assetType: string;
+        jobType: string;
+        jobSubtype: string;
+      }>;
+      const { assetId, jobType, jobSubtype } = customEvent.detail;
+
+      // Check if this job is for our character
+      if (assetId !== character.id || jobType !== 'image') return;
+
+      console.log(`[CharacterForm] Job completed for view: ${jobSubtype}`);
+
+      // Fetch updated character data to get new images and rushes
+      const res = await fetch(`/api/global-assets/${character.id}`);
+      if (res.ok) {
+        const data = await res.json();
+        const newImages = data.asset?.data?.reference_images_metadata || [];
+        const newRushes = data.asset?.data?.rushes || [];
+        setReferenceImages(newImages);
+        setRushes(newRushes);
+
+        toast.success(`Image "${jobSubtype}" générée avec succès!`);
+      }
+    };
+
+    window.addEventListener('job-completed', handleJobCompleted);
+
+    // Start polling when dialog is open
+    startPolling();
+    fetchJobs();
+
+    return () => {
+      window.removeEventListener('job-completed', handleJobCompleted);
+    };
+  }, [character?.id, open, startPolling, fetchJobs]);
+
   // Reset form when dialog opens/closes or character changes
   const resetForm = useCallback(() => {
     if (character) {
@@ -192,6 +267,7 @@ export function CharacterFormDialog({
       setGender(data?.gender || '');
       setTags((character.tags || []).join(', '));
       setReferenceImages(data?.reference_images_metadata || []);
+      setRushes(data?.rushes || []);
       setLooks(data?.looks || []);
       setVoiceId(data?.voice_id || '');
       setVoiceName(data?.voice_name || '');
@@ -203,6 +279,7 @@ export function CharacterFormDialog({
       setGender('');
       setTags('');
       setReferenceImages([]);
+      setRushes([]);
       setLooks([]);
       setVoiceId('');
       setVoiceName('');
@@ -210,6 +287,7 @@ export function CharacterFormDialog({
     setStyle('photorealistic');
     setActiveTab('references');
     setSavedCharacterId(null);
+    setShowRushesFor(null);
     setPendingFiles(new Map());
   }, [character]);
 
@@ -333,6 +411,113 @@ export function CharacterFormDialog({
   // Remove an image
   const removeImage = (imageType: CharacterImageType) => {
     setReferenceImages((prev) => prev.filter((img) => img.type !== imageType));
+  };
+
+  // Count rushes for a specific type
+  const getRushCountForType = useCallback(
+    (imageType: CharacterImageType) => {
+      return rushes.filter((r) => r.type === imageType).length;
+    },
+    [rushes]
+  );
+
+  // Get rushes for a specific type (sorted by date, newest first)
+  const getRushesForType = useCallback(
+    (imageType: CharacterImageType) => {
+      return rushes
+        .filter((r) => r.type === imageType)
+        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    },
+    [rushes]
+  );
+
+  // Delete a specific rush
+  const deleteRush = async (rushUrl: string) => {
+    const characterId = character?.id || savedCharacterId;
+    if (!characterId) return;
+
+    const newRushes = rushes.filter((r) => r.url !== rushUrl);
+    setRushes(newRushes);
+
+    // Update in database
+    try {
+      await fetch(`/api/global-assets/${characterId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: {
+            ...(character?.data as CharacterData),
+            reference_images_metadata: referenceImages,
+            rushes: newRushes,
+          },
+        }),
+      });
+      toast.success('Rush supprimé');
+    } catch (error) {
+      console.error('Error deleting rush:', error);
+      toast.error('Erreur lors de la suppression');
+    }
+  };
+
+  // Promote a rush to be the main image (swap with current)
+  const promoteRush = async (rush: RushImage) => {
+    const characterId = character?.id || savedCharacterId;
+    if (!characterId) return;
+
+    const imageType = rush.type as CharacterImageType;
+    const currentImage = referenceImages.find((img) => img.type === imageType);
+
+    // New rushes array: remove the promoted rush, add current image if exists
+    let newRushes = rushes.filter((r) => r.url !== rush.url);
+    if (currentImage) {
+      newRushes = [
+        {
+          url: currentImage.url,
+          type: currentImage.type,
+          label: currentImage.label,
+          createdAt: new Date().toISOString(),
+        },
+        ...newRushes,
+      ];
+    }
+
+    // New reference images: replace or add the promoted image
+    const newReferenceImages = [...referenceImages];
+    const existingIndex = newReferenceImages.findIndex((img) => img.type === imageType);
+    const newImage: ReferenceImage = {
+      url: rush.url,
+      type: imageType,
+      label: rush.label,
+    };
+
+    if (existingIndex >= 0) {
+      newReferenceImages[existingIndex] = newImage;
+    } else {
+      newReferenceImages.push(newImage);
+    }
+
+    setReferenceImages(newReferenceImages);
+    setRushes(newRushes);
+
+    // Update in database
+    try {
+      await fetch(`/api/global-assets/${characterId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reference_images: newReferenceImages.map((img) => img.url),
+          data: {
+            ...(character?.data as CharacterData),
+            reference_images_metadata: newReferenceImages,
+            rushes: newRushes,
+          },
+        }),
+      });
+      toast.success('Image mise en avant');
+    } catch (error) {
+      console.error('Error promoting rush:', error);
+      toast.error('Erreur lors de la mise en avant');
+    }
   };
 
   // Generate single view
@@ -1003,19 +1188,61 @@ export function CharacterFormDialog({
                       const existingImage = referenceImages.find((img) => img.type === imageType.value);
                       const isGeneratingThis = generatingView === imageType.value;
                       const isUploadingThis = uploadingImageType === imageType.value;
+                      const pendingJob = pendingJobsByView.get(imageType.value);
+                      const hasPendingJob = !!pendingJob;
+                      const isProcessing = isGeneratingThis || isUploadingThis || hasPendingJob;
 
                       return (
                         <div
                           key={imageType.value}
                           className={cn(
                             'relative rounded-xl group transition-all cursor-pointer break-inside-avoid mb-4 overflow-hidden',
-                            existingImage
+                            hasPendingJob
+                              ? 'ring-2 ring-purple-500/50'
+                              : existingImage
                               ? 'ring-1 ring-white/20'
                               : 'border-2 border-dashed border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/10'
                           )}
-                          onClick={() => !isGeneratingThis && !isUploadingThis && handleImageSlotClick(imageType.value)}
+                          onClick={() => !isProcessing && handleImageSlotClick(imageType.value)}
                         >
-                          {isGeneratingThis || isUploadingThis ? (
+                          {hasPendingJob ? (
+                            // Rainbow animation for queued jobs
+                            <div className="aspect-[3/4] relative overflow-hidden rounded-xl">
+                              {/* Animated rainbow radial gradient background */}
+                              <div className="absolute inset-0 rainbow-radial-animation" />
+                              {/* Dark overlay for readability */}
+                              <div className="absolute inset-0 bg-black/30" />
+                              {/* Content */}
+                              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+                                {/* Icon with pulsing ring */}
+                                <div className="relative">
+                                  <Wand2 className="w-8 h-8 text-white/80" />
+                                  <div className="absolute inset-0 -m-2 rounded-full border-2 border-white/30 animate-ping" />
+                                </div>
+                                {/* Status message */}
+                                <span className="text-sm font-medium text-white">
+                                  {pendingJob.status === 'running' ? 'Génération...' : 'En file...'}
+                                </span>
+                                {/* View type label */}
+                                <span className="text-xs text-white/70 bg-black/40 px-2 py-0.5 rounded">
+                                  {imageType.label}
+                                </span>
+                                {/* Progress if available */}
+                                {pendingJob.progress > 0 && (
+                                  <span className="text-lg font-bold text-white/90">
+                                    {Math.round(pendingJob.progress)}%
+                                  </span>
+                                )}
+                              </div>
+                              {/* Progress bar at bottom */}
+                              <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-black/50">
+                                <div
+                                  className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 transition-all duration-300 ease-out"
+                                  style={{ width: `${pendingJob.progress || 5}%` }}
+                                />
+                              </div>
+                            </div>
+                          ) : isGeneratingThis || isUploadingThis ? (
                             <div className="aspect-[3/4] flex flex-col items-center justify-center gap-3">
                               <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
                               <span className="text-sm text-slate-400">
@@ -1090,10 +1317,25 @@ export function CharacterFormDialog({
                                   </Button>
                                 </div>
                               </div>
-                              <div className="absolute bottom-2 left-2">
+                              <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
                                 <span className="text-sm text-white font-medium px-2 py-1 rounded-md bg-black/70 backdrop-blur-sm">
                                   {imageType.label}
                                 </span>
+                                {getRushCountForType(imageType.value) > 0 && (
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 px-2 text-amber-400 hover:bg-amber-500/20 bg-black/70 backdrop-blur-sm rounded-md"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setShowRushesFor(imageType.value);
+                                    }}
+                                    title="Voir les rushes précédents"
+                                  >
+                                    <Clock className="w-3.5 h-3.5 mr-1" />
+                                    <span className="text-xs">{getRushCountForType(imageType.value)}</span>
+                                  </Button>
+                                )}
                               </div>
                             </div>
                           ) : (
@@ -1453,6 +1695,37 @@ export function CharacterFormDialog({
           onChange={handleLookFileSelect}
         />
         <audio ref={audioRef} className="hidden" />
+
+        {/* CSS for rainbow animation */}
+        <style jsx global>{`
+          .rainbow-radial-animation {
+            background: conic-gradient(
+              from 0deg,
+              #ff0000,
+              #ff8000,
+              #ffff00,
+              #00ff00,
+              #00ffff,
+              #0080ff,
+              #8000ff,
+              #ff0080,
+              #ff0000
+            );
+            animation: rainbow-spin 3s linear infinite;
+            filter: blur(30px);
+            opacity: 0.6;
+            transform: scale(1.3);
+          }
+
+          @keyframes rainbow-spin {
+            from {
+              transform: scale(1.3) rotate(0deg);
+            }
+            to {
+              transform: scale(1.3) rotate(360deg);
+            }
+          }
+        `}</style>
       </DialogContent>
 
       {/* Gallery Picker for looks - two-step flow: select image, then enter name/description */}
@@ -1463,6 +1736,85 @@ export function CharacterFormDialog({
         title="Choisir une image pour le look"
         requireLookInfo
       />
+
+      {/* Rushes Dialog - show previous generations for a type */}
+      <Dialog open={!!showRushesFor} onOpenChange={(open) => !open && setShowRushesFor(null)}>
+        <DialogContent className="sm:max-w-[600px] bg-slate-900 border-slate-800 text-white">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Clock className="w-5 h-5 text-amber-400" />
+              Rushes - {IMAGE_TYPES.find((t) => t.value === showRushesFor)?.label}
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Générations précédentes. Cliquez sur une image pour la remettre en avant.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4">
+            {showRushesFor && getRushesForType(showRushesFor).length > 0 ? (
+              <div className="grid grid-cols-3 gap-3 max-h-[400px] overflow-y-auto scrollbar-none">
+                {getRushesForType(showRushesFor).map((rush, index) => (
+                  <div
+                    key={`${rush.url}-${index}`}
+                    className="relative group rounded-lg overflow-hidden cursor-pointer ring-1 ring-white/10 hover:ring-amber-500/50 transition-all"
+                    onClick={() => {
+                      promoteRush(rush);
+                      setShowRushesFor(null);
+                    }}
+                  >
+                    <StorageImg
+                      src={rush.url}
+                      alt={`Rush ${index + 1}`}
+                      className="w-full aspect-[3/4] object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-white hover:bg-white/20"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          promoteRush(rush);
+                          setShowRushesFor(null);
+                        }}
+                      >
+                        <Check className="w-4 h-4 mr-1" />
+                        Utiliser
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-400 hover:bg-red-500/20"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deleteRush(rush.url);
+                        }}
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" />
+                        Supprimer
+                      </Button>
+                    </div>
+                    <div className="absolute bottom-1 left-1 right-1">
+                      <span className="text-[10px] text-white/70 bg-black/60 px-1.5 py-0.5 rounded">
+                        {new Date(rush.createdAt).toLocaleDateString('fr-FR', {
+                          day: '2-digit',
+                          month: 'short',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-12 text-slate-500">
+                <Clock className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p>Aucun rush pour cette vue</p>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   );
 }

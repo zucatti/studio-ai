@@ -1361,52 +1361,131 @@ export function PlanEditorModal({
                             style={{ width: `${((musicDuration - (audioEnd ?? selectionDuration)) / musicDuration) * 100}%` }}
                           />
 
-                          {/* Draggable selection zone */}
+                          {/* Draggable selection zone with resize handles */}
                           {(() => {
                             const effectiveSelection = Math.min(selectionDuration, musicDuration);
                             const currentSelectionWidth = (audioEnd ?? effectiveSelection) - audioStart;
+                            const minSelectionWidth = 1; // Minimum 1 second
 
                             return (
-                              <div
-                                className="absolute top-0 bottom-0 cursor-grab active:cursor-grabbing border-x-2 border-blue-400 hover:bg-blue-500/10 transition-colors"
-                                style={{
-                                  left: `${(audioStart / musicDuration) * 100}%`,
-                                  width: `${(currentSelectionWidth / musicDuration) * 100}%`,
-                                }}
-                                onMouseDown={(e) => {
-                                  e.preventDefault();
-                                  const container = e.currentTarget.parentElement;
-                                  if (!container) return;
-                                  const rect = container.getBoundingClientRect();
-                                  const startX = e.clientX;
-                                  const initialStart = audioStart;
-                                  const selWidth = currentSelectionWidth;
+                              <>
+                                {/* Main selection zone - drag to move */}
+                                <div
+                                  className="absolute top-0 bottom-0 cursor-grab active:cursor-grabbing hover:bg-blue-500/10 transition-colors"
+                                  style={{
+                                    left: `${(audioStart / musicDuration) * 100}%`,
+                                    width: `${(currentSelectionWidth / musicDuration) * 100}%`,
+                                  }}
+                                  onMouseDown={(e) => {
+                                    // Ignore if clicking on handles
+                                    if ((e.target as HTMLElement).dataset.handle) return;
+                                    e.preventDefault();
+                                    const container = e.currentTarget.parentElement;
+                                    if (!container) return;
+                                    const rect = container.getBoundingClientRect();
+                                    const startX = e.clientX;
+                                    const initialStart = audioStart;
+                                    const selWidth = currentSelectionWidth;
 
-                                  let lastStart = audioStart;
-                                  let lastEnd = audioEnd ?? effectiveSelection;
+                                    let lastStart = audioStart;
+                                    let lastEnd = audioEnd ?? effectiveSelection;
 
-                                  const onMove = (moveE: MouseEvent) => {
-                                    const deltaX = moveE.clientX - startX;
-                                    const deltaTime = (deltaX / rect.width) * musicDuration;
-                                    let newStart = initialStart + deltaTime;
-                                    newStart = Math.max(0, Math.min(newStart, musicDuration - selWidth));
-                                    const newEnd = newStart + selWidth;
-                                    lastStart = newStart;
-                                    lastEnd = newEnd;
-                                    setAudioStart(newStart);
-                                    setAudioEnd(newEnd);
-                                  };
+                                    const onMove = (moveE: MouseEvent) => {
+                                      const deltaX = moveE.clientX - startX;
+                                      const deltaTime = (deltaX / rect.width) * musicDuration;
+                                      let newStart = initialStart + deltaTime;
+                                      newStart = Math.max(0, Math.min(newStart, musicDuration - selWidth));
+                                      const newEnd = newStart + selWidth;
+                                      lastStart = newStart;
+                                      lastEnd = newEnd;
+                                      setAudioStart(newStart);
+                                      setAudioEnd(newEnd);
+                                    };
 
-                                  const onUp = () => {
-                                    document.removeEventListener('mousemove', onMove);
-                                    document.removeEventListener('mouseup', onUp);
-                                    onUpdate({ audio_start: lastStart, audio_end: lastEnd });
-                                  };
+                                    const onUp = () => {
+                                      document.removeEventListener('mousemove', onMove);
+                                      document.removeEventListener('mouseup', onUp);
+                                      onUpdate({ audio_start: lastStart, audio_end: lastEnd });
+                                    };
 
-                                  document.addEventListener('mousemove', onMove);
-                                  document.addEventListener('mouseup', onUp);
-                                }}
-                              />
+                                    document.addEventListener('mousemove', onMove);
+                                    document.addEventListener('mouseup', onUp);
+                                  }}
+                                />
+
+                                {/* Left handle - drag to adjust start */}
+                                <div
+                                  data-handle="left"
+                                  className="absolute top-0 bottom-0 w-2 cursor-ew-resize bg-green-500 hover:bg-green-400 transition-colors z-10"
+                                  style={{
+                                    left: `calc(${(audioStart / musicDuration) * 100}% - 4px)`,
+                                  }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const container = e.currentTarget.parentElement;
+                                    if (!container) return;
+                                    const rect = container.getBoundingClientRect();
+                                    const currentEnd = audioEnd ?? effectiveSelection;
+
+                                    let lastStart = audioStart;
+
+                                    const onMove = (moveE: MouseEvent) => {
+                                      const x = moveE.clientX - rect.left;
+                                      let newStart = (x / rect.width) * musicDuration;
+                                      // Clamp: min 0, max is end - minWidth
+                                      newStart = Math.max(0, Math.min(newStart, currentEnd - minSelectionWidth));
+                                      lastStart = newStart;
+                                      setAudioStart(newStart);
+                                    };
+
+                                    const onUp = () => {
+                                      document.removeEventListener('mousemove', onMove);
+                                      document.removeEventListener('mouseup', onUp);
+                                      onUpdate({ audio_start: lastStart, audio_end: currentEnd });
+                                    };
+
+                                    document.addEventListener('mousemove', onMove);
+                                    document.addEventListener('mouseup', onUp);
+                                  }}
+                                />
+
+                                {/* Right handle - drag to adjust end */}
+                                <div
+                                  data-handle="right"
+                                  className="absolute top-0 bottom-0 w-2 cursor-ew-resize bg-red-500 hover:bg-red-400 transition-colors z-10"
+                                  style={{
+                                    left: `calc(${((audioEnd ?? effectiveSelection) / musicDuration) * 100}% - 4px)`,
+                                  }}
+                                  onMouseDown={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    const container = e.currentTarget.parentElement;
+                                    if (!container) return;
+                                    const rect = container.getBoundingClientRect();
+
+                                    let lastEnd = audioEnd ?? effectiveSelection;
+
+                                    const onMove = (moveE: MouseEvent) => {
+                                      const x = moveE.clientX - rect.left;
+                                      let newEnd = (x / rect.width) * musicDuration;
+                                      // Clamp: min is start + minWidth, max is musicDuration
+                                      newEnd = Math.max(audioStart + minSelectionWidth, Math.min(newEnd, musicDuration));
+                                      lastEnd = newEnd;
+                                      setAudioEnd(newEnd);
+                                    };
+
+                                    const onUp = () => {
+                                      document.removeEventListener('mousemove', onMove);
+                                      document.removeEventListener('mouseup', onUp);
+                                      onUpdate({ audio_start: audioStart, audio_end: lastEnd });
+                                    };
+
+                                    document.addEventListener('mousemove', onMove);
+                                    document.addEventListener('mouseup', onUp);
+                                  }}
+                                />
+                              </>
                             );
                           })()}
 

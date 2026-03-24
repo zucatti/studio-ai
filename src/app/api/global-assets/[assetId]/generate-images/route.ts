@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { uploadFile, getSignedFileUrl, parseStorageUrl, STORAGE_BUCKET } from '@/lib/storage';
 import { createClaudeWrapper, extractTextContent, isCreditError, formatCreditError } from '@/lib/ai';
 import { createCreditService, ensureCredit, calculateFalCost } from '@/lib/credits';
+import { enqueueImageGen, type ImageGenJobData } from '@/lib/bullmq';
 
 interface RouteParams {
   params: Promise<{ assetId: string }>;
@@ -26,14 +26,14 @@ const MODEL_CONFIG: Record<string, {
   name: string;
   description: string;
   supportsReference: boolean;
-  aspectRatioParam: string; // How aspect ratio is passed to the API
-  falEndpoint?: string; // Optional: different fal.ai endpoint
+  aspectRatioParam: string;
+  falEndpoint?: string;
 }> = {
   'fal-ai/nano-banana-2': {
     name: 'Nano Banana 2',
     description: 'Google Gemini 3.1 Flash - Rapide et haute qualité, 4K',
     supportsReference: false,
-    aspectRatioParam: 'aspect_ratio', // supports: auto, 21:9, 16:9, 3:2, 4:3, 5:4, 1:1, 4:5, 3:4, 2:3, 9:16
+    aspectRatioParam: 'aspect_ratio',
   },
   'seedream-5': {
     name: 'Seedream 5',
@@ -70,14 +70,14 @@ const STYLE_CONFIG: Record<string, {
   promptSuffix: string;
   renderingSpeed: 'TURBO' | 'BALANCED' | 'QUALITY';
   ideogramStyle: 'AUTO' | 'REALISTIC' | 'FICTION';
-  resolution: '1K' | '2K' | '4K'; // For Nano Banana 2
+  resolution: '1K' | '2K' | '4K';
 }> = {
   photorealistic: {
     promptPrefix: 'photorealistic, cinematic still, professional photography, 8k uhd, ',
     promptSuffix: ', highly detailed, sharp focus, cinematic lighting',
     renderingSpeed: 'QUALITY',
     ideogramStyle: 'REALISTIC',
-    resolution: '4K', // High quality for photorealistic
+    resolution: '4K',
   },
   cartoon: {
     promptPrefix: 'pixar style, disney animation, 3d cartoon character, vibrant colors, ',
@@ -117,15 +117,14 @@ const STYLE_CONFIG: Record<string, {
 };
 
 // View configurations for multi-view generation
-const CHARACTER_VIEWS: { name: CharacterImageType; label: string; promptSuffix: string; perspectiveTarget: string }[] = [
-  { name: 'front', label: 'Face (Vue de face)', promptSuffix: 'front view, facing camera, looking straight ahead', perspectiveTarget: 'front' },
-  { name: 'profile', label: 'Profil (Vue de cote)', promptSuffix: 'side profile view, looking to the side, 3/4 view', perspectiveTarget: 'three_quarter_right' },
-  { name: 'back', label: 'Dos (Vue arriere)', promptSuffix: 'back view, facing away from camera, rear view, back of head visible', perspectiveTarget: 'back' },
+const CHARACTER_VIEWS: { name: CharacterImageType; label: string; promptSuffix: string }[] = [
+  { name: 'front', label: 'Face (Vue de face)', promptSuffix: 'front view, facing camera, looking straight ahead' },
+  { name: 'profile', label: 'Profil (Vue de côté)', promptSuffix: 'side profile view, looking to the side' },
+  { name: 'three_quarter', label: '3/4 (Vue trois-quarts)', promptSuffix: 'three quarter view, 3/4 angle, slightly turned' },
+  { name: 'back', label: 'Dos (Vue arrière)', promptSuffix: 'back view, facing away from camera, rear view, back of head visible' },
 ];
 
-type PerspectiveTarget = 'front' | 'left_side' | 'right_side' | 'back' | 'top_down' | 'bottom_up' | 'birds_eye' | 'three_quarter_left' | 'three_quarter_right';
-
-// Translate and optimize prompt using Claude (with credit management)
+// Translate and optimize prompt using Claude
 async function optimizePrompt(
   frenchDescription: string,
   style: string,
@@ -136,7 +135,6 @@ async function optimizePrompt(
     return frenchDescription;
   }
 
-  // Different prompts based on asset type
   let systemPrompt: string;
 
   if (assetType === 'location') {
@@ -202,18 +200,13 @@ Return ONLY the optimized English prompt, nothing else.`;
   const result = await claudeWrapper.createMessage({
     model: 'claude-sonnet-4-20250514',
     max_tokens: 300,
-    messages: [
-      {
-        role: 'user',
-        content: systemPrompt,
-      },
-    ],
+    messages: [{ role: 'user', content: systemPrompt }],
   });
 
   return extractTextContent(result.message).trim() || frenchDescription;
 }
 
-// Build a look prompt using character morphology and look description (with credit management)
+// Build a look prompt using character morphology and look description
 async function buildLookPrompt(
   assetData: Record<string, unknown>,
   lookDescription: string,
@@ -224,7 +217,6 @@ async function buildLookPrompt(
     return lookDescription;
   }
 
-  // Extract character morphology data
   const age = (assetData.age as string) || '';
   const gender = (assetData.gender as string) || '';
   const visualDescription = (assetData.visual_description as string) || '';
@@ -265,6 +257,12 @@ Return ONLY the optimized English prompt, nothing else.`,
   return extractTextContent(result.message).trim() || lookDescription;
 }
 
+// Get the actual fal.ai endpoint for a model
+function getFalEndpoint(model: string): string {
+  const config = MODEL_CONFIG[model];
+  return config?.falEndpoint || model;
+}
+
 export async function POST(request: Request, { params }: RouteParams) {
   try {
     const session = await auth0.getSession();
@@ -276,17 +274,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     const body = await request.json();
     const {
       mode, // 'generate_all' | 'generate_variations' | 'generate_single' | 'generate_look'
-      sourceImageUrl, // Used when generating variations from an uploaded image
+      sourceImageUrl,
       style = 'photorealistic',
-      viewType, // For single view generation: 'front' | 'profile' | 'back'
-      lookDescription, // For look generation
-      lookName, // Name of the look being generated
-      model, // Optional: 'fal-ai/nano-banana-2' | 'fal-ai/flux-pro/v1.1'
-      resolution = '2K', // Optional: '1K' | '2K' | '4K' for Nano Banana 2
-      visualDescription: overrideVisualDescription, // Override the saved description
+      viewType,
+      lookDescription,
+      lookName,
+      model,
+      resolution = '2K',
+      visualDescription: overrideVisualDescription,
     } = body;
 
-    // Determine which model to use (default to Nano Banana 2)
     const textToImageModel = model && MODEL_CONFIG[model] ? model : DEFAULT_TEXT_TO_IMAGE_MODEL;
 
     if (!mode) {
@@ -307,56 +304,41 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
     }
 
-    // Support characters, locations, and props
     const supportedTypes = ['character', 'location', 'prop'];
     if (!supportedTypes.includes(asset.asset_type)) {
       return NextResponse.json({ error: `Asset type '${asset.asset_type}' is not supported for image generation` }, { status: 400 });
     }
 
     const assetData = asset.data as Record<string, unknown>;
-    // Use override from request if provided, otherwise fall back to saved data
     const visualDescription = overrideVisualDescription || (assetData.visual_description as string) || (assetData.description as string) || '';
     const existingReferenceImages: ReferenceImage[] =
       (assetData.reference_images_metadata as ReferenceImage[] | undefined) || [];
     const hasFrontImage = existingReferenceImages.some(img => img.type === 'front');
 
-    // For non-character assets, only 'generate_single' mode is supported
     if (asset.asset_type !== 'character' && mode !== 'generate_single') {
       return NextResponse.json({ error: `Mode '${mode}' is only supported for characters. Use 'generate_single' for locations/props.` }, { status: 400 });
     }
 
-    // Allow generation if we have a description OR if we have a front image to use as reference
     if (!visualDescription && mode !== 'generate_variations' && !(mode === 'generate_single' && hasFrontImage)) {
       return NextResponse.json({ error: 'No visual description provided for this asset' }, { status: 400 });
     }
 
-    // If visual description was overridden, save it to the database
+    // If visual description was overridden, save it
     if (overrideVisualDescription && overrideVisualDescription !== assetData.visual_description) {
-      const updatedAssetData = {
-        ...assetData,
-        visual_description: overrideVisualDescription,
-      };
+      const updatedAssetData = { ...assetData, visual_description: overrideVisualDescription };
       await supabase
         .from('global_assets')
         .update({ data: updatedAssetData })
         .eq('id', assetId);
-      console.log(`[Generate] Updated visual_description for asset ${assetId}`);
     }
 
-    // Check API key
     if (!process.env.AI_FAL_KEY) {
       return NextResponse.json({ error: 'fal.ai API key not configured (AI_FAL_KEY)' }, { status: 500 });
     }
 
     const styleConfig = STYLE_CONFIG[style] || STYLE_CONFIG.photorealistic;
 
-    // Initialize fal.ai
-    const { fal } = await import('@fal-ai/client');
-    fal.config({
-      credentials: process.env.AI_FAL_KEY,
-    });
-
-    // Initialize Claude wrapper and credit service for credit management
+    // Initialize Claude wrapper for prompt optimization
     const claudeWrapper = createClaudeWrapper({
       userId: session.user.sub,
       supabase,
@@ -365,532 +347,152 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const creditService = createCreditService(supabase);
 
-    // Helper to log fal.ai usage with resolution-aware pricing
-    const logFalUsage = async (endpoint: string, success: boolean, error?: string, resolution?: string) => {
-      // For Nano Banana 2, use resolution-specific pricing
-      let costEndpoint = endpoint;
-      if (endpoint === DEFAULT_TEXT_TO_IMAGE_MODEL && resolution) {
-        costEndpoint = `${endpoint}/${resolution}`;
-      }
-      const cost = calculateFalCost(costEndpoint, 1);
-      await creditService.logUsage(session.user.sub, {
-        provider: 'fal',
-        endpoint: costEndpoint,
-        operation: `generate-character-image-${mode}`,
-        estimated_cost: success ? cost : 0,
-        status: success ? 'success' : 'failed',
-        error_message: error,
-      });
-    };
-
-    // Helper to check fal.ai budget before calls
-    const checkFalBudget = async (endpoint: string) => {
-      const estimatedCost = calculateFalCost(endpoint, 1);
-      try {
-        await ensureCredit(creditService, session.user.sub, 'fal', estimatedCost);
-      } catch (error) {
-        if (isCreditError(error)) {
-          throw error; // Re-throw to be caught by outer handler
-        }
-        throw error;
-      }
-    };
-
-    // Helper to get public URL for fal.ai (no re-upload needed)
-    const { getPublicImageUrl } = await import('@/lib/fal-utils');
-    const getFalImageUrl = async (imageUrl: string): Promise<string> => {
-      // Blob URLs are client-side only and cannot be fetched from the server
-      if (imageUrl.startsWith('blob:')) {
-        throw new Error('Cannot use blob URL on server. Please save the image first before generating new views.');
-      }
-
-      const publicUrl = await getPublicImageUrl(imageUrl);
-      console.log(`Reference image URL: ${publicUrl.substring(0, 80)}...`);
-      return publicUrl;
-    };
-
-    // Helper to upload image to B2
-    const uploadToB2 = async (imageUrl: string, imageName: string): Promise<string> => {
-      const imageResponse = await fetch(imageUrl);
-      const imageBlob = await imageResponse.blob();
-      const imageBuffer = Buffer.from(await imageBlob.arrayBuffer());
-
-      const sanitizedUserId = session.user.sub.replace(/[|]/g, '_');
-      const storageKey = `characters/${sanitizedUserId}/${assetId}/${imageName}_${Date.now()}.webp`;
-
-      await uploadFile(storageKey, imageBuffer, 'image/webp');
-
-      // Return B2 URL format for database storage
-      return `b2://${STORAGE_BUCKET}/${storageKey}`;
-    };
-
-    // Get the actual fal.ai endpoint for a model
-    const getFalEndpoint = (model: string): string => {
-      const config = MODEL_CONFIG[model];
-      return config?.falEndpoint || model;
-    };
-
-    // Helper to build text-to-image input based on model
-    const buildTextToImageInput = (prompt: string) => {
-      const imageResolution = resolution || styleConfig.resolution;
-
-      if (textToImageModel === 'seedream-5') {
-        // Seedream 5 uses aspect_ratio
-        return {
-          prompt,
-          aspect_ratio: '3:4', // Portrait format
-          num_images: 1,
-          output_format: 'png',
-        };
-      } else if (textToImageModel === 'flux-2-pro') {
-        // Flux 2 Pro uses image_size
-        return {
-          prompt,
-          image_size: 'portrait_4_3', // Portrait format
-          output_format: 'png',
-        };
-      } else if (textToImageModel === 'gpt-image-1.5') {
-        // GPT Image 1.5 uses image_size with specific dimensions
-        return {
-          prompt,
-          image_size: '1024x1536', // Portrait format
-          quality: 'high',
-          output_format: 'png',
-          num_images: 1,
-        };
-      } else {
-        // Nano Banana 2 uses aspect_ratio and image_resolution
-        return {
-          prompt,
-          aspect_ratio: '3:4', // Portrait format
-          image_resolution: imageResolution,
-          num_images: 1,
-        };
-      }
-    };
-
-    const generatedImages: ReferenceImage[] = [];
-    const existingImages = (asset.reference_images || []) as string[];
-
+    // Check budget for fal.ai calls
     try {
-      if (mode === 'generate_all') {
-        // Generate all 3 views (front, profile, back) from text description
-        console.log(`=== Generating all views for character: ${asset.name} ===`);
-
-        // Check budget for fal.ai calls (estimate 4-5 calls for all views)
-        await checkFalBudget(textToImageModel);
-
-        // Optimize prompt with asset type for appropriate context
-        const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
-        console.log(`Optimized description: ${optimizedDescription}`);
-
-        // Step 1: Generate front view
-        console.log(`Step 1: Generating front view with ${MODEL_CONFIG[textToImageModel]?.name || textToImageModel}...`);
-        const frontPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, front view, facing camera, full body portrait, standing pose${styleConfig.promptSuffix}`;
-
-        const frontResult = await fal.subscribe(getFalEndpoint(textToImageModel), {
-          input: buildTextToImageInput(frontPrompt),
-          logs: true,
-        });
-
-        const frontImageUrl = (frontResult.data as any)?.images?.[0]?.url;
-        await logFalUsage(textToImageModel, !!frontImageUrl, frontImageUrl ? undefined : 'No image generated', styleConfig.resolution);
-
-        if (!frontImageUrl) {
-          throw new Error('Failed to generate front view');
-        }
-
-        const frontPublicUrl = await uploadToB2(frontImageUrl, 'front');
-        generatedImages.push({ url: frontPublicUrl, type: 'front', label: 'Face (Vue de face)' });
-        console.log('Front view uploaded:', frontPublicUrl);
-
-        // Step 2 & 3: Generate profile and back views using perspective change or Ideogram
-        const otherViews = CHARACTER_VIEWS.filter(v => v.name !== 'front');
-
-        for (const view of otherViews) {
-          console.log(`Generating ${view.name} view...`);
-
-          try {
-            // Try perspective change first
-            const falFrontImageUrl = await getFalImageUrl(frontImageUrl);
-
-            const perspectiveResult = await fal.subscribe('fal-ai/image-apps-v2/perspective', {
-              input: {
-                image_url: falFrontImageUrl,
-                target_perspective: view.perspectiveTarget as PerspectiveTarget,
-                aspect_ratio: { ratio: '3:4' },
-              } as any,
-              logs: true,
-            });
-
-            const viewImageUrl = (perspectiveResult.data as any)?.images?.[0]?.url;
-
-            if (viewImageUrl) {
-              const publicUrl = await uploadToB2(viewImageUrl, view.name);
-              generatedImages.push({ url: publicUrl, type: view.name, label: view.label });
-              console.log(`${view.name} view uploaded:`, publicUrl);
-            } else {
-              throw new Error('No image from perspective change');
-            }
-          } catch (perspectiveError) {
-            console.log(`Perspective change failed for ${view.name}, using Ideogram fallback...`);
-
-            // Fallback to Ideogram Character
-            const falFrontImageUrl = await getFalImageUrl(frontImageUrl);
-            const viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${view.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
-
-            const fallbackResult = await fal.subscribe('fal-ai/ideogram/character', {
-              input: {
-                prompt: viewPrompt,
-                reference_image_urls: [falFrontImageUrl],
-                rendering_speed: styleConfig.renderingSpeed,
-                style: styleConfig.ideogramStyle,
-                image_size: 'portrait_4_3',
-                num_images: 1,
-              } as any,
-              logs: true,
-            });
-
-            const fallbackUrl = (fallbackResult.data as any)?.images?.[0]?.url;
-            if (fallbackUrl) {
-              const publicUrl = await uploadToB2(fallbackUrl, view.name);
-              generatedImages.push({ url: publicUrl, type: view.name, label: view.label });
-              console.log(`${view.name} view (fallback) uploaded:`, publicUrl);
-            } else {
-              console.error(`Failed to generate ${view.name} view`);
-            }
-          }
-        }
-
-      } else if (mode === 'generate_variations') {
-        // Generate profile and back from an existing uploaded image
-        if (!sourceImageUrl) {
-          return NextResponse.json({ error: 'sourceImageUrl required for generate_variations mode' }, { status: 400 });
-        }
-
-        console.log(`=== Generating variations from uploaded image for: ${asset.name} ===`);
-
-        // Keep the source image as front view
-        const existingFront = existingReferenceImages.find(img => img.type === 'front');
-        if (!existingFront) {
-          generatedImages.push({ url: sourceImageUrl, type: 'front', label: 'Face (Vue de face)' });
-        }
-
-        // Upload source to fal.ai storage
-        const falSourceUrl = await getFalImageUrl(sourceImageUrl);
-
-        // Generate profile and back views
-        const viewsToGenerate = CHARACTER_VIEWS.filter(v => v.name !== 'front');
-
-        for (const view of viewsToGenerate) {
-          console.log(`Generating ${view.name} view from uploaded image...`);
-
-          try {
-            const perspectiveResult = await fal.subscribe('fal-ai/image-apps-v2/perspective', {
-              input: {
-                image_url: falSourceUrl,
-                target_perspective: view.perspectiveTarget as PerspectiveTarget,
-                aspect_ratio: { ratio: '3:4' },
-              } as any,
-              logs: true,
-            });
-
-            const viewImageUrl = (perspectiveResult.data as any)?.images?.[0]?.url;
-
-            if (viewImageUrl) {
-              const publicUrl = await uploadToB2(viewImageUrl, view.name);
-              generatedImages.push({ url: publicUrl, type: view.name, label: view.label });
-              console.log(`${view.name} view uploaded:`, publicUrl);
-            } else {
-              throw new Error('No image from perspective change');
-            }
-          } catch (error) {
-            console.error(`Failed to generate ${view.name} view:`, error);
-            // Try with Ideogram if we have a visual description
-            if (visualDescription) {
-              console.log(`Trying Ideogram fallback for ${view.name}...`);
-              const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
-              const viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${view.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
-
-              const fallbackResult = await fal.subscribe('fal-ai/ideogram/character', {
-                input: {
-                  prompt: viewPrompt,
-                  reference_image_urls: [falSourceUrl],
-                  rendering_speed: styleConfig.renderingSpeed,
-                  style: styleConfig.ideogramStyle,
-                  image_size: 'portrait_4_3',
-                  num_images: 1,
-                } as any,
-                logs: true,
-              });
-
-              const fallbackUrl = (fallbackResult.data as any)?.images?.[0]?.url;
-              if (fallbackUrl) {
-                const publicUrl = await uploadToB2(fallbackUrl, view.name);
-                generatedImages.push({ url: publicUrl, type: view.name, label: view.label });
-                console.log(`${view.name} view (fallback) uploaded:`, publicUrl);
-              }
-            }
-          }
-        }
-
-        // Log fal.ai usage for variations (one log per generated image)
-        for (const _ of generatedImages.filter(img => img.type !== 'front')) {
-          await logFalUsage('fal-ai/image-apps-v2/perspective', true);
-        }
-
-      } else if (mode === 'generate_single') {
-        // Generate a single view
-        if (!viewType) {
-          return NextResponse.json({ error: 'viewType required for generate_single mode' }, { status: 400 });
-        }
-
-        // For three_quarter and custom, use the same config as front
-        let viewConfig = CHARACTER_VIEWS.find(v => v.name === viewType);
-        if (!viewConfig) {
-          // Handle custom view types not in CHARACTER_VIEWS
-          if (viewType === 'three_quarter') {
-            viewConfig = { name: 'three_quarter', label: '3/4 (Vue trois-quarts)', promptSuffix: 'three quarter view, 3/4 angle, slight angle from front', perspectiveTarget: 'three_quarter_left' };
-          } else if (viewType === 'custom') {
-            viewConfig = { name: 'custom', label: 'Autre', promptSuffix: 'portrait view, natural pose', perspectiveTarget: 'front' };
-          } else {
-            return NextResponse.json({ error: 'Invalid viewType' }, { status: 400 });
-          }
-        }
-
-        console.log(`=== Generating single ${viewType} view for: ${asset.name} ===`);
-
-        // Check if we have an existing front view to use as reference
-        const existingFront = existingReferenceImages.find(img => img.type === 'front');
-
-        let imageUrl: string = '';
-
-        if (existingFront && viewType !== 'front') {
-          // Use existing front as reference - can work without visual description
-          const falFrontUrl = await getFalImageUrl(existingFront.url);
-
-          // For perspective views (profile, back, three_quarter), try perspective change first
-          const isPerspectiveView = ['profile', 'back', 'three_quarter'].includes(viewType);
-
-          if (isPerspectiveView) {
-            console.log(`Trying perspective change for ${viewType} view...`);
-            try {
-              const perspectiveResult = await fal.subscribe('fal-ai/image-apps-v2/perspective', {
-                input: {
-                  image_url: falFrontUrl,
-                  target_perspective: viewConfig.perspectiveTarget as PerspectiveTarget,
-                  aspect_ratio: { ratio: '3:4' },
-                } as any,
-                logs: true,
-              });
-
-              imageUrl = (perspectiveResult.data as any)?.images?.[0]?.url;
-              if (imageUrl) {
-                console.log(`Perspective change succeeded for ${viewType}`);
-              }
-            } catch (perspectiveError) {
-              console.log(`Perspective change failed for ${viewType}, falling back to ideogram...`, perspectiveError);
-              imageUrl = '';
-            }
-          }
-
-          // Fallback to ideogram/character if perspective failed or for custom views
-          if (!imageUrl) {
-            // Build prompt - use visual description if available, otherwise use a generic prompt
-            let viewPrompt: string;
-            if (visualDescription) {
-              const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
-              viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
-            } else {
-              // Generic prompt when no description - rely on reference image
-              viewPrompt = `${styleConfig.promptPrefix}same person as reference image, ${viewConfig.promptSuffix}, full body portrait, consistent character${styleConfig.promptSuffix}`;
-            }
-
-            const result = await fal.subscribe('fal-ai/ideogram/character', {
-              input: {
-                prompt: viewPrompt,
-                reference_image_urls: [falFrontUrl],
-                rendering_speed: styleConfig.renderingSpeed,
-                style: styleConfig.ideogramStyle,
-                image_size: 'portrait_4_3',
-                num_images: 1,
-              } as any,
-              logs: true,
-            });
-
-            imageUrl = (result.data as any)?.images?.[0]?.url;
-          }
-        } else {
-          // Generate fresh - requires visual description
-          if (!visualDescription) {
-            return NextResponse.json({ error: 'Visual description required to generate front view from scratch' }, { status: 400 });
-          }
-
-          const optimizedDescription = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
-
-          // Build prompt based on asset type
-          let viewPrompt: string;
-          if (asset.asset_type === 'location') {
-            // Location: emphasize empty scene, no people
-            viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, empty scene, no people, no humans, uninhabited, wide angle architectural photography${styleConfig.promptSuffix}`;
-          } else if (asset.asset_type === 'prop') {
-            // Prop: product photography style
-            viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, product photography, clean background, studio lighting${styleConfig.promptSuffix}`;
-          } else {
-            // Character: portrait style
-            viewPrompt = `${styleConfig.promptPrefix}${optimizedDescription}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
-          }
-
-          // Use selected model for text-to-image generation
-          const result = await fal.subscribe(getFalEndpoint(textToImageModel), {
-            input: buildTextToImageInput(viewPrompt),
-            logs: true,
-          });
-
-          imageUrl = (result.data as any)?.images?.[0]?.url;
-        }
-
-        if (!imageUrl) {
-          throw new Error(`Failed to generate ${viewType} view`);
-        }
-
-        // Log fal.ai usage for single view generation
-        await logFalUsage(textToImageModel, true);
-
-        const publicUrl = await uploadToB2(imageUrl, viewType);
-        generatedImages.push({ url: publicUrl, type: viewType as CharacterImageType, label: viewConfig.label });
-        console.log(`${viewType} view uploaded:`, publicUrl);
-
-      } else if (mode === 'generate_look') {
-        // Generate a look/outfit variation
-        if (!lookDescription) {
-          return NextResponse.json({ error: 'lookDescription required for generate_look mode' }, { status: 400 });
-        }
-
-        console.log(`=== Generating look for character: ${asset.name} ===`);
-        console.log(`Look description: ${lookDescription}`);
-
-        // Build optimized prompt using character morphology + look description
-        const optimizedPrompt = await buildLookPrompt(assetData, lookDescription, style, claudeWrapper);
-        console.log(`Optimized look prompt: ${optimizedPrompt}`);
-
-        const fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, full body portrait, standing pose, fashion photography${styleConfig.promptSuffix}`;
-
-        // Check if we have a front reference image to use
-        const existingFront = existingReferenceImages.find(img => img.type === 'front');
-
-        let lookImageUrl: string;
-
-        if (existingFront) {
-          // Use reference image for character consistency
-          const falFrontUrl = await getFalImageUrl(existingFront.url);
-
-          const result = await fal.subscribe('fal-ai/ideogram/character', {
-            input: {
-              prompt: fullPrompt,
-              reference_image_urls: [falFrontUrl],
-              rendering_speed: styleConfig.renderingSpeed,
-              style: styleConfig.ideogramStyle,
-              image_size: 'portrait_4_3',
-              num_images: 1,
-            } as any,
-            logs: true,
-          });
-
-          lookImageUrl = (result.data as any)?.images?.[0]?.url;
-        } else {
-          // Generate without reference - use selected model
-          const result = await fal.subscribe(getFalEndpoint(textToImageModel), {
-            input: buildTextToImageInput(fullPrompt),
-            logs: true,
-          });
-
-          lookImageUrl = (result.data as any)?.images?.[0]?.url;
-        }
-
-        if (!lookImageUrl) {
-          throw new Error('Failed to generate look image');
-        }
-
-        // Upload to B2 with look-specific naming
-        const lookId = crypto.randomUUID();
-        const sanitizedUserId = session.user.sub.replace(/[|]/g, '_');
-        const storageKey = `characters/${sanitizedUserId}/${assetId}/look_${lookId}_${Date.now()}.webp`;
-
-        const imageResponse = await fetch(lookImageUrl);
-        const imageBlob = await imageResponse.blob();
-        const imageBuffer = Buffer.from(await imageBlob.arrayBuffer());
-
-        await uploadFile(storageKey, imageBuffer, 'image/webp');
-        const publicUrl = `b2://${STORAGE_BUCKET}/${storageKey}`;
-
-        console.log(`Look image uploaded:`, publicUrl);
-
-        // Log fal.ai usage for look generation
-        await logFalUsage('fal-ai/ideogram/character', true);
-
-        // Return the look data (the caller will add it to the looks array)
-        return NextResponse.json({
-          success: true,
-          look: {
-            id: lookId,
-            name: lookName || 'Look généré',
-            description: lookDescription,
-            imageUrl: publicUrl,
-          },
-        });
-      }
-
-      // Merge with existing images (replace same types)
-      const allReferenceImages = [...existingReferenceImages];
-      for (const newImg of generatedImages) {
-        const existingIndex = allReferenceImages.findIndex(img => img.type === newImg.type);
-        if (existingIndex >= 0) {
-          allReferenceImages[existingIndex] = newImg;
-        } else {
-          allReferenceImages.push(newImg);
-        }
-      }
-
-      // Update global asset with new images
-      const imageUrls = allReferenceImages.map(img => img.url);
-      const updatedData = {
-        ...assetData,
-        reference_images_metadata: allReferenceImages,
-      };
-
-      await supabase
-        .from('global_assets')
-        .update({
-          reference_images: imageUrls,
-          data: updatedData,
-        })
-        .eq('id', assetId);
-
-      console.log(`Generated ${generatedImages.length} image(s) for character: ${asset.name}`);
-
-      return NextResponse.json({
-        success: true,
-        generatedImages,
-        allImages: allReferenceImages,
-        imageUrls,
-      });
-
-    } catch (genError) {
-      console.error('Generation error:', genError);
-      // Handle credit errors
-      if (isCreditError(genError)) {
+      const estimatedCost = calculateFalCost(textToImageModel, mode === 'generate_all' ? 3 : 1);
+      await ensureCredit(creditService, session.user.sub, 'fal', estimatedCost);
+    } catch (error) {
+      if (isCreditError(error)) {
         return NextResponse.json(
-          { error: formatCreditError(genError), code: genError.code },
+          { error: formatCreditError(error), code: error.code },
           { status: 402 }
         );
       }
-      return NextResponse.json({ error: 'Generation failed: ' + String(genError) }, { status: 500 });
+      throw error;
     }
 
+    // Optimize prompt with Claude (this is fast, do it before enqueueing)
+    let optimizedPrompt = visualDescription;
+    let fullPrompt = '';
+
+    if (mode === 'generate_look' && lookDescription) {
+      optimizedPrompt = await buildLookPrompt(assetData, lookDescription, style, claudeWrapper);
+      fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, full body portrait, standing pose, fashion photography${styleConfig.promptSuffix}`;
+    } else if (visualDescription) {
+      optimizedPrompt = await optimizePrompt(visualDescription, style, claudeWrapper, asset.asset_type as 'character' | 'location' | 'prop');
+
+      if (asset.asset_type === 'location') {
+        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, empty scene, no people, no humans, uninhabited, wide angle architectural photography${styleConfig.promptSuffix}`;
+      } else if (asset.asset_type === 'prop') {
+        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, product photography, clean background, studio lighting${styleConfig.promptSuffix}`;
+      } else {
+        const viewConfig = CHARACTER_VIEWS.find(v => v.name === viewType) || CHARACTER_VIEWS[0];
+        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
+      }
+    }
+
+    // Get front reference URL if it exists
+    const frontRef = existingReferenceImages.find(img => img.type === 'front');
+    const frontReferenceUrl = frontRef?.url;
+
+    // Handle generate_single with front reference but no visual description
+    if (!fullPrompt && mode === 'generate_single' && hasFrontImage && frontReferenceUrl) {
+      // When generating a view from front reference without visual description,
+      // the worker will use perspective change - we just need the view info
+      const viewConfig = CHARACTER_VIEWS.find(v => v.name === viewType);
+      if (viewConfig) {
+        optimizedPrompt = `single person, solo, character portrait, ${viewConfig.promptSuffix}`;
+        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, full body portrait, one person only${styleConfig.promptSuffix}`;
+      } else {
+        // Unknown view type, use viewType directly
+        optimizedPrompt = `single person, solo, character portrait, ${viewType} view`;
+        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, full body portrait, one person only${styleConfig.promptSuffix}`;
+      }
+    }
+
+    // Create job record in Supabase
+    const lookId = mode === 'generate_look' ? crypto.randomUUID() : undefined;
+    const { data: job, error: jobError } = await supabase
+      .from('generation_jobs')
+      .insert({
+        user_id: session.user.sub,
+        asset_id: assetId,
+        asset_type: asset.asset_type,
+        asset_name: asset.name,
+        job_type: 'image',
+        job_subtype: mode === 'generate_look' ? 'look' : (viewType || 'all'),
+        status: 'queued',
+        progress: 0,
+        message: 'En file d\'attente...',
+        input_data: {
+          mode,
+          style,
+          model: textToImageModel,
+          viewType,
+          lookDescription,
+          lookName,
+          resolution,
+        },
+        queued_at: new Date().toISOString(),
+      })
+      .select('id')
+      .single();
+
+    if (jobError || !job) {
+      console.error('[GenerateImages] Failed to create job:', jobError);
+      return NextResponse.json(
+        { error: 'Failed to create job', details: jobError?.message },
+        { status: 500 }
+      );
+    }
+
+    // Build job data for BullMQ
+    const jobData: Omit<ImageGenJobData, 'type'> = {
+      userId: session.user.sub,
+      jobId: job.id,
+      createdAt: new Date().toISOString(),
+      assetId,
+      assetType: asset.asset_type as 'character' | 'location' | 'prop',
+      assetName: asset.name,
+      mode: mode as 'generate_single' | 'generate_all' | 'generate_variations' | 'generate_look',
+      imageType: viewType as 'front' | 'profile' | 'back' | 'three_quarter' | 'custom' | undefined,
+      prompt: optimizedPrompt,
+      fullPrompt,
+      style,
+      styleConfig,
+      model: textToImageModel,
+      falEndpoint: getFalEndpoint(textToImageModel),
+      frontReferenceUrl,
+      sourceImageUrl,
+      lookId,
+      lookName,
+      lookDescription,
+      resolution,
+    };
+
+    // Enqueue the job
+    try {
+      await enqueueImageGen(jobData);
+      console.log(`[GenerateImages] Job ${job.id} enqueued for asset ${assetId} (mode: ${mode})`);
+    } catch (queueError) {
+      console.error('[GenerateImages] Failed to enqueue:', queueError);
+
+      await supabase
+        .from('generation_jobs')
+        .update({
+          status: 'failed',
+          error_message: queueError instanceof Error ? queueError.message : 'Failed to enqueue',
+        })
+        .eq('id', job.id);
+
+      return NextResponse.json(
+        { error: 'Failed to enqueue job', details: queueError instanceof Error ? queueError.message : 'Unknown' },
+        { status: 500 }
+      );
+    }
+
+    // Return job ID immediately
+    return NextResponse.json({
+      success: true,
+      jobId: job.id,
+      status: 'queued',
+      message: 'Job enqueued successfully',
+      // For backward compatibility with frontend expecting immediate results
+      async: true,
+    });
+
   } catch (error) {
-    console.error('Error generating character images:', error);
-    // Handle credit errors at top level
+    console.error('[GenerateImages] Error:', error);
     if (isCreditError(error)) {
       return NextResponse.json(
         { error: formatCreditError(error), code: error.code },
@@ -898,13 +500,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
     return NextResponse.json(
-      { error: 'Failed to generate images: ' + String(error) },
+      { error: error instanceof Error ? error.message : 'Internal server error' },
       { status: 500 }
     );
   }
 }
 
-// GET endpoint to retrieve image metadata
+// GET endpoint to retrieve image metadata (unchanged)
 export async function GET(request: Request, { params }: RouteParams) {
   try {
     const session = await auth0.getSession();
