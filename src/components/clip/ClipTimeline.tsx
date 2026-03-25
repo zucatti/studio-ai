@@ -576,7 +576,7 @@ export function ClipTimeline({
         height: 32px;
         display: flex;
         align-items: center;
-        justify-content: center;
+        justify-content: flex-start;
         background-color: ${section.color};
         color: white;
         font-size: 12px;
