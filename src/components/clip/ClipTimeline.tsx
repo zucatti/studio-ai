@@ -308,7 +308,7 @@ export function ClipTimeline({
     });
   }, []);
 
-  // Handle resize mouse move (snapped/adjacent mode - push/pull neighbors)
+  // Handle resize mouse move (independent mode - resize without affecting neighbors)
   useEffect(() => {
     if (!resizingShot) return;
 
@@ -330,66 +330,38 @@ export function ClipTimeline({
       const nextShot = shots[shotIndex + 1];
 
       if (resizingShot.edge === 'left') {
-        // Moving left edge: changes this shot's start and previous shot's duration
+        // Moving left edge: changes this shot's start and duration
         let newStart = resizingShot.initialStart + deltaTime;
 
-        // Constraints:
-        // - This shot must be >= MIN and <= MAX
-        // - Previous shot (if any) must also be >= MIN and <= MAX
-        const minStart = prevShot ? prevShot.relative_start + MIN_SHOT_DURATION : 0;
-        const maxStartForMin = resizingShot.initialStart + resizingShot.initialDuration - MIN_SHOT_DURATION;
-        const minStartForMax = resizingShot.initialStart + resizingShot.initialDuration - MAX_SHOT_DURATION;
-        // Also limit so previous shot doesn't exceed MAX
-        const maxStartForPrevMax = prevShot ? prevShot.relative_start + MAX_SHOT_DURATION : Infinity;
+        // Constraints: can't go before previous shot end (or 0), and must keep MIN duration
+        const minStart = prevShot ? prevShot.relative_start + prevShot.duration : 0;
+        const maxStart = resizingShot.initialStart + resizingShot.initialDuration - MIN_SHOT_DURATION;
 
-        newStart = Math.max(minStart, minStartForMax, Math.min(maxStartForMin, maxStartForPrevMax, newStart));
-
+        newStart = Math.max(minStart, Math.min(maxStart, newStart));
         const newDuration = (resizingShot.initialStart + resizingShot.initialDuration) - newStart;
 
-        // Update shots
         const updatedShots = shots.map((s) => {
           if (s.id === resizingShot.shotId) {
             return { ...s, relative_start: newStart, duration: newDuration };
-          }
-          if (prevShot && s.id === prevShot.id) {
-            // Previous shot's duration extends/shrinks to meet new start
-            return { ...s, duration: newStart - s.relative_start };
           }
           return s;
         });
 
         setSectionShots(prev => ({ ...prev, [resizingShot.sectionId]: updatedShots }));
       } else {
-        // Moving right edge: changes this shot's duration and next shot's start
+        // Moving right edge: changes this shot's duration only
         let newEnd = resizingShot.initialStart + resizingShot.initialDuration + deltaTime;
 
-        // Constraints:
-        // - This shot must be >= MIN and <= MAX
-        // - Next shot (if any) must also be >= MIN and <= MAX
+        // Constraints: can't go past next shot start (or section end), and must keep MIN duration
         const minEnd = resizingShot.initialStart + MIN_SHOT_DURATION;
-        const maxEndForMax = resizingShot.initialStart + MAX_SHOT_DURATION;
-        const maxEndForNextMin = nextShot
-          ? nextShot.relative_start + nextShot.duration - MIN_SHOT_DURATION
-          : resizingShot.sectionDuration;
-        // Also limit so next shot doesn't exceed MAX
-        const minEndForNextMax = nextShot
-          ? nextShot.relative_start + nextShot.duration - MAX_SHOT_DURATION
-          : 0;
+        const maxEnd = nextShot ? nextShot.relative_start : resizingShot.sectionDuration;
 
-        newEnd = Math.max(minEnd, minEndForNextMax, Math.min(maxEndForMax, maxEndForNextMin, newEnd));
-
+        newEnd = Math.max(minEnd, Math.min(maxEnd, newEnd));
         const newDuration = newEnd - shot.relative_start;
 
-        // Update shots
         const updatedShots = shots.map((s) => {
           if (s.id === resizingShot.shotId) {
             return { ...s, duration: newDuration };
-          }
-          if (nextShot && s.id === nextShot.id) {
-            // Next shot's start moves and duration shrinks
-            const nextNewStart = newEnd;
-            const nextNewDuration = (nextShot.relative_start + nextShot.duration) - nextNewStart;
-            return { ...s, relative_start: nextNewStart, duration: nextNewDuration };
           }
           return s;
         });
@@ -402,46 +374,19 @@ export function ClipTimeline({
       if (!resizingShot) return;
 
       const shots = sectionShots[resizingShot.sectionId] || [];
-      const shotIndex = shots.findIndex(s => s.id === resizingShot.shotId);
-      const shot = shots[shotIndex];
-      const prevShot = shots[shotIndex - 1];
-      const nextShot = shots[shotIndex + 1];
+      const shot = shots.find(s => s.id === resizingShot.shotId);
 
-      // Save changes to server
-      const updates: Promise<Response>[] = [];
-
-      if (shot && shot.relative_start !== resizingShot.initialStart) {
-        updates.push(
-          fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${shot.id}`, {
+      // Save changes to server (only the resized shot)
+      if (shot) {
+        try {
+          await fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${shot.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ relative_start: shot.relative_start }),
-          })
-        );
-      }
-
-      // If we moved left edge, update the previous shot's relative_start (duration is calculated)
-      // Actually we don't need to update prev shot since its relative_start didn't change
-
-      // If we moved right edge, update the next shot's relative_start
-      if (resizingShot.edge === 'right' && nextShot) {
-        const originalNextStart = resizingShot.initialStart + resizingShot.initialDuration;
-        if (nextShot.relative_start !== originalNextStart) {
-          updates.push(
-            fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${nextShot.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ relative_start: nextShot.relative_start }),
-            })
-          );
+          });
+        } catch (error) {
+          console.error('Error updating shot:', error);
         }
-      }
-
-      try {
-        await Promise.all(updates);
-      } catch (error) {
-        console.error('Error updating shots:', error);
-        toast.error('Erreur lors de la sauvegarde');
       }
 
       setResizingShot(null);
@@ -1029,7 +974,7 @@ export function ClipTimeline({
                             data-filmstrip={section.id}
                             className={cn(
                               "relative h-10 bg-slate-800/50 rounded-lg border border-white/10 overflow-hidden",
-                              resizingShot ? 'cursor-ew-resize' : 'cursor-crosshair'
+                              resizingShot ? 'cursor-ew-resize' : 'cursor-pointer'
                             )}
                             onClick={(e) => {
                               if (resizingShot) return;
