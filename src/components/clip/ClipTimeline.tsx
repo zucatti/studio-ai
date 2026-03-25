@@ -432,12 +432,28 @@ export function ClipTimeline({
       setResizingShot(null);
     };
 
+    // Cancel resize if mouse leaves window
+    const handleMouseLeave = (e: MouseEvent) => {
+      if (e.relatedTarget === null) {
+        setResizingShot(null);
+      }
+    };
+
+    // Cancel resize if window loses focus
+    const handleBlur = () => {
+      setResizingShot(null);
+    };
+
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseleave', handleMouseLeave);
+    window.addEventListener('blur', handleBlur);
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mouseleave', handleMouseLeave);
+      window.removeEventListener('blur', handleBlur);
     };
   }, [resizingShot, sectionShots, projectId]);
 
