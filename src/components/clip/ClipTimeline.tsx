@@ -186,59 +186,12 @@ export function ClipTimeline({
       return res.json();
     };
 
-    // Find gaps and shots at click position
+    // Check if clicked on an existing shot - if so, do nothing
     const clickedShot = existingShots.find(
       s => relativeStart >= s.relative_start && relativeStart < s.relative_start + s.duration
     );
-
-    // If clicked on an existing shot → split it
     if (clickedShot) {
-      let splitPoint = relativeStart;
-      let firstPartDuration = splitPoint - clickedShot.relative_start;
-      let secondPartDuration = (clickedShot.relative_start + clickedShot.duration) - splitPoint;
-
-      // Auto-adjust split point if needed to respect constraints
-      // First part must be >= MIN and <= MAX
-      if (firstPartDuration < MIN_SHOT_DURATION) {
-        splitPoint = clickedShot.relative_start + MIN_SHOT_DURATION;
-        firstPartDuration = MIN_SHOT_DURATION;
-        secondPartDuration = clickedShot.duration - MIN_SHOT_DURATION;
-      } else if (firstPartDuration > MAX_SHOT_DURATION) {
-        splitPoint = clickedShot.relative_start + MAX_SHOT_DURATION;
-        firstPartDuration = MAX_SHOT_DURATION;
-        secondPartDuration = clickedShot.duration - MAX_SHOT_DURATION;
-      }
-
-      // Second part must be >= MIN (MAX will be handled by subsequent splits)
-      if (secondPartDuration < MIN_SHOT_DURATION) {
-        toast.error(`Plan trop court pour être divisé (min 2×${MIN_SHOT_DURATION}s = ${MIN_SHOT_DURATION * 2}s)`);
-        return;
-      }
-
-      // Cap second part at MAX (create a valid chunk, rest stays as gap or needs more splits)
-      const actualSecondDuration = Math.min(secondPartDuration, MAX_SHOT_DURATION);
-
-      try {
-        const { shot: newShot } = await createShotAPI(splitPoint, actualSecondDuration, `Plan ${existingShots.length + 1}`);
-
-        const updatedShots = existingShots.map(s =>
-          s.id === clickedShot.id ? { ...s, duration: firstPartDuration } : s
-        );
-        const allShots = [...updatedShots, { ...newShot, duration: actualSecondDuration }]
-          .sort((a, b) => a.relative_start - b.relative_start);
-
-        setSectionShots(prev => ({ ...prev, [sectionId]: allShots }));
-
-        if (secondPartDuration > MAX_SHOT_DURATION) {
-          toast.success(`Plan divisé. Reste ${(secondPartDuration - actualSecondDuration).toFixed(1)}s à couvrir.`);
-        } else {
-          toast.success('Plan divisé');
-        }
-      } catch (error) {
-        console.error('Error splitting shot:', error);
-        toast.error(error instanceof Error ? error.message : 'Erreur');
-      }
-      return;
+      return; // Don't split, just ignore click on existing shot
     }
 
     // Clicked in empty space → find the gap and create a shot there
@@ -261,8 +214,7 @@ export function ClipTimeline({
     const gapDuration = gapEnd - gapStart;
 
     if (gapDuration < MIN_SHOT_DURATION) {
-      toast.error(`Espace trop petit (${gapDuration.toFixed(1)}s < ${MIN_SHOT_DURATION}s)`);
-      return;
+      return; // Space too small, silently ignore
     }
 
     // Create shot: fill the gap up to MAX_SHOT_DURATION
@@ -1095,22 +1047,20 @@ export function ClipTimeline({
                               const left = (shot.relative_start / sectionDuration) * 100;
                               const width = (shot.duration / sectionDuration) * 100;
                               const isResizing = resizingShot?.shotId === shot.id;
-                              const canSplit = shot.duration >= MIN_SHOT_DURATION * 2; // Can split if >= 6s (2x min)
                               return (
                                 <div
                                   key={shot.id}
                                   className={cn(
                                     "absolute inset-y-0 flex items-center justify-center text-xs font-medium transition-colors group",
                                     'bg-purple-500/50 border-r border-purple-300/30 hover:bg-purple-500/70',
-                                    isResizing && 'bg-purple-500/70 ring-1 ring-inset ring-purple-400',
-                                    canSplit && 'cursor-crosshair'
+                                    isResizing && 'bg-purple-500/70 ring-1 ring-inset ring-purple-400'
                                   )}
                                   style={{
                                     left: `${left}%`,
                                     width: `${width}%`,
                                     minWidth: '24px',
                                   }}
-                                  title={`Plan ${idx + 1}: ${formatTime(shot.relative_start)} (${shot.duration.toFixed(1)}s)${canSplit ? ' - Cliquez pour diviser' : ''}`}
+                                  title={`Plan ${idx + 1}: ${formatTime(shot.relative_start)} (${shot.duration.toFixed(1)}s)`}
                                 >
                                   {/* Left resize handle */}
                                   <div
