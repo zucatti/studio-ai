@@ -1032,16 +1032,14 @@ export function ClipTimeline({
                               const left = (shot.relative_start / sectionDuration) * 100;
                               const width = (shot.duration / sectionDuration) * 100;
                               const isResizing = resizingShot?.shotId === shot.id;
-                              const isEven = idx % 2 === 0;
                               return (
                                 <div
                                   key={shot.id}
                                   className={cn(
-                                    "absolute inset-y-0 flex items-center justify-center text-xs font-medium transition-colors group",
-                                    isEven
-                                      ? 'bg-purple-500/60 hover:bg-purple-500/80'
-                                      : 'bg-orange-500/60 hover:bg-orange-500/80',
-                                    isResizing && (isEven ? 'ring-1 ring-inset ring-purple-300' : 'ring-1 ring-inset ring-orange-300')
+                                    "absolute inset-y-0 flex items-center justify-center text-xs font-medium transition-colors",
+                                    isResizing
+                                      ? 'bg-orange-500/70 ring-1 ring-inset ring-orange-300'
+                                      : 'bg-purple-500/60 hover:bg-orange-500/70'
                                   )}
                                   style={{
                                     left: `${left}%`,
