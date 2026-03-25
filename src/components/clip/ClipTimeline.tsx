@@ -81,6 +81,7 @@ export function ClipTimeline({
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
   const regionsRef = useRef<ReturnType<typeof RegionsPlugin.create> | null>(null);
+  const isResizingSectionRef = useRef(false);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -557,10 +558,13 @@ export function ClipTimeline({
   useEffect(() => {
     if (!regionsRef.current || isLoading) return;
 
+    // Don't recreate regions while resizing
+    if (isResizingSectionRef.current) return;
+
     // Clear existing regions
     regionsRef.current.clearRegions();
 
-    // Add section regions (just for waveform coloring, no handles)
+    // Add section regions
     sections.forEach((section) => {
       const region = regionsRef.current!.addRegion({
         id: section.id,
@@ -571,8 +575,9 @@ export function ClipTimeline({
         resize: true,
       });
 
-      // Handle region updates in real-time (for UI sync)
+      // Track resize start
       region.on('update', () => {
+        isResizingSectionRef.current = true;
         const updatedSections = sections.map((s) =>
           s.id === section.id
             ? { ...s, start_time: region.start, end_time: region.end }
@@ -583,6 +588,7 @@ export function ClipTimeline({
 
       // Save to server when resize ends
       region.on('update-end', () => {
+        isResizingSectionRef.current = false;
         updateSectionOnServer(section.id, {
           start_time: region.start,
           end_time: region.end,
