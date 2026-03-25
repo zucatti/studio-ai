@@ -567,8 +567,8 @@ export function ClipTimeline({
         start: section.start_time,
         end: section.end_time,
         color: `${section.color}50`,
-        drag: false,
-        resize: false,
+        drag: true,
+        resize: true,
       });
 
       // Handle region updates
