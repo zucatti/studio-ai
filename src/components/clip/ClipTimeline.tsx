@@ -308,7 +308,7 @@ export function ClipTimeline({
     });
   }, []);
 
-  // Handle resize mouse move (independent mode - resize without affecting neighbors)
+  // Handle resize mouse move (snapped mode - push/pull neighbors)
   useEffect(() => {
     if (!resizingShot) return;
 
@@ -330,11 +330,11 @@ export function ClipTimeline({
       const nextShot = shots[shotIndex + 1];
 
       if (resizingShot.edge === 'left') {
-        // Moving left edge: changes this shot's start and duration
+        // Moving left edge: changes this shot's start and previous shot's duration
         let newStart = resizingShot.initialStart + deltaTime;
 
-        // Constraints: can't go before previous shot end (or 0), and must keep MIN duration
-        const minStart = prevShot ? prevShot.relative_start + prevShot.duration : 0;
+        // Constraints: min start (prev shot min duration or 0), max start (this shot min duration)
+        const minStart = prevShot ? prevShot.relative_start + MIN_SHOT_DURATION : 0;
         const maxStart = resizingShot.initialStart + resizingShot.initialDuration - MIN_SHOT_DURATION;
 
         newStart = Math.max(minStart, Math.min(maxStart, newStart));
@@ -344,17 +344,23 @@ export function ClipTimeline({
           if (s.id === resizingShot.shotId) {
             return { ...s, relative_start: newStart, duration: newDuration };
           }
+          if (prevShot && s.id === prevShot.id) {
+            // Previous shot's duration extends/shrinks to meet new start
+            return { ...s, duration: newStart - s.relative_start };
+          }
           return s;
         });
 
         setSectionShots(prev => ({ ...prev, [resizingShot.sectionId]: updatedShots }));
       } else {
-        // Moving right edge: changes this shot's duration only
+        // Moving right edge: changes this shot's duration and next shot's start
         let newEnd = resizingShot.initialStart + resizingShot.initialDuration + deltaTime;
 
-        // Constraints: can't go past next shot start (or section end), and must keep MIN duration
+        // Constraints: min end (this shot min duration), max end (next shot min duration or section end)
         const minEnd = resizingShot.initialStart + MIN_SHOT_DURATION;
-        const maxEnd = nextShot ? nextShot.relative_start : resizingShot.sectionDuration;
+        const maxEnd = nextShot
+          ? nextShot.relative_start + nextShot.duration - MIN_SHOT_DURATION
+          : resizingShot.sectionDuration;
 
         newEnd = Math.max(minEnd, Math.min(maxEnd, newEnd));
         const newDuration = newEnd - shot.relative_start;
@@ -362,6 +368,12 @@ export function ClipTimeline({
         const updatedShots = shots.map((s) => {
           if (s.id === resizingShot.shotId) {
             return { ...s, duration: newDuration };
+          }
+          if (nextShot && s.id === nextShot.id) {
+            // Next shot's start moves and duration shrinks
+            const nextNewStart = newEnd;
+            const nextNewDuration = (nextShot.relative_start + nextShot.duration) - nextNewStart;
+            return { ...s, relative_start: nextNewStart, duration: nextNewDuration };
           }
           return s;
         });
@@ -373,20 +385,48 @@ export function ClipTimeline({
     const handleMouseUp = async () => {
       if (!resizingShot) return;
 
-      const shots = sectionShots[resizingShot.sectionId] || [];
-      const shot = shots.find(s => s.id === resizingShot.shotId);
+      const shots = [...(sectionShots[resizingShot.sectionId] || [])].sort((a, b) => a.relative_start - b.relative_start);
+      const shotIndex = shots.findIndex(s => s.id === resizingShot.shotId);
+      const shot = shots[shotIndex];
+      const prevShot = shots[shotIndex - 1];
+      const nextShot = shots[shotIndex + 1];
 
-      // Save changes to server (only the resized shot)
+      // Save changes to server
+      const updates: Promise<Response>[] = [];
+
       if (shot) {
-        try {
-          await fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${shot.id}`, {
+        updates.push(
+          fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${shot.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ relative_start: shot.relative_start }),
-          });
-        } catch (error) {
-          console.error('Error updating shot:', error);
-        }
+          })
+        );
+      }
+
+      // Save neighbor if affected
+      if (resizingShot.edge === 'left' && prevShot) {
+        updates.push(
+          fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${prevShot.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ relative_start: prevShot.relative_start }),
+          })
+        );
+      } else if (resizingShot.edge === 'right' && nextShot) {
+        updates.push(
+          fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${nextShot.id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ relative_start: nextShot.relative_start }),
+          })
+        );
+      }
+
+      try {
+        await Promise.all(updates);
+      } catch (error) {
+        console.error('Error updating shots:', error);
       }
 
       setResizingShot(null);
@@ -992,13 +1032,16 @@ export function ClipTimeline({
                               const left = (shot.relative_start / sectionDuration) * 100;
                               const width = (shot.duration / sectionDuration) * 100;
                               const isResizing = resizingShot?.shotId === shot.id;
+                              const isEven = idx % 2 === 0;
                               return (
                                 <div
                                   key={shot.id}
                                   className={cn(
                                     "absolute inset-y-0 flex items-center justify-center text-xs font-medium transition-colors group",
-                                    'bg-purple-500/50 border-r border-purple-300/30 hover:bg-purple-500/70',
-                                    isResizing && 'bg-purple-500/70 ring-1 ring-inset ring-purple-400'
+                                    isEven
+                                      ? 'bg-purple-500/60 hover:bg-purple-500/80'
+                                      : 'bg-orange-500/60 hover:bg-orange-500/80',
+                                    isResizing && (isEven ? 'ring-1 ring-inset ring-purple-300' : 'ring-1 ring-inset ring-orange-300')
                                   )}
                                   style={{
                                     left: `${left}%`,
