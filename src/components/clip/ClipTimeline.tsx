@@ -25,7 +25,6 @@ import {
   Film,
   ChevronDown,
   ChevronRight,
-  Scissors,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MusicSection, MusicSectionType } from '@/types/database';
@@ -1120,13 +1119,10 @@ export function ClipTimeline({
                                     onClick={(e) => e.stopPropagation()}
                                   />
 
-                                  {/* Shot number + scissors on hover */}
-                                  <div className="flex items-center gap-1 select-none pointer-events-none">
-                                    <span className="text-white/90 text-[11px] font-medium group-hover:hidden">
-                                      {idx + 1}
-                                    </span>
-                                    <Scissors className="w-3.5 h-3.5 text-white/90 hidden group-hover:block" />
-                                  </div>
+                                  {/* Shot duration */}
+                                  <span className="text-white/90 text-[11px] font-medium select-none pointer-events-none">
+                                    {shot.duration.toFixed(1)}s
+                                  </span>
 
                                   {/* Right resize handle */}
                                   <div
