@@ -289,7 +289,7 @@ export function ClipTimeline({
 
   // Start resizing a shot
   const startResize = useCallback((
-    e: React.MouseEvent,
+    e: React.PointerEvent,
     sectionId: string,
     shot: Shot,
     edge: 'left' | 'right',
@@ -432,28 +432,24 @@ export function ClipTimeline({
       setResizingShot(null);
     };
 
-    // Cancel resize if mouse leaves window
-    const handleMouseLeave = (e: MouseEvent) => {
-      if (e.relatedTarget === null) {
-        setResizingShot(null);
-      }
-    };
-
-    // Cancel resize if window loses focus
-    const handleBlur = () => {
+    // Cancel resize immediately
+    const cancelResize = () => {
       setResizingShot(null);
     };
 
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-    document.addEventListener('mouseleave', handleMouseLeave);
-    window.addEventListener('blur', handleBlur);
+    // Use pointer events for better reliability
+    document.addEventListener('pointermove', handleMouseMove);
+    document.addEventListener('pointerup', handleMouseUp);
+    document.addEventListener('pointercancel', cancelResize);
+    document.addEventListener('mouseleave', cancelResize);
+    window.addEventListener('blur', cancelResize);
 
     return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.removeEventListener('mouseleave', handleMouseLeave);
-      window.removeEventListener('blur', handleBlur);
+      document.removeEventListener('pointermove', handleMouseMove);
+      document.removeEventListener('pointerup', handleMouseUp);
+      document.removeEventListener('pointercancel', cancelResize);
+      document.removeEventListener('mouseleave', cancelResize);
+      window.removeEventListener('blur', cancelResize);
     };
   }, [resizingShot, sectionShots, projectId]);
 
@@ -1048,14 +1044,19 @@ export function ClipTimeline({
                               const left = (shot.relative_start / sectionDuration) * 100;
                               const width = (shot.duration / sectionDuration) * 100;
                               const isResizing = resizingShot?.shotId === shot.id;
+                              const isOtherResizing = resizingShot && resizingShot.shotId !== shot.id;
                               return (
                                 <div
                                   key={shot.id}
                                   className={cn(
-                                    "absolute inset-y-0 flex items-center justify-center text-xs font-medium transition-colors group/shot",
+                                    "absolute inset-y-0 flex items-center justify-center text-xs font-medium transition-colors",
+                                    // Disable hover on other shots while resizing
+                                    isOtherResizing
+                                      ? 'bg-purple-500/60 pointer-events-none'
+                                      : 'group/shot',
                                     isResizing
-                                      ? 'bg-orange-500/70'
-                                      : 'bg-purple-500/60 hover:bg-orange-500/70'
+                                      ? 'bg-orange-500/70 z-20'
+                                      : !isOtherResizing && 'bg-purple-500/60 hover:bg-orange-500/70'
                                   )}
                                   style={{
                                     left: `${left}%`,
@@ -1072,7 +1073,7 @@ export function ClipTimeline({
                                         ? 'w-3 bg-orange-400/90'
                                         : 'w-1 bg-purple-300/50 group-hover/shot:w-3 group-hover/shot:bg-orange-400/90'
                                     )}
-                                    onMouseDown={(e) => startResize(e, section.id, shot, 'left', sectionDuration)}
+                                    onPointerDown={(e) => { e.preventDefault(); startResize(e, section.id, shot, 'left', sectionDuration); }}
                                     onClick={(e) => e.stopPropagation()}
                                   >
                                     {/* Gripper dots */}
@@ -1099,7 +1100,7 @@ export function ClipTimeline({
                                         ? 'w-3 bg-orange-400/90'
                                         : 'w-1 bg-purple-300/50 group-hover/shot:w-3 group-hover/shot:bg-orange-400/90'
                                     )}
-                                    onMouseDown={(e) => startResize(e, section.id, shot, 'right', sectionDuration)}
+                                    onPointerDown={(e) => { e.preventDefault(); startResize(e, section.id, shot, 'right', sectionDuration); }}
                                     onClick={(e) => e.stopPropagation()}
                                   >
                                     {/* Gripper dots */}
