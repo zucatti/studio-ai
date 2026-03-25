@@ -353,11 +353,15 @@ export function ClipTimeline({
         // Moving left edge: changes this shot's start and previous shot's duration
         let newStart = resizingShot.initialStart + deltaTime;
 
-        // Constraints: min start (prev shot min duration or 0), max start (this shot min duration)
+        // Constraints:
+        // - This shot: MIN <= duration <= MAX
+        // - Previous shot (if any): MIN <= duration <= MAX
         const minStart = prevShot ? prevShot.relative_start + MIN_SHOT_DURATION : 0;
-        const maxStart = resizingShot.initialStart + resizingShot.initialDuration - MIN_SHOT_DURATION;
+        const maxStartForMin = resizingShot.initialStart + resizingShot.initialDuration - MIN_SHOT_DURATION;
+        const minStartForMax = resizingShot.initialStart + resizingShot.initialDuration - MAX_SHOT_DURATION;
+        const maxStartForPrevMax = prevShot ? prevShot.relative_start + MAX_SHOT_DURATION : Infinity;
 
-        newStart = Math.max(minStart, Math.min(maxStart, newStart));
+        newStart = Math.max(minStart, minStartForMax, Math.min(maxStartForMin, maxStartForPrevMax, newStart));
         const newDuration = (resizingShot.initialStart + resizingShot.initialDuration) - newStart;
 
         const updatedShots = shots.map((s) => {
@@ -376,13 +380,19 @@ export function ClipTimeline({
         // Moving right edge: changes this shot's duration and next shot's start
         let newEnd = resizingShot.initialStart + resizingShot.initialDuration + deltaTime;
 
-        // Constraints: min end (this shot min duration), max end (next shot min duration or section end)
+        // Constraints:
+        // - This shot: MIN <= duration <= MAX
+        // - Next shot (if any): MIN <= duration <= MAX
         const minEnd = resizingShot.initialStart + MIN_SHOT_DURATION;
-        const maxEnd = nextShot
+        const maxEndForMax = resizingShot.initialStart + MAX_SHOT_DURATION;
+        const maxEndForNextMin = nextShot
           ? nextShot.relative_start + nextShot.duration - MIN_SHOT_DURATION
           : resizingShot.sectionDuration;
+        const minEndForNextMax = nextShot
+          ? nextShot.relative_start + nextShot.duration - MAX_SHOT_DURATION
+          : 0;
 
-        newEnd = Math.max(minEnd, Math.min(maxEnd, newEnd));
+        newEnd = Math.max(minEnd, minEndForNextMax, Math.min(maxEndForMax, maxEndForNextMin, newEnd));
         const newDuration = newEnd - shot.relative_start;
 
         const updatedShots = shots.map((s) => {
