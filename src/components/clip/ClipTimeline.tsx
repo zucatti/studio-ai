@@ -571,14 +571,18 @@ export function ClipTimeline({
         resize: true,
       });
 
-      // Handle region updates
-      region.on('update-end', () => {
+      // Handle region updates in real-time (for UI sync)
+      region.on('update', () => {
         const updatedSections = sections.map((s) =>
           s.id === section.id
             ? { ...s, start_time: region.start, end_time: region.end }
             : s
         );
         onSectionsChange(updatedSections);
+      });
+
+      // Save to server when resize ends
+      region.on('update-end', () => {
         updateSectionOnServer(section.id, {
           start_time: region.start,
           end_time: region.end,
