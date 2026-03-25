@@ -564,13 +564,39 @@ export function ClipTimeline({
     // Clear existing regions
     regionsRef.current.clearRegions();
 
-    // Add section regions
+    // Add section regions with integrated labels
     sections.forEach((section) => {
+      // Create label element for perfect alignment
+      const labelEl = document.createElement('div');
+      labelEl.style.cssText = `
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background-color: ${section.color};
+        color: white;
+        font-size: 12px;
+        font-weight: 500;
+        padding: 0 8px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        cursor: pointer;
+        border-radius: 0;
+      `;
+      labelEl.textContent = section.name;
+      labelEl.title = `${section.name} (${formatTime(section.start_time)} - ${formatTime(section.end_time)})`;
+
       const region = regionsRef.current!.addRegion({
         id: section.id,
         start: section.start_time,
         end: section.end_time,
         color: `${section.color}50`,
+        content: labelEl,
         drag: true,
         resize: true,
       });
@@ -772,34 +798,6 @@ export function ClipTimeline({
             <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
           </div>
         )}
-      </div>
-
-      {/* Section labels bar */}
-      <div className="relative h-8 bg-slate-800/30 border-t border-white/5">
-        {sections.map((section) => {
-          const left = (section.start_time / duration) * 100;
-          const width = ((section.end_time - section.start_time) / duration) * 100;
-          const isSelected = section.id === selectedSectionId;
-
-          return (
-            <button
-              key={section.id}
-              onClick={() => onSectionSelect?.(section)}
-              className={cn(
-                'absolute top-0 bottom-0 flex items-center justify-center text-xs font-medium truncate px-2 transition-all',
-                isSelected ? 'ring-2 ring-white ring-inset z-10' : 'hover:brightness-110'
-              )}
-              style={{
-                left: `${left}%`,
-                width: `${width}%`,
-                backgroundColor: section.color,
-              }}
-              title={`${section.name} (${formatTime(section.start_time)} - ${formatTime(section.end_time)})`}
-            >
-              <span className="text-white drop-shadow truncate">{section.name}</span>
-            </button>
-          );
-        })}
       </div>
 
       {/* Controls */}
