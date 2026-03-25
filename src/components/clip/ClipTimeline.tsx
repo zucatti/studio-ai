@@ -312,11 +312,31 @@ export function ClipTimeline({
   useEffect(() => {
     if (!resizingShot) return;
 
-    const handleMouseMove = (e: MouseEvent) => {
+    const handleMouseMove = (e: PointerEvent) => {
+      // Cancel if no button is pressed (mouse was released outside)
+      if (e.buttons === 0) {
+        setResizingShot(null);
+        return;
+      }
+
       const filmstrip = document.querySelector(`[data-filmstrip="${resizingShot.sectionId}"]`);
-      if (!filmstrip) return;
+      if (!filmstrip) {
+        setResizingShot(null);
+        return;
+      }
 
       const rect = filmstrip.getBoundingClientRect();
+
+      // Cancel resize if pointer is too far from filmstrip (with some vertical tolerance)
+      const verticalTolerance = 50;
+      if (
+        e.clientY < rect.top - verticalTolerance ||
+        e.clientY > rect.bottom + verticalTolerance
+      ) {
+        setResizingShot(null);
+        return;
+      }
+
       const deltaX = e.clientX - resizingShot.initialX;
       const deltaPercent = deltaX / rect.width;
       const deltaTime = deltaPercent * resizingShot.sectionDuration;
