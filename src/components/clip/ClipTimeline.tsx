@@ -1064,34 +1064,54 @@ export function ClipTimeline({
                                   }}
                                   title={`Plan ${idx + 1}: ${formatTime(shot.relative_start)} (${shot.duration.toFixed(1)}s)`}
                                 >
-                                  {/* Left resize handle - always visible */}
+                                  {/* Left resize handle */}
                                   <div
                                     className={cn(
-                                      "absolute left-0 inset-y-0 w-1.5 cursor-ew-resize transition-colors z-10",
+                                      "absolute left-0 inset-y-0 cursor-ew-resize transition-all z-10 flex items-center justify-center",
                                       isResizing
-                                        ? 'bg-orange-300'
-                                        : 'bg-purple-300/70 group-hover/shot:bg-orange-300'
+                                        ? 'w-3 bg-orange-400/90'
+                                        : 'w-1 bg-purple-300/50 group-hover/shot:w-3 group-hover/shot:bg-orange-400/90'
                                     )}
                                     onMouseDown={(e) => startResize(e, section.id, shot, 'left', sectionDuration)}
                                     onClick={(e) => e.stopPropagation()}
-                                  />
+                                  >
+                                    {/* Gripper dots */}
+                                    <div className={cn(
+                                      "flex flex-col gap-0.5 transition-opacity",
+                                      isResizing ? 'opacity-100' : 'opacity-0 group-hover/shot:opacity-100'
+                                    )}>
+                                      <div className="w-0.5 h-0.5 rounded-full bg-white/80" />
+                                      <div className="w-0.5 h-0.5 rounded-full bg-white/80" />
+                                      <div className="w-0.5 h-0.5 rounded-full bg-white/80" />
+                                    </div>
+                                  </div>
 
                                   {/* Shot duration */}
                                   <span className="text-white/90 text-[11px] font-medium select-none pointer-events-none">
                                     {shot.duration.toFixed(1)}s
                                   </span>
 
-                                  {/* Right resize handle - always visible */}
+                                  {/* Right resize handle */}
                                   <div
                                     className={cn(
-                                      "absolute right-0 inset-y-0 w-1.5 cursor-ew-resize transition-colors z-10",
+                                      "absolute right-0 inset-y-0 cursor-ew-resize transition-all z-10 flex items-center justify-center",
                                       isResizing
-                                        ? 'bg-orange-300'
-                                        : 'bg-purple-300/70 group-hover/shot:bg-orange-300'
+                                        ? 'w-3 bg-orange-400/90'
+                                        : 'w-1 bg-purple-300/50 group-hover/shot:w-3 group-hover/shot:bg-orange-400/90'
                                     )}
                                     onMouseDown={(e) => startResize(e, section.id, shot, 'right', sectionDuration)}
                                     onClick={(e) => e.stopPropagation()}
-                                  />
+                                  >
+                                    {/* Gripper dots */}
+                                    <div className={cn(
+                                      "flex flex-col gap-0.5 transition-opacity",
+                                      isResizing ? 'opacity-100' : 'opacity-0 group-hover/shot:opacity-100'
+                                    )}>
+                                      <div className="w-0.5 h-0.5 rounded-full bg-white/80" />
+                                      <div className="w-0.5 h-0.5 rounded-full bg-white/80" />
+                                      <div className="w-0.5 h-0.5 rounded-full bg-white/80" />
+                                    </div>
+                                  </div>
                                 </div>
                               );
                             })}
