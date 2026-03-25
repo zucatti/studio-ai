@@ -1036,9 +1036,9 @@ export function ClipTimeline({
                                 <div
                                   key={shot.id}
                                   className={cn(
-                                    "absolute inset-y-0 flex items-center justify-center text-xs font-medium transition-colors",
+                                    "absolute inset-y-0 flex items-center justify-center text-xs font-medium transition-colors group/shot",
                                     isResizing
-                                      ? 'bg-orange-500/70 ring-1 ring-inset ring-orange-300'
+                                      ? 'bg-orange-500/70'
                                       : 'bg-purple-500/60 hover:bg-orange-500/70'
                                   )}
                                   style={{
@@ -1048,9 +1048,14 @@ export function ClipTimeline({
                                   }}
                                   title={`Plan ${idx + 1}: ${formatTime(shot.relative_start)} (${shot.duration.toFixed(1)}s)`}
                                 >
-                                  {/* Left resize handle */}
+                                  {/* Left resize handle - always visible */}
                                   <div
-                                    className="absolute left-0 inset-y-0 w-2 cursor-ew-resize hover:bg-white/20 transition-colors z-10"
+                                    className={cn(
+                                      "absolute left-0 inset-y-0 w-1.5 cursor-ew-resize transition-colors z-10",
+                                      isResizing
+                                        ? 'bg-orange-300'
+                                        : 'bg-purple-300/70 group-hover/shot:bg-orange-300'
+                                    )}
                                     onMouseDown={(e) => startResize(e, section.id, shot, 'left', sectionDuration)}
                                     onClick={(e) => e.stopPropagation()}
                                   />
@@ -1060,9 +1065,14 @@ export function ClipTimeline({
                                     {shot.duration.toFixed(1)}s
                                   </span>
 
-                                  {/* Right resize handle */}
+                                  {/* Right resize handle - always visible */}
                                   <div
-                                    className="absolute right-0 inset-y-0 w-2 cursor-ew-resize hover:bg-white/20 transition-colors z-10"
+                                    className={cn(
+                                      "absolute right-0 inset-y-0 w-1.5 cursor-ew-resize transition-colors z-10",
+                                      isResizing
+                                        ? 'bg-orange-300'
+                                        : 'bg-purple-300/70 group-hover/shot:bg-orange-300'
+                                    )}
                                     onMouseDown={(e) => startResize(e, section.id, shot, 'right', sectionDuration)}
                                     onClick={(e) => e.stopPropagation()}
                                   />
