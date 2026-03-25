@@ -601,12 +601,32 @@ export function ClipTimeline({
         resize: true,
       });
 
-      // Track resize start
+      // Track resize and constrain to adjacent sections
       region.on('update', () => {
         isResizingSectionRef.current = true;
+
+        // Find adjacent sections to constrain resize
+        const sortedSections = [...sections].sort((a, b) => a.start_time - b.start_time);
+        const currentIndex = sortedSections.findIndex((s) => s.id === section.id);
+        const prevSection = sortedSections[currentIndex - 1];
+        const nextSection = sortedSections[currentIndex + 1];
+
+        // Calculate bounds
+        const minStart = prevSection ? prevSection.end_time : 0;
+        const maxEnd = nextSection ? nextSection.start_time : duration;
+
+        // Constrain region
+        let constrainedStart = Math.max(region.start, minStart);
+        let constrainedEnd = Math.min(region.end, maxEnd);
+
+        // Apply constraints if needed
+        if (region.start !== constrainedStart || region.end !== constrainedEnd) {
+          region.setOptions({ start: constrainedStart, end: constrainedEnd });
+        }
+
         const updatedSections = sections.map((s) =>
           s.id === section.id
-            ? { ...s, start_time: region.start, end_time: region.end }
+            ? { ...s, start_time: constrainedStart, end_time: constrainedEnd }
             : s
         );
         onSectionsChange(updatedSections);
@@ -638,7 +658,7 @@ export function ClipTimeline({
         resize: true,
       });
     }
-  }, [sections, isLoading, selectionRange, isAddingSection]);
+  }, [sections, isLoading, selectionRange, isAddingSection, duration, formatTime]);
 
   // Update section on server
   const updateSectionOnServer = async (sectionId: string, data: Partial<MusicSection>) => {
@@ -657,6 +677,18 @@ export function ClipTimeline({
   const createSection = async () => {
     if (!selectionRange || !newSectionName.trim()) {
       toast.error('Sélectionnez une zone et donnez un nom');
+      return;
+    }
+
+    // Check for overlap with existing sections
+    const hasOverlap = sections.some((s) => {
+      const newStart = selectionRange.start;
+      const newEnd = selectionRange.end;
+      return (newStart < s.end_time && newEnd > s.start_time);
+    });
+
+    if (hasOverlap) {
+      toast.error('La section chevauche une section existante');
       return;
     }
 
