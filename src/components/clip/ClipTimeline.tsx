@@ -769,7 +769,7 @@ export function ClipTimeline({
         </div>
       </div>
 
-      {/* Waveform */}
+      {/* Waveform + Section labels (same container for alignment) */}
       <div className="relative">
         <div
           ref={containerRef}
@@ -784,34 +784,34 @@ export function ClipTimeline({
             <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
           </div>
         )}
-      </div>
 
-      {/* Section labels bar */}
-      <div className="relative h-8 bg-slate-800/30 border-t border-white/5">
-        {sections.map((section) => {
-          const left = (section.start_time / duration) * 100;
-          const width = ((section.end_time - section.start_time) / duration) * 100;
-          const isSelected = section.id === selectedSectionId;
+        {/* Section labels bar - inside waveform container for perfect alignment */}
+        <div className="relative h-8 bg-slate-800/30 border-t border-white/5">
+          {sections.map((section) => {
+            const left = (section.start_time / duration) * 100;
+            const width = ((section.end_time - section.start_time) / duration) * 100;
+            const isSelected = section.id === selectedSectionId;
 
-          return (
-            <button
-              key={section.id}
-              onClick={() => onSectionSelect?.(section)}
-              className={cn(
-                'absolute top-0 bottom-0 flex items-center justify-center text-xs font-medium truncate px-2 transition-all',
-                isSelected ? 'ring-2 ring-white z-10' : 'hover:brightness-110'
-              )}
-              style={{
-                left: `${left}%`,
-                width: `${width}%`,
-                backgroundColor: section.color,
-              }}
-              title={`${section.name} (${formatTime(section.start_time)} - ${formatTime(section.end_time)})`}
-            >
-              <span className="text-white drop-shadow truncate">{section.name}</span>
-            </button>
-          );
-        })}
+            return (
+              <button
+                key={section.id}
+                onClick={() => onSectionSelect?.(section)}
+                className={cn(
+                  'absolute top-0 bottom-0 flex items-center justify-center text-xs font-medium truncate px-2 transition-all',
+                  isSelected ? 'ring-2 ring-white z-10' : 'hover:brightness-110'
+                )}
+                style={{
+                  left: `${left}%`,
+                  width: `${width}%`,
+                  backgroundColor: section.color,
+                }}
+                title={`${section.name} (${formatTime(section.start_time)} - ${formatTime(section.end_time)})`}
+              >
+                <span className="text-white drop-shadow truncate">{section.name}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       {/* Controls */}
