@@ -222,8 +222,8 @@ export function LocationFormDialog({
 
       console.log('[LocationForm] Job completed, refreshing image');
 
-      // Fetch updated location data
-      const res = await fetch(`/api/global-assets/${locationId}`);
+      // Fetch updated location data (with cache buster)
+      const res = await fetch(`/api/global-assets/${locationId}?t=${Date.now()}`);
       console.log('[LocationForm] Fetch response status:', res.status);
       if (res.ok) {
         const data = await res.json();
@@ -593,6 +593,7 @@ export function LocationFormDialog({
               </div>
             ) : referenceImage ? (
               <StorageImg
+                key={referenceImage}
                 src={referenceImage}
                 alt={name || 'Lieu'}
                 className="w-full h-full object-cover"
