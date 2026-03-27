@@ -258,6 +258,7 @@ export function PlanEditor({
   }, []);
 
   const openSceneGenerator = useCallback((frameType: 'in' | 'out') => {
+    console.log('[PlanEditor] Opening scene generator for frame:', frameType);
     setGeneratingFrame(frameType);
     setShowSceneGenerator(true);
   }, []);
@@ -1059,18 +1060,20 @@ export function PlanEditor({
     </Dialog>
 
     {/* Scene Generator (QuickShot with Bible integration) - Outside main dialog */}
-    <Dialog open={showSceneGenerator} onOpenChange={(open) => {
-      setShowSceneGenerator(open);
-      if (!open) setGeneratingFrame(null);
-    }}>
-      <DialogContent
-        className={cn(
-          'max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh]',
-          'flex flex-col p-0 gap-0',
-          'bg-[#0a0e12] border-white/10',
-          '[&>button]:hidden'
-        )}
-      >
+    {showSceneGenerator && (
+      <Dialog open={showSceneGenerator} onOpenChange={(open) => {
+        setShowSceneGenerator(open);
+        if (!open) setGeneratingFrame(null);
+      }}>
+        <DialogContent
+          className={cn(
+            'max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh]',
+            'flex flex-col p-0 gap-0',
+            'bg-[#0a0e12] border-white/10',
+            '[&>button]:hidden',
+            'z-[200]'
+          )}
+        >
         <DialogHeader className="flex-shrink-0 px-6 py-4 border-b border-white/10 bg-[#0f1419]">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -1114,6 +1117,7 @@ export function PlanEditor({
         </div>
       </DialogContent>
     </Dialog>
+    )}
   </>
   );
 }
