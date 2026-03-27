@@ -94,10 +94,19 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
       }
     }
 
-    // Get public URLs for frames
+    // Get public URLs for all b2:// URLs (frames, audio, character refs)
     await updateJobProgress(jobId, 10, 'Récupération des URLs...');
     const firstFramePublicUrl = await getPublicUrl(firstFrameUrl);
     const lastFramePublicUrl = lastFrameUrl ? await getPublicUrl(lastFrameUrl) : undefined;
+
+    // Convert character reference images to public URLs
+    let characterReferencePublicUrls: string[] | undefined;
+    if (characterReferenceImages && characterReferenceImages.length > 0) {
+      characterReferencePublicUrls = await Promise.all(
+        characterReferenceImages.map(url => getPublicUrl(url))
+      );
+      console.log(`[VideoGen] Converted ${characterReferencePublicUrls.length} character reference URLs`);
+    }
 
     // Get public URL for dialogue audio if present
     let dialogueAudioPublicUrl: string | undefined;
@@ -126,14 +135,14 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
       }
     }
 
-    // Build generation request
+    // Build generation request with all public URLs
     const request: VideoGenerationRequest = {
       prompt,
       firstFrameUrl: firstFramePublicUrl,
       duration,
       aspectRatio: aspectRatio as AspectRatio,
       lastFrameUrl: lastFramePublicUrl,
-      characterReferenceImages,
+      characterReferenceImages: characterReferencePublicUrls,
       hasDialogue,
       dialogueAudioUrl: dialogueAudioPublicUrl,
       audioMode,
