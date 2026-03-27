@@ -993,6 +993,13 @@ export function ClipTimeline({
   ) => {
     if (!editingShot) return;
 
+    // Prevent double-click - check if already generating for this shot
+    const existingProgress = generationProgress.get(shotId);
+    if (existingProgress?.status === 'generating' || isGeneratingVideo) {
+      console.log('[ClipTimeline] Ignoring duplicate generate request for shot:', shotId);
+      return;
+    }
+
     setIsGeneratingVideo(true);
 
     // Initialize generation progress
@@ -1075,7 +1082,7 @@ export function ClipTimeline({
     } finally {
       setIsGeneratingVideo(false);
     }
-  }, [projectId, editingShot]);
+  }, [projectId, editingShot, generationProgress, isGeneratingVideo]);
 
   // Calculate total sections duration
   const totalSectionsDuration = useMemo(() => {
@@ -1702,6 +1709,8 @@ export function ClipTimeline({
           }}
           onGenerateVideo={handleGenerateVideo}
           isGeneratingVideo={(() => {
+            // Use local state OR progress status to prevent race condition on double-click
+            if (isGeneratingVideo) return true;
             const progress = editingShot?.shot.id ? generationProgress.get(editingShot.shot.id) : undefined;
             return progress?.status === 'generating';
           })()}
