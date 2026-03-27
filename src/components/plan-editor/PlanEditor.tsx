@@ -631,8 +631,8 @@ export function PlanEditor({
             {/* Video Preview Mode */}
             {showVideoPreview && (plan.generated_video_url || isGeneratingVideo) ? (
               <div className="flex-1 flex items-center justify-center">
-                {/* Generation in progress card */}
-                {isGeneratingVideo && !plan.generated_video_url ? (
+                {/* Generation in progress card - show when generating, even if there's a previous video */}
+                {isGeneratingVideo ? (
                   <div
                     className="relative rounded-xl overflow-hidden border-2 border-purple-500/50"
                     style={frameStyle}

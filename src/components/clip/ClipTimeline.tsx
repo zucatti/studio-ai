@@ -274,6 +274,38 @@ export function ClipTimeline({
     return () => window.removeEventListener('job-completed', handleJobCompleted);
   }, [refreshShot]);
 
+  // Listen for job-failed events to show toast
+  useEffect(() => {
+    const handleJobFailed = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      console.log('[ClipTimeline] Job failed event:', detail);
+
+      // Show error toast
+      toast.error(`Échec: ${detail.assetName || 'Génération'}`, {
+        description: detail.errorMessage || 'Une erreur est survenue',
+        duration: 8000,
+      });
+
+      // Update generation progress to failed
+      if (detail.jobType === 'video' && detail.shotId) {
+        setGenerationProgress(prev => {
+          const newMap = new Map(prev);
+          newMap.set(detail.shotId, {
+            planId: detail.shotId,
+            progress: 0,
+            step: 'failed',
+            message: detail.errorMessage || 'Échec',
+            status: 'failed',
+          });
+          return newMap;
+        });
+      }
+    };
+
+    window.addEventListener('job-failed', handleJobFailed);
+    return () => window.removeEventListener('job-failed', handleJobFailed);
+  }, []);
+
   // Subscribe to jobs store to update generation progress from polling
   useEffect(() => {
     const unsubscribe = useJobsStore.subscribe((state) => {

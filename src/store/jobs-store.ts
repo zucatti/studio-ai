@@ -95,16 +95,17 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
         const newJobs = data.jobs || [];
         const { jobs: oldJobs } = get();
 
-        // Check for jobs that just completed
+        // Check for jobs that just completed or failed
         for (const newJob of newJobs) {
-          if (newJob.status === 'completed') {
-            const oldJob = oldJobs.find((j) => j.id === newJob.id);
-            if (oldJob && ['pending', 'queued', 'running'].includes(oldJob.status)) {
-              // Job just completed! Dispatch event
-              const shotId = (newJob.input_data as { shotId?: string })?.shotId;
-              const shortId = (newJob.input_data as { shortId?: string })?.shortId;
-              const assetId = newJob.asset_id || shotId || shortId;
+          const oldJob = oldJobs.find((j) => j.id === newJob.id);
+          const wasActive = oldJob && ['pending', 'queued', 'running'].includes(oldJob.status);
 
+          if (wasActive && (newJob.status === 'completed' || newJob.status === 'failed')) {
+            const shotId = (newJob.input_data as { shotId?: string })?.shotId;
+            const shortId = (newJob.input_data as { shortId?: string })?.shortId;
+            const assetId = newJob.asset_id || shotId || shortId;
+
+            if (newJob.status === 'completed') {
               console.log(`[JobsStore] fetchJobs detected completion - asset_id: ${newJob.asset_id}, resolved assetId: ${assetId}`);
 
               if (assetId) {
@@ -123,6 +124,23 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
                   })
                 );
               }
+            } else if (newJob.status === 'failed') {
+              console.log(`[JobsStore] fetchJobs detected failure - job: ${newJob.id}, error: ${newJob.error_message}`);
+              window.dispatchEvent(
+                new CustomEvent('job-failed', {
+                  detail: {
+                    jobId: newJob.id,
+                    assetId,
+                    shotId,
+                    shortId,
+                    assetType: newJob.asset_type,
+                    jobType: newJob.job_type,
+                    jobSubtype: newJob.job_subtype,
+                    assetName: newJob.asset_name,
+                    errorMessage: newJob.error_message || 'Erreur inconnue',
+                  },
+                })
+              );
             }
           }
         }
