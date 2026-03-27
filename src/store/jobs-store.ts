@@ -186,8 +186,10 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
           const shortId = (updatedJob.input_data as { shortId?: string })?.shortId;
           const assetId = updatedJob.asset_id || shotId || shortId;
 
+          console.log(`[JobsStore] Job completed - asset_id: ${updatedJob.asset_id}, shotId: ${shotId}, shortId: ${shortId}, resolved assetId: ${assetId}`);
+
           if (assetId) {
-            console.log(`[JobsStore] Job ${jobId} completed for ${updatedJob.asset_type} ${assetId}`);
+            console.log(`[JobsStore] Dispatching job-completed for ${updatedJob.asset_type} ${assetId}, job_type: ${updatedJob.job_type}`);
             // Emit custom event for UI components to react
             window.dispatchEvent(
               new CustomEvent('job-completed', {

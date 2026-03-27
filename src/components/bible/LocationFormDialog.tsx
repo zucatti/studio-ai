@@ -210,23 +210,32 @@ export function LocationFormDialog({
         jobType: string;
         jobSubtype: string;
       }>;
-      const { assetId, jobType } = customEvent.detail;
+      const { assetId, jobType, assetType } = customEvent.detail;
+
+      console.log('[LocationForm] Job completed event received:', { assetId, jobType, assetType, locationId });
 
       // Check if this job is for our location
-      if (assetId !== locationId || jobType !== 'image') return;
+      if (assetId !== locationId || jobType !== 'image') {
+        console.log('[LocationForm] Job not for this location, ignoring');
+        return;
+      }
 
       console.log('[LocationForm] Job completed, refreshing image');
 
       // Fetch updated location data
       const res = await fetch(`/api/global-assets/${locationId}`);
+      console.log('[LocationForm] Fetch response status:', res.status);
       if (res.ok) {
         const data = await res.json();
+        console.log('[LocationForm] Fetched data:', data);
         const locationData = data.asset?.data as LocationData | undefined;
         const newImages = data.asset?.reference_images || [];
         const newMetadata = locationData?.reference_images_metadata || [];
         const newRushes = locationData?.rushes || [];
 
+        console.log('[LocationForm] New images:', newImages);
         if (newImages.length > 0) {
+          console.log('[LocationForm] Setting reference image to:', newImages[0]);
           setReferenceImage(newImages[0]);
           toast.success('Image générée avec succès!');
         }
