@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { ProjectBiblePicker } from '@/components/clip/ProjectBiblePicker';
+import { StorageImg } from '@/components/ui/storage-image';
 import { FrameEditor } from './FrameEditor';
 import {
   Film,
@@ -644,7 +645,7 @@ export function PlanEditor({
 
                     {/* Frame In preview as background */}
                     {(plan.storyboard_image_url || plan.first_frame_url) && (
-                      <img
+                      <StorageImg
                         src={(plan.storyboard_image_url || plan.first_frame_url)!}
                         alt="Frame In"
                         className="absolute inset-0 w-full h-full object-cover opacity-30"
