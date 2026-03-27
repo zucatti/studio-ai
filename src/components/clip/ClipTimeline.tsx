@@ -27,11 +27,15 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MusicSection, MusicSectionType } from '@/types/database';
+import type { MusicSection, MusicSectionType, AspectRatio } from '@/types/database';
 import { toast } from 'sonner';
+import { StorageImg, StorageMedia } from '@/components/ui/storage-image';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js';
 import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.js';
+import { PlanEditor, type PlanData, type VideoGenerationOptions, type VideoGenerationProgress } from '@/components/plan-editor';
+import type { ShotType, CameraAngle, CameraMovement } from '@/types/database';
+import { useJobsStore } from '@/store/jobs-store';
 
 interface Shot {
   id: string;
@@ -41,6 +45,23 @@ interface Shot {
   description?: string;
   storyboard_image_url?: string;
   first_frame_url?: string;
+  last_frame_url?: string;
+  animation_prompt?: string;
+  generated_video_url?: string;
+  generation_status?: string;
+  shot_type?: ShotType;
+  camera_angle?: CameraAngle;
+  camera_movement?: CameraMovement;
+  // Dialogue fields
+  has_dialogue?: boolean;
+  dialogue_text?: string;
+  dialogue_character_id?: string;
+  dialogue_audio_url?: string;
+  // Audio fields
+  audio_mode?: string;
+  audio_asset_id?: string;
+  audio_start?: number;
+  audio_end?: number;
 }
 
 // Shot duration constraints (matching AI video generators like Kling, Runway, etc.)
@@ -55,6 +76,7 @@ interface ClipTimelineProps {
   onSectionsChange: (sections: MusicSection[]) => void;
   onSectionSelect?: (section: MusicSection | null) => void;
   selectedSectionId?: string | null;
+  aspectRatio?: AspectRatio;
   className?: string;
 }
 
@@ -76,6 +98,7 @@ export function ClipTimeline({
   onSectionsChange,
   onSectionSelect,
   selectedSectionId,
+  aspectRatio = '16:9',
   className,
 }: ClipTimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -112,6 +135,17 @@ export function ClipTimeline({
     sectionDuration: number;
   } | null>(null);
 
+  // Shot editor modal state
+  const [editingShot, setEditingShot] = useState<{
+    shot: Shot;
+    sectionId: string;
+    shotIndex: number;
+  } | null>(null);
+
+  // Video generation state
+  const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
+  const [generationProgress, setGenerationProgress] = useState<Map<string, VideoGenerationProgress>>(new Map());
+
   // Format time helper
   const formatTime = useCallback((seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -119,9 +153,9 @@ export function ClipTimeline({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   }, []);
 
-  // Fetch shots for a section
-  const fetchSectionShots = useCallback(async (sectionId: string, section: MusicSection) => {
-    if (loadingShots[sectionId] || sectionShots[sectionId]) return;
+  // Fetch shots for a section (with force option to bypass cache)
+  const fetchSectionShots = useCallback(async (sectionId: string, section: MusicSection, force = false) => {
+    if (!force && (loadingShots[sectionId] || sectionShots[sectionId])) return;
 
     setLoadingShots(prev => ({ ...prev, [sectionId]: true }));
 
@@ -148,6 +182,151 @@ export function ClipTimeline({
       setLoadingShots(prev => ({ ...prev, [sectionId]: false }));
     }
   }, [projectId, loadingShots, sectionShots]);
+
+  // Refresh a single shot after video generation completes
+  const refreshShot = useCallback(async (shotId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/shots/${shotId}`);
+      if (res.ok) {
+        const updatedShot = await res.json();
+        console.log('[ClipTimeline] Refreshed shot:', shotId, 'video_url:', updatedShot.generated_video_url);
+
+        // Update the shot in sectionShots
+        setSectionShots(prev => {
+          const newState = { ...prev };
+          for (const sectionId of Object.keys(newState)) {
+            const shots = newState[sectionId];
+            const shotIndex = shots.findIndex(s => s.id === shotId);
+            if (shotIndex !== -1) {
+              newState[sectionId] = shots.map((s, i) =>
+                i === shotIndex ? { ...s, ...updatedShot } : s
+              );
+              break;
+            }
+          }
+          return newState;
+        });
+
+        // Also update editingShot if we're editing this shot
+        setEditingShot(prev => {
+          if (prev && prev.shot.id === shotId) {
+            return { ...prev, shot: { ...prev.shot, ...updatedShot } };
+          }
+          return prev;
+        });
+      }
+    } catch (error) {
+      console.error('[ClipTimeline] Error refreshing shot:', error);
+    }
+  }, [projectId]);
+
+  // Open shot editor with fresh data
+  const openShotEditor = useCallback(async (shot: Shot, sectionId: string, shotIndex: number) => {
+    try {
+      // Fetch fresh shot data to avoid showing stale video
+      console.log('[ClipTimeline] Opening shot editor, fetching fresh data for:', shot.id);
+      console.log('[ClipTimeline] Cached video URL:', shot.generated_video_url);
+
+      const res = await fetch(`/api/projects/${projectId}/shots/${shot.id}`);
+      if (res.ok) {
+        const freshShot = await res.json();
+        console.log('[ClipTimeline] Fresh video URL:', freshShot.generated_video_url);
+        setEditingShot({ shot: { ...shot, ...freshShot }, sectionId, shotIndex });
+      } else {
+        console.warn('[ClipTimeline] Failed to fetch fresh shot data, status:', res.status);
+        // Fallback to cached data if fetch fails
+        setEditingShot({ shot, sectionId, shotIndex });
+      }
+    } catch (error) {
+      console.error('[ClipTimeline] Error fetching fresh shot data:', error);
+      // Fallback to cached data
+      setEditingShot({ shot, sectionId, shotIndex });
+    }
+  }, [projectId]);
+
+  // Listen for job-completed events to refresh shot data
+  useEffect(() => {
+    const handleJobCompleted = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      console.log('[ClipTimeline] Job completed event:', detail);
+
+      // Refresh the shot if this is a video job
+      if (detail.jobType === 'video' && detail.shotId) {
+        console.log('[ClipTimeline] Refreshing shot after video generation:', detail.shotId);
+        refreshShot(detail.shotId);
+
+        // Update generation progress to completed
+        setGenerationProgress(prev => {
+          const newMap = new Map(prev);
+          newMap.set(detail.shotId, {
+            planId: detail.shotId,
+            progress: 100,
+            step: 'completed',
+            message: 'Terminé!',
+            status: 'completed',
+          });
+          return newMap;
+        });
+      }
+    };
+
+    window.addEventListener('job-completed', handleJobCompleted);
+    return () => window.removeEventListener('job-completed', handleJobCompleted);
+  }, [refreshShot]);
+
+  // Subscribe to jobs store to update generation progress from polling
+  useEffect(() => {
+    const unsubscribe = useJobsStore.subscribe((state) => {
+      const jobs = state.jobs;
+
+      // Find video jobs and update progress
+      setGenerationProgress(prev => {
+        const newMap = new Map(prev);
+        let hasChanges = false;
+
+        for (const job of jobs) {
+          if (job.job_type === 'video' && job.asset_type === 'shot') {
+            const shotId = (job.input_data as { shotId?: string })?.shotId;
+            if (!shotId) continue;
+
+            const currentProgress = prev.get(shotId);
+            const newProgress = {
+              planId: shotId,
+              progress: job.progress || 0,
+              step: job.status,
+              message: job.message || getStatusMessage(job.status),
+              status: job.status === 'completed' ? 'completed' as const :
+                      job.status === 'failed' ? 'failed' as const : 'generating' as const,
+            };
+
+            // Only update if something changed
+            if (!currentProgress ||
+                currentProgress.progress !== newProgress.progress ||
+                currentProgress.step !== newProgress.step) {
+              newMap.set(shotId, newProgress);
+              hasChanges = true;
+            }
+          }
+        }
+
+        return hasChanges ? newMap : prev;
+      });
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Helper for status messages
+  const getStatusMessage = (status: string) => {
+    switch (status) {
+      case 'pending': return 'En attente...';
+      case 'queued': return 'Dans la file d\'attente...';
+      case 'running': return 'Génération en cours...';
+      case 'completed': return 'Terminé!';
+      case 'failed': return 'Erreur';
+      default: return status;
+    }
+  };
 
   // Toggle section expansion
   const toggleSectionExpand = useCallback((sectionId: string, section: MusicSection) => {
@@ -775,6 +954,97 @@ export function ClipTimeline({
     }
   }, [isMuted, volume]);
 
+  // Handle video generation for a shot
+  const handleGenerateVideo = useCallback(async (
+    shotId: string,
+    options: VideoGenerationOptions
+  ) => {
+    if (!editingShot) return;
+
+    setIsGeneratingVideo(true);
+
+    // Initialize generation progress
+    setGenerationProgress(prev => {
+      const newMap = new Map(prev);
+      newMap.set(shotId, {
+        planId: shotId,
+        progress: 0,
+        step: 'queuing',
+        message: 'Mise en file d\'attente...',
+        status: 'generating',
+      });
+      return newMap;
+    });
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/shots/${shotId}/queue-video`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: options.videoModel,
+          duration: options.duration,
+          provider: options.videoProvider,
+        }),
+      });
+
+      if (!res.ok) {
+        let errorMessage = 'Erreur lors de la mise en file d\'attente';
+        try {
+          const errorData = await res.json();
+          errorMessage = typeof errorData.error === 'string'
+            ? errorData.error
+            : JSON.stringify(errorData.error) || errorMessage;
+        } catch {
+          errorMessage = `Erreur HTTP ${res.status}`;
+        }
+        throw new Error(errorMessage);
+      }
+
+      const data = await res.json();
+      toast.success('Vidéo en file d\'attente', {
+        description: `Job #${data.jobId} créé`,
+      });
+
+      // Notify jobs store and start polling
+      useJobsStore.getState().fetchJobs();
+      useJobsStore.getState().startPolling();
+
+      // Update progress to show it's queued
+      setGenerationProgress(prev => {
+        const newMap = new Map(prev);
+        newMap.set(shotId, {
+          planId: shotId,
+          progress: 5,
+          step: 'queued',
+          message: 'En attente de traitement...',
+          status: 'generating',
+        });
+        return newMap;
+      });
+
+    } catch (error) {
+      console.error('Video generation error:', error);
+      toast.error('Erreur de génération', {
+        description: error instanceof Error ? error.message : 'Erreur inconnue',
+      });
+
+      // Update progress to show error
+      setGenerationProgress(prev => {
+        const newMap = new Map(prev);
+        newMap.set(shotId, {
+          planId: shotId,
+          progress: 0,
+          step: 'error',
+          message: error instanceof Error ? error.message : 'Erreur',
+          status: 'error',
+        });
+        return newMap;
+      });
+    } finally {
+      setIsGeneratingVideo(false);
+    }
+  }, [projectId, editingShot]);
+
   // Calculate total sections duration
   const totalSectionsDuration = useMemo(() => {
     return sections.reduce((acc, s) => acc + (s.end_time - s.start_time), 0);
@@ -1012,21 +1282,30 @@ export function ClipTimeline({
 
                       {/* Actions */}
                       <div className="flex items-center gap-1 flex-shrink-0">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-slate-400 hover:text-white"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const ws = wavesurferRef.current;
-                            if (ws && duration > 0) {
-                              ws.play(section.start_time, section.end_time);
-                            }
-                          }}
-                          title="Jouer cette section"
-                        >
-                          <Play className="h-3.5 w-3.5" />
-                        </Button>
+                        {(() => {
+                          const isSectionPlaying = isPlaying && currentTime >= section.start_time && currentTime < section.end_time;
+                          return (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-8 w-8 text-slate-400 hover:text-white"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                const ws = wavesurferRef.current;
+                                if (!ws || duration <= 0) return;
+
+                                if (isSectionPlaying) {
+                                  ws.pause();
+                                } else {
+                                  ws.play(section.start_time, section.end_time);
+                                }
+                              }}
+                              title={isSectionPlaying ? "Pause" : "Jouer cette section"}
+                            >
+                              {isSectionPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                            </Button>
+                          );
+                        })()}
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1216,12 +1495,34 @@ export function ClipTimeline({
                             {shots.map((shot, idx) => (
                               <div
                                 key={shot.id}
-                                className="group relative bg-slate-800 rounded-lg border border-white/10 overflow-hidden hover:border-purple-500/30 transition-colors"
+                                className="group relative bg-slate-800 rounded-lg border border-white/10 overflow-hidden hover:border-purple-500/30 transition-colors cursor-pointer"
+                                onClick={() => openShotEditor(shot, section.id, idx)}
                               >
-                                {/* Shot thumbnail or placeholder */}
-                                <div className="aspect-video bg-slate-700 flex items-center justify-center">
-                                  {shot.storyboard_image_url || shot.first_frame_url ? (
-                                    <img
+                                {/* Shot thumbnail - video if generated, otherwise image */}
+                                <div className="aspect-video bg-slate-700 flex items-center justify-center relative group/thumb">
+                                  {shot.generated_video_url ? (
+                                    <>
+                                      <StorageMedia
+                                        src={shot.generated_video_url}
+                                        className="w-full h-full object-cover"
+                                        muted
+                                        loop
+                                        autoPlay={false}
+                                        onMouseEnter={(e) => (e.currentTarget as HTMLVideoElement).play?.()}
+                                        onMouseLeave={(e) => {
+                                          const video = e.currentTarget as HTMLVideoElement;
+                                          video.pause?.();
+                                          if (video.currentTime !== undefined) video.currentTime = 0;
+                                        }}
+                                      />
+                                      {/* Video indicator */}
+                                      <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-blue-500/80 text-[10px] font-medium text-white flex items-center gap-1">
+                                        <Play className="w-2.5 h-2.5 fill-current" />
+                                        Vidéo
+                                      </div>
+                                    </>
+                                  ) : shot.storyboard_image_url || shot.first_frame_url ? (
+                                    <StorageImg
                                       src={shot.storyboard_image_url || shot.first_frame_url}
                                       alt={`Plan ${idx + 1}`}
                                       className="w-full h-full object-cover"
@@ -1248,7 +1549,10 @@ export function ClipTimeline({
 
                                 {/* Delete button */}
                                 <button
-                                  onClick={() => deleteShotFromSection(section.id, shot.id, section)}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteShotFromSection(section.id, shot.id, section);
+                                  }}
                                   className="absolute top-1 right-1 p-1 bg-red-500/80 rounded opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-500"
                                   title="Supprimer"
                                 >
@@ -1265,6 +1569,112 @@ export function ClipTimeline({
               })}
           </div>
         </div>
+      )}
+
+      {/* Shot Editor Modal - using generic PlanEditor */}
+      {editingShot?.shot && (
+        <PlanEditor
+          open={!!editingShot}
+          onOpenChange={(open) => !open && setEditingShot(null)}
+          mode="video-fixed"
+          plan={{
+            id: editingShot.shot.id,
+            number: editingShot.shotIndex + 1,
+            duration: editingShot.shot.duration,
+            storyboard_image_url: editingShot.shot.storyboard_image_url,
+            first_frame_url: editingShot.shot.first_frame_url,
+            last_frame_url: editingShot.shot.last_frame_url,
+            animation_prompt: editingShot.shot.animation_prompt,
+            description: editingShot.shot.description,
+            shot_type: editingShot.shot.shot_type,
+            camera_angle: editingShot.shot.camera_angle,
+            camera_movement: editingShot.shot.camera_movement,
+            generated_video_url: editingShot.shot.generated_video_url,
+          }}
+          previousPlan={(() => {
+            // Find previous shot in this section
+            const shots = sectionShots[editingShot.sectionId] || [];
+            const sortedShots = [...shots].sort((a, b) => a.relative_start - b.relative_start);
+            const currentIndex = sortedShots.findIndex(s => s.id === editingShot.shot.id);
+            const prevShot = currentIndex > 0 ? sortedShots[currentIndex - 1] : null;
+            if (!prevShot) return null;
+            return {
+              id: prevShot.id,
+              duration: prevShot.duration,
+              storyboard_image_url: prevShot.storyboard_image_url,
+              first_frame_url: prevShot.first_frame_url,
+              last_frame_url: prevShot.last_frame_url,
+              generated_video_url: prevShot.generated_video_url,
+            };
+          })()}
+          projectId={projectId}
+          aspectRatio={aspectRatio}
+          onUpdate={async (updates) => {
+            // Convert PlanData updates to Shot format (null -> undefined)
+            const shotUpdates: Partial<Shot> = {};
+            if (updates.animation_prompt !== undefined) {
+              shotUpdates.animation_prompt = updates.animation_prompt ?? undefined;
+            }
+            if (updates.storyboard_image_url !== undefined) {
+              shotUpdates.storyboard_image_url = updates.storyboard_image_url ?? undefined;
+            }
+            if (updates.first_frame_url !== undefined) {
+              shotUpdates.first_frame_url = updates.first_frame_url ?? undefined;
+            }
+            if (updates.last_frame_url !== undefined) {
+              shotUpdates.last_frame_url = updates.last_frame_url ?? undefined;
+            }
+            if (updates.description !== undefined) {
+              shotUpdates.description = updates.description ?? undefined;
+            }
+            if (updates.shot_type !== undefined) {
+              shotUpdates.shot_type = updates.shot_type ?? undefined;
+            }
+            if (updates.camera_angle !== undefined) {
+              shotUpdates.camera_angle = updates.camera_angle ?? undefined;
+            }
+            if (updates.camera_movement !== undefined) {
+              shotUpdates.camera_movement = updates.camera_movement ?? undefined;
+            }
+            if (updates.generated_video_url !== undefined) {
+              shotUpdates.generated_video_url = updates.generated_video_url ?? undefined;
+            }
+
+            // Update editingShot immediately for UI responsiveness
+            setEditingShot((prev) => prev ? {
+              ...prev,
+              shot: { ...prev.shot, ...shotUpdates },
+            } : null);
+
+            // Update sectionShots state
+            setSectionShots((prev) => ({
+              ...prev,
+              [editingShot.sectionId]: (prev[editingShot.sectionId] || []).map((s) =>
+                s.id === editingShot.shot.id ? { ...s, ...shotUpdates } : s
+              ),
+            }));
+
+            // Save to API
+            try {
+              await fetch(
+                `/api/projects/${projectId}/sections/${editingShot.sectionId}/shots/${editingShot.shot.id}`,
+                {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(updates),
+                }
+              );
+            } catch (error) {
+              console.error('Error updating shot:', error);
+            }
+          }}
+          onGenerateVideo={handleGenerateVideo}
+          isGeneratingVideo={(() => {
+            const progress = editingShot?.shot.id ? generationProgress.get(editingShot.shot.id) : undefined;
+            return progress?.status === 'generating';
+          })()}
+          videoGenerationProgress={editingShot?.shot.id ? generationProgress.get(editingShot.shot.id) : undefined}
+        />
       )}
     </div>
   );

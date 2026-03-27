@@ -44,7 +44,14 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     // Fetch shots for this section
     const { data: shots, error: shotsError } = await supabase
       .from('shots')
-      .select('id, description, relative_start, sort_order, shot_type, storyboard_image_url, first_frame_url')
+      .select(`
+        id, description, relative_start, sort_order,
+        shot_type, camera_angle, camera_movement,
+        storyboard_image_url, first_frame_url, last_frame_url,
+        animation_prompt, generated_video_url, generation_status,
+        has_dialogue, dialogue_text, dialogue_character_id, dialogue_audio_url,
+        audio_mode, audio_asset_id, audio_start, audio_end
+      `)
       .eq('section_id', sectionId)
       .order('relative_start', { ascending: true });
 

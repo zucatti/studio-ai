@@ -363,6 +363,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       lookName,
       model,
       resolution = '2K',
+      aspectRatio = '16:9', // Default to 16:9 for locations
       visualDescription: overrideVisualDescription,
       inspirationImageUrls, // Reference images for Claude to understand visual style (locations)
     } = body;
@@ -511,6 +512,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           lookDescription,
           lookName,
           resolution,
+          aspectRatio,
         },
         queued_at: new Date().toISOString(),
       })
@@ -548,6 +550,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       lookName,
       lookDescription,
       resolution,
+      aspectRatio,
     };
 
     // Enqueue the job

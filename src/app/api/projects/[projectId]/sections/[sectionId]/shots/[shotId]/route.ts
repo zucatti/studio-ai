@@ -16,7 +16,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const { projectId, sectionId, shotId } = await params;
     const body = await request.json();
-    const { relative_start, description } = body;
 
     const supabase = createServerSupabaseClient();
 
@@ -44,14 +43,30 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Section not found' }, { status: 404 });
     }
 
-    // Build update object
+    // Build update object - all allowed fields
+    const allowedFields = [
+      'relative_start',
+      'description',
+      'animation_prompt',
+      'storyboard_image_url',
+      'first_frame_url',
+      'last_frame_url',
+      'generated_video_url',
+      'shot_type',
+      'camera_angle',
+      'camera_movement',
+    ];
+
     const updateData: Record<string, unknown> = {};
-    if (typeof relative_start === 'number') {
-      updateData.relative_start = relative_start;
-      updateData.sort_order = Math.round(relative_start * 1000);
+    for (const field of allowedFields) {
+      if (body[field] !== undefined) {
+        updateData[field] = body[field];
+      }
     }
-    if (description !== undefined) {
-      updateData.description = description;
+
+    // Handle sort_order for relative_start changes
+    if (typeof body.relative_start === 'number') {
+      updateData.sort_order = Math.round(body.relative_start * 1000);
     }
 
     if (Object.keys(updateData).length === 0) {
@@ -64,7 +79,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       .update(updateData)
       .eq('id', shotId)
       .eq('section_id', sectionId)
-      .select('id, description, relative_start, sort_order')
+      .select('id, description, relative_start, sort_order, animation_prompt, storyboard_image_url, first_frame_url, last_frame_url, generated_video_url, shot_type, camera_angle, camera_movement')
       .single();
 
     if (updateError) {

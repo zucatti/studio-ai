@@ -21,7 +21,6 @@ export const VIDEO_PROVIDER_MODELS: Record<VideoProvider, { value: string; label
   wavespeed: [
     { value: 'kwaivgi/kling-video-o3-pro/image-to-video', label: 'Kling O3 Pro', duration: [5, 10] },
     { value: 'kwaivgi/kling-v3.0-pro/image-to-video', label: 'Kling 3.0 Pro', duration: [5, 10] },
-    { value: 'openai/sora-2/image-to-video-pro', label: 'Sora 2 Pro', duration: [4, 8, 12, 16, 20] },
     { value: 'google/veo3.1/image-to-video', label: 'Veo 3.1', duration: [4, 6, 8] },
     { value: 'bytedance/seedance-v1.5-pro/image-to-video', label: 'Seedance 1.5 Pro', duration: [5, 10] },
     { value: 'alibaba/wan-2.6/image-to-video', label: 'WAN 2.6', duration: [5] },
@@ -29,13 +28,11 @@ export const VIDEO_PROVIDER_MODELS: Record<VideoProvider, { value: string; label
   ],
   modelslab: [
     { value: 'kling-v3-i2v', label: 'Kling 3.0', duration: [5, 10] },
-    { value: 'sora-2-i2v', label: 'Sora 2', duration: [5, 10, 15, 20] },
     { value: 'veo-3-i2v', label: 'Veo 3', duration: [4, 6, 8] },
     // OmniHuman 1.5 requires audio - use fal.ai with dialogue enabled instead
   ],
   fal: [
     { value: 'kling-omni', label: 'Kling 3.0 Omni', duration: [5, 10] },
-    { value: 'sora-2', label: 'Sora 2', duration: [4, 8, 12, 16, 20] },
     { value: 'veo-3', label: 'Veo 3.1', duration: [4, 6, 8] },
     { value: 'omnihuman', label: 'OmniHuman 1.5', duration: [5, 10] },
   ],
@@ -63,9 +60,9 @@ export function modelSupportsFrameOut(model: string): boolean {
   return true;
 }
 
-// Default models per provider
+// Default models per provider (Kling O3 Pro is best quality)
 export const DEFAULT_PROVIDER_MODEL: Record<VideoProvider, string> = {
-  wavespeed: 'kwaivgi/kling-v3.0-pro/image-to-video',
+  wavespeed: 'kwaivgi/kling-video-o3-pro/image-to-video',
   modelslab: 'kling-v3-i2v',
   fal: 'kling-omni',
 };

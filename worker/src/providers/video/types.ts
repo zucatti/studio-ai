@@ -1,0 +1,83 @@
+/**
+ * Video Provider Abstraction Types
+ */
+
+export type AspectRatio = '16:9' | '9:16' | '1:1';
+
+export interface VideoGenerationRequest {
+  // Required
+  prompt: string;
+  firstFrameUrl: string;
+  duration: number; // seconds
+  aspectRatio: AspectRatio;
+
+  // Optional
+  lastFrameUrl?: string;
+  characterReferenceImages?: string[];
+
+  // For talking head / dialogue videos
+  hasDialogue?: boolean;
+  dialogueAudioUrl?: string;
+
+  // For audio overlay
+  audioMode?: 'mute' | 'none' | 'dialogue' | 'audio' | 'instrumental' | 'vocal';
+  audioUrl?: string;
+  audioStart?: number;
+  audioEnd?: number;
+}
+
+export interface VideoGenerationResult {
+  videoUrl: string;
+  duration: number;
+  cost?: number;
+  hasAudio?: boolean;
+}
+
+export type ProgressCallback = (progress: number, message: string) => Promise<void>;
+
+export interface VideoProvider {
+  readonly name: string;
+  readonly displayName: string;
+
+  /**
+   * Check if this provider supports the given model
+   */
+  supportsModel(model: string): boolean;
+
+  /**
+   * Get the list of supported models
+   */
+  getSupportedModels(): VideoModel[];
+
+  /**
+   * Generate a video
+   */
+  generate(
+    model: string,
+    request: VideoGenerationRequest,
+    onProgress?: ProgressCallback
+  ): Promise<VideoGenerationResult>;
+}
+
+export interface VideoModel {
+  id: string;
+  name: string;
+  description: string;
+  maxDuration: number;
+  minDuration: number;
+  supportsEndFrame: boolean;
+  supportsDialogue: boolean;
+  supportsAudio: boolean;
+  defaultForDialogue?: boolean;
+  defaultForVideo?: boolean;
+}
+
+/**
+ * Provider registry
+ */
+export interface VideoProviderRegistry {
+  getProvider(name: string): VideoProvider | undefined;
+  getProviderForModel(model: string): VideoProvider | undefined;
+  getAllProviders(): VideoProvider[];
+  getDefaultProvider(hasDialogue: boolean): { provider: VideoProvider; model: string };
+}

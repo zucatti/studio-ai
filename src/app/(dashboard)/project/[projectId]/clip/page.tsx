@@ -213,6 +213,7 @@ export default function ClipPage() {
         onSectionsChange={handleSectionsChange}
         onSectionSelect={handleSectionSelect}
         selectedSectionId={selectedSectionId}
+        aspectRatio={project?.aspect_ratio}
       />
 
       {/* Selected section details */}

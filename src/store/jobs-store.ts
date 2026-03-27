@@ -218,7 +218,13 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
     }
 
     console.log('[JobsStore] Starting polling...');
+    let emptyPollCount = 0;
+    const MAX_EMPTY_POLLS = 5; // Wait 5 polls before stopping (in case job hasn't appeared yet)
+
     const interval = setInterval(async () => {
+      // First fetch fresh jobs to catch newly created ones
+      await get().fetchJobs();
+
       const { jobs } = get();
       const activeJobs = jobs.filter((job) =>
         ['pending', 'queued', 'running'].includes(job.status)
@@ -227,18 +233,26 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
       console.log(`[JobsStore] Polling: ${activeJobs.length} active jobs`);
 
       if (activeJobs.length === 0) {
-        // No active jobs, stop polling
-        console.log('[JobsStore] No active jobs, stopping polling');
-        get().stopPolling();
+        emptyPollCount++;
+        if (emptyPollCount >= MAX_EMPTY_POLLS) {
+          // No active jobs for several polls, stop polling
+          console.log('[JobsStore] No active jobs for a while, stopping polling');
+          get().stopPolling();
+          return;
+        }
+        console.log(`[JobsStore] No active jobs (${emptyPollCount}/${MAX_EMPTY_POLLS}), waiting...`);
         return;
       }
+
+      // Reset counter when we find active jobs
+      emptyPollCount = 0;
 
       // Refresh each active job
       for (const job of activeJobs) {
         console.log(`[JobsStore] Refreshing job ${job.id} (${job.status})`);
         await get().refreshJob(job.id);
       }
-    }, 2000); // Poll every 2 seconds
+    }, 1000); // Poll every 1 second for faster updates
 
     set({ pollingInterval: interval });
   },

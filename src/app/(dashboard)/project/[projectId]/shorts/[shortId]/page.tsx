@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { PlanTimeline } from '@/components/shorts/PlanTimeline';
-import { PlanEditorModal, type VideoGenerationOptions } from '@/components/shorts/PlanEditorModal';
+import { PlanEditor, type VideoGenerationOptions, type PlanData } from '@/components/plan-editor';
 import { VideoGenerationCard, type VideoGenerationProgress } from '@/components/shorts/VideoGenerationCard';
 import { VideoCard } from '@/components/shorts/VideoCard';
 import { ProjectBibleButton } from '@/components/bible/ProjectBible';
@@ -820,18 +820,55 @@ export default function ShortDetailPage() {
       )}
 
       {/* Plan Editor Modal */}
-      <PlanEditorModal
-        open={isModalOpen}
-        onOpenChange={setIsModalOpen}
-        plan={selectedPlan}
-        previousPlan={previousPlan}
-        projectId={projectId}
-        aspectRatio={aspectRatio}
-        onUpdate={handleUpdatePlan}
-        onGenerateVideo={handleGenerateVideo}
-        isGeneratingVideo={isGeneratingVideo}
-        videoGenerationProgress={selectedPlanId ? generationProgress.get(selectedPlanId) : null}
-      />
+      {selectedPlan && (
+        <PlanEditor
+          open={isModalOpen}
+          onOpenChange={setIsModalOpen}
+          mode="video-free"
+          plan={{
+            id: selectedPlan.id,
+            number: selectedPlan.shot_number,
+            duration: selectedPlan.duration,
+            storyboard_image_url: selectedPlan.storyboard_image_url,
+            first_frame_url: selectedPlan.first_frame_url,
+            last_frame_url: selectedPlan.last_frame_url,
+            animation_prompt: selectedPlan.animation_prompt,
+            description: selectedPlan.description,
+            shot_type: selectedPlan.shot_type,
+            camera_angle: selectedPlan.camera_angle,
+            camera_movement: selectedPlan.camera_movement,
+            has_dialogue: selectedPlan.has_dialogue,
+            dialogue_text: selectedPlan.dialogue_text,
+            dialogue_character_id: selectedPlan.dialogue_character_id,
+            audio_mode: selectedPlan.audio_mode,
+            audio_asset_id: selectedPlan.audio_asset_id,
+            audio_start: selectedPlan.audio_start,
+            audio_end: selectedPlan.audio_end,
+            generated_video_url: selectedPlan.generated_video_url,
+          }}
+          previousPlan={previousPlan ? {
+            id: previousPlan.id,
+            duration: previousPlan.duration,
+            storyboard_image_url: previousPlan.storyboard_image_url,
+            first_frame_url: previousPlan.first_frame_url,
+            last_frame_url: previousPlan.last_frame_url,
+            generated_video_url: previousPlan.generated_video_url,
+          } : null}
+          projectId={projectId}
+          aspectRatio={aspectRatio}
+          onUpdate={(updates: Partial<PlanData>) => {
+            // Convert PlanData (null | undefined) to Plan (undefined only)
+            const planUpdates: Partial<Plan> = {};
+            for (const [key, value] of Object.entries(updates)) {
+              (planUpdates as Record<string, unknown>)[key] = value === null ? undefined : value;
+            }
+            handleUpdatePlan(planUpdates);
+          }}
+          onGenerateVideo={handleGenerateVideo}
+          isGeneratingVideo={isGeneratingVideo}
+          videoGenerationProgress={selectedPlanId ? generationProgress.get(selectedPlanId) : undefined}
+        />
+      )}
     </div>
   );
 }

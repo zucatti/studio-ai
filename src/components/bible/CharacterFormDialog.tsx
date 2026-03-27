@@ -107,7 +107,17 @@ const RESOLUTION_OPTIONS = [
   { value: '4K', label: '4K' },
 ] as const;
 
+const ASPECT_RATIO_OPTIONS = [
+  { value: '9:16', label: '9:16', width: 9, height: 16 },
+  { value: '2:3', label: '2:3', width: 2, height: 3 },
+  { value: '4:5', label: '4:5', width: 4, height: 5 },
+  { value: '1:1', label: '1:1', width: 1, height: 1 },
+  { value: '16:9', label: '16:9', width: 16, height: 9 },
+  { value: '21:9', label: '21:9', width: 21, height: 9 },
+] as const;
+
 type ModelType = typeof MODEL_OPTIONS[number]['value'];
+type AspectRatioType = typeof ASPECT_RATIO_OPTIONS[number]['value'];
 
 const TABS: { value: TabType; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { value: 'references', label: 'Références', icon: Camera },
@@ -146,6 +156,7 @@ export function CharacterFormDialog({
   const [style, setStyle] = useState('photorealistic');
   const [selectedModel, setSelectedModel] = useState<ModelType>('fal-ai/nano-banana-2');
   const [resolution, setResolution] = useState<'1K' | '2K' | '4K'>('2K');
+  const [aspectRatio, setAspectRatio] = useState<AspectRatioType>('2:3');
   const [useQueue, setUseQueue] = useState(true); // Queue mode enabled
 
   // Tab state
@@ -218,6 +229,19 @@ export function CharacterFormDialog({
     return map;
   }, [jobs, character?.id]);
 
+  // Track pending jobs for looks
+  const pendingLookJobs = useMemo(() => {
+    if (!character?.id) return [] as GenerationJob[];
+
+    return jobs.filter(
+      (job) =>
+        job.asset_id === character.id &&
+        job.job_type === 'image' &&
+        job.job_subtype === 'look' &&
+        ['pending', 'queued', 'running'].includes(job.status)
+    );
+  }, [jobs, character?.id]);
+
   // Listen for job-completed events to refresh images
   useEffect(() => {
     if (!character?.id || !open) return;
@@ -237,16 +261,25 @@ export function CharacterFormDialog({
 
       console.log(`[CharacterForm] Job completed for view: ${jobSubtype}`);
 
-      // Fetch updated character data to get new images and rushes
+      // Fetch updated character data to get new images, rushes, and looks
       const res = await fetch(`/api/global-assets/${character.id}`);
       if (res.ok) {
         const data = await res.json();
         const newImages = data.asset?.data?.reference_images_metadata || [];
         const newRushes = data.asset?.data?.rushes || [];
+        const newLooks = data.asset?.data?.looks || [];
         setReferenceImages(newImages);
         setRushes(newRushes);
+        setLooks(newLooks);
 
-        toast.success(`Image "${jobSubtype}" générée avec succès!`);
+        if (jobSubtype === 'look') {
+          toast.success('Look généré avec succès!');
+          // Clear the form after successful generation
+          setNewLookName('');
+          setNewLookDescription('');
+        } else {
+          toast.success(`Image "${jobSubtype}" générée avec succès!`);
+        }
       }
     };
 
@@ -755,7 +788,7 @@ export function CharacterFormDialog({
     setShowGalleryPicker(false);
   };
 
-  // Generate look with AI
+  // Generate look with AI (using queue system)
   const handleGenerateLook = async () => {
     if (!character || !newLookDescription.trim()) return;
 
@@ -771,12 +804,20 @@ export function CharacterFormDialog({
           style,
           model: selectedModel,
           resolution,
+          aspectRatio,
         }),
       });
 
       if (res.ok) {
         const data = await res.json();
-        if (data.look) {
+        // If using queue system, the job will be tracked via pendingLookJobs
+        if (data.jobId) {
+          toast.success('Génération du look en cours...');
+          // Refresh jobs to get the new one and start polling
+          await fetchJobs();
+          startPolling();
+        } else if (data.look) {
+          // Fallback for synchronous response
           setLooks((prev) => [...prev, data.look]);
           setNewLookName('');
           setNewLookDescription('');
@@ -784,9 +825,11 @@ export function CharacterFormDialog({
       } else {
         const error = await res.json();
         console.error('Error generating look:', error);
+        toast.error(error.error || 'Erreur lors de la génération');
       }
     } catch (error) {
       console.error('Error generating look:', error);
+      toast.error('Erreur lors de la génération');
     } finally {
       setGeneratingLook(false);
     }
@@ -1005,7 +1048,8 @@ export function CharacterFormDialog({
 
         {/* Main content - Two columns */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* Left column - Information */}
+          {/* Left column - Information (only shown on references tab) */}
+          {activeTab === 'references' && (
           <div className="w-[40%] border-r border-white/10 overflow-y-auto scrollbar-none">
             <div className="p-8 space-y-6">
               <div>
@@ -1162,11 +1206,15 @@ export function CharacterFormDialog({
               </div>
             </div>
           </div>
+          )}
 
           {/* Right column - Tab content */}
-          <div className="w-[60%] flex flex-col overflow-hidden bg-[#0a0f16]">
-            {/* Model + Resolution + Style selectors - only visible on references tab */}
-            {activeTab === 'references' && (
+          <div className={cn(
+            "flex flex-col overflow-hidden bg-[#0a0f16]",
+            activeTab === 'references' ? 'w-[60%]' : 'w-full'
+          )}>
+            {/* Model + Resolution + Style selectors - visible on references and looks tabs */}
+            {(activeTab === 'references' || activeTab === 'looks') && (
               <div className="flex items-center justify-end gap-3 px-8 py-3 border-b border-white/10">
                 {/* Model toggle */}
                 <div className="inline-flex rounded-md bg-white/5 p-0.5 border border-white/10">
@@ -1202,6 +1250,39 @@ export function CharacterFormDialog({
                     </button>
                   ))}
                 </div>
+                {/* Aspect ratio toggle - only on looks tab */}
+                {activeTab === 'looks' && (
+                  <div className="inline-flex rounded-md bg-white/5 p-0.5 border border-white/10 items-center gap-0.5">
+                    {ASPECT_RATIO_OPTIONS.map((ar) => {
+                      const maxDim = 14;
+                      const scale = maxDim / Math.max(ar.width, ar.height);
+                      const w = Math.round(ar.width * scale);
+                      const h = Math.round(ar.height * scale);
+                      return (
+                        <button
+                          key={ar.value}
+                          onClick={() => setAspectRatio(ar.value)}
+                          className={cn(
+                            'px-1.5 py-1 text-xs font-medium rounded transition-all flex items-center gap-1',
+                            aspectRatio === ar.value
+                              ? 'bg-orange-500 text-white'
+                              : 'text-slate-400 hover:text-white'
+                          )}
+                          title={ar.label}
+                        >
+                          <div
+                            className={cn(
+                              'border rounded-sm',
+                              aspectRatio === ar.value ? 'border-white' : 'border-slate-500'
+                            )}
+                            style={{ width: w, height: h }}
+                          />
+                          <span className="text-[10px]">{ar.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
                 <Select value={style} onValueChange={setStyle}>
                   <SelectTrigger className="w-40 h-8 bg-white/5 border-white/10 text-white text-sm">
                     <SelectValue />
@@ -1214,20 +1295,22 @@ export function CharacterFormDialog({
                     ))}
                   </SelectContent>
                 </Select>
-                {/* Queue toggle */}
-                <button
-                  onClick={() => setUseQueue(!useQueue)}
-                  className={cn(
-                    'px-3 py-1.5 text-xs font-medium rounded-md border transition-all flex items-center gap-1.5',
-                    useQueue
-                      ? 'bg-green-500/20 border-green-500/30 text-green-400'
-                      : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
-                  )}
-                  title={useQueue ? 'Mode file d\'attente activé' : 'Mode synchrone'}
-                >
-                  <Clock className="w-3.5 h-3.5" />
-                  {useQueue ? 'File' : 'Sync'}
-                </button>
+                {/* Queue toggle - only on references tab */}
+                {activeTab === 'references' && (
+                  <button
+                    onClick={() => setUseQueue(!useQueue)}
+                    className={cn(
+                      'px-3 py-1.5 text-xs font-medium rounded-md border transition-all flex items-center gap-1.5',
+                      useQueue
+                        ? 'bg-green-500/20 border-green-500/30 text-green-400'
+                        : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
+                    )}
+                    title={useQueue ? 'Mode file d\'attente activé' : 'Mode synchrone'}
+                  >
+                    <Clock className="w-3.5 h-3.5" />
+                    {useQueue ? 'File' : 'Sync'}
+                  </button>
+                )}
               </div>
             )}
 
@@ -1546,22 +1629,74 @@ export function CharacterFormDialog({
                     </div>
                   </div>
 
-                  {/* Looks grid */}
-                  {looks.length > 0 ? (
-                    <div className="grid grid-cols-3 gap-4">
+                  {/* Looks masonry grid */}
+                  {looks.length > 0 || pendingLookJobs.length > 0 ? (
+                    <div className="columns-4 gap-3 space-y-3">
+                      {/* Pending look jobs with rainbow animation */}
+                      {pendingLookJobs.map((job) => {
+                        // Get aspect ratio from job input_data or default
+                        const jobAspectRatio = (job.input_data?.aspectRatio as string) || '2:3';
+                        const arConfig = ASPECT_RATIO_OPTIONS.find(ar => ar.value === jobAspectRatio) || ASPECT_RATIO_OPTIONS[1];
+                        const paddingBottom = `${(arConfig.height / arConfig.width) * 100}%`;
+
+                        return (
+                          <div
+                            key={job.id}
+                            className="relative rounded-lg overflow-hidden ring-2 ring-purple-500/50 break-inside-avoid mb-3"
+                            style={{ paddingBottom }}
+                          >
+                            {/* Animated rainbow radial gradient background */}
+                            <div className="absolute inset-0 rainbow-radial-animation" />
+                            {/* Dark overlay for readability */}
+                            <div className="absolute inset-0 bg-black/30" />
+                            {/* Content */}
+                            <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
+                              {/* Icon with pulsing ring */}
+                              <div className="relative">
+                                <Wand2 className="w-6 h-6 text-white/80" />
+                                <div className="absolute inset-0 -m-1.5 rounded-full border-2 border-white/30 animate-ping" />
+                              </div>
+                              {/* Status message */}
+                              <span className="text-xs font-medium text-white">
+                                {job.status === 'running' ? 'Génération...' : 'En attente...'}
+                              </span>
+                              {/* Look name if available */}
+                              {typeof job.input_data?.lookName === 'string' && (
+                                <span className="text-[10px] text-white/70 bg-black/40 px-1.5 py-0.5 rounded truncate max-w-[90%]">
+                                  {job.input_data.lookName}
+                                </span>
+                              )}
+                              {/* Progress if available */}
+                              {job.progress > 0 && (
+                                <span className="text-sm font-bold text-white/90">
+                                  {Math.round(job.progress)}%
+                                </span>
+                              )}
+                            </div>
+                            {/* Progress bar at bottom */}
+                            <div className="absolute bottom-0 left-0 right-0 h-1 bg-black/50">
+                              <div
+                                className="h-full bg-gradient-to-r from-purple-500 via-pink-500 to-orange-500 transition-all duration-300 ease-out"
+                                style={{ width: `${job.progress || 5}%` }}
+                              />
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {/* Existing looks */}
                       {looks.map((look) => (
                         <div
                           key={look.id}
-                          className="relative aspect-[3/4] rounded-xl overflow-hidden group border border-white/10"
+                          className="relative rounded-lg overflow-hidden group border border-white/10 break-inside-avoid mb-3"
                         >
                           <StorageImg
                             src={look.imageUrl}
                             alt={look.name}
-                            className="w-full h-full object-cover object-top"
+                            className="w-full h-auto"
                           />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent">
-                            <div className="absolute bottom-0 left-0 right-0 p-3">
-                              <p className="text-sm font-medium text-white">{look.name}</p>
+                            <div className="absolute bottom-0 left-0 right-0 p-2">
+                              <p className="text-xs font-medium text-white truncate">{look.name}</p>
                               <button
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -1569,24 +1704,19 @@ export function CharacterFormDialog({
                                   const lookRef = generateLookReferenceName(look.name);
                                   navigator.clipboard.writeText(`${charRef} ${lookRef}`);
                                 }}
-                                className="text-[10px] font-mono mt-0.5 flex items-center gap-1"
+                                className="text-[9px] font-mono mt-0.5 flex items-center gap-0.5"
                                 title="Copier la référence"
                               >
                                 <span className="text-blue-400">{generateReferenceName(name, '@')}</span>
                                 <span className="text-purple-400">{generateLookReferenceName(look.name)}</span>
                               </button>
-                              {look.description && (
-                                <p className="text-xs text-slate-300 mt-0.5 line-clamp-2">
-                                  {look.description}
-                                </p>
-                              )}
                             </div>
                           </div>
-                          <div className="absolute top-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 bg-black/50 text-white hover:bg-white/20"
+                              className="h-6 w-6 bg-black/50 text-white hover:bg-white/20"
                               onClick={(e) => {
                                 e.stopPropagation();
                                 const filename = `${name.replace(/\s+/g, '-').toLowerCase()}-${look.name.replace(/\s+/g, '-').toLowerCase()}.webp`;
@@ -1599,16 +1729,16 @@ export function CharacterFormDialog({
                               }}
                               title="Télécharger"
                             >
-                              <Download className="w-4 h-4" />
+                              <Download className="w-3 h-3" />
                             </Button>
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 bg-black/50 text-white hover:bg-red-500/80"
+                              className="h-6 w-6 bg-black/50 text-white hover:bg-red-500/80"
                               onClick={() => removeLook(look.id)}
                               title="Supprimer"
                             >
-                              <Trash2 className="w-4 h-4" />
+                              <Trash2 className="w-3 h-3" />
                             </Button>
                           </div>
                         </div>
