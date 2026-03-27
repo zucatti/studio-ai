@@ -199,7 +199,11 @@ export function FrameEditor({
                   ? 'bg-blue-500/60 cursor-wait'
                   : 'bg-blue-500/40 hover:bg-blue-500/60'
               )}
-              onClick={onGenerate}
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onGenerate();
+              }}
               disabled={isGenerating}
               title="Générer avec IA"
             >
