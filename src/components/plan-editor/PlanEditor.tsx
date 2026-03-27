@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/select';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { ProjectBiblePicker } from '@/components/clip/ProjectBiblePicker';
+import { QuickShotGenerator } from '@/components/quick-shot/QuickShotGenerator';
 import { StorageImg } from '@/components/ui/storage-image';
 import { FrameEditor } from './FrameEditor';
 import {
@@ -35,6 +36,7 @@ import {
   Download,
   X,
   Loader2,
+  Wand2,
 } from 'lucide-react';
 import { useBibleStore } from '@/store/bible-store';
 import { cn } from '@/lib/utils';
@@ -128,6 +130,10 @@ export function PlanEditor({
   const [showGalleryPicker, setShowGalleryPicker] = useState(false);
   const [showBiblePicker, setShowBiblePicker] = useState(false);
   const [pickingFrame, setPickingFrame] = useState<'in' | 'out' | null>(null);
+
+  // Scene generator (QuickShot) state
+  const [showSceneGenerator, setShowSceneGenerator] = useState(false);
+  const [generatingFrame, setGeneratingFrame] = useState<'in' | 'out' | null>(null);
 
   // Video generation - auto-select based on dialogue
   // With dialogue → fal.ai + OmniHuman 1.5 (real quality)
@@ -250,6 +256,25 @@ export function PlanEditor({
     setPickingFrame(frameType);
     setShowBiblePicker(true);
   }, []);
+
+  const openSceneGenerator = useCallback((frameType: 'in' | 'out') => {
+    setGeneratingFrame(frameType);
+    setShowSceneGenerator(true);
+  }, []);
+
+  const handleGeneratedShots = useCallback((shots: { storyboard_image_url?: string }[]) => {
+    if (shots.length > 0 && shots[0].storyboard_image_url) {
+      const url = shots[0].storyboard_image_url;
+      if (generatingFrame === 'in') {
+        onUpdate({ storyboard_image_url: url, first_frame_url: url });
+      } else if (generatingFrame === 'out') {
+        onUpdate({ last_frame_url: url });
+      }
+      setShowSceneGenerator(false);
+      setGeneratingFrame(null);
+      toast.success(`Frame ${generatingFrame === 'in' ? 'In' : 'Out'} générée`);
+    }
+  }, [generatingFrame, onUpdate]);
 
   const handleImageSelect = useCallback((url: string) => {
     const frameType = pickingFrame; // Capture before clearing
@@ -827,6 +852,7 @@ export function PlanEditor({
                     height={frameStyle.height}
                     onOpenGallery={() => openGalleryPicker('in')}
                     onOpenBible={() => openBiblePicker('in')}
+                    onGenerate={() => openSceneGenerator('in')}
                     onDownload={() => handleDownloadFrame('in')}
                     canLinkPrevious={hasPreviousFrame}
                     onLinkPrevious={copyFromPreviousPlan}
@@ -849,6 +875,7 @@ export function PlanEditor({
                       height={frameStyle.height}
                       onOpenGallery={() => openGalleryPicker('out')}
                       onOpenBible={() => openBiblePicker('out')}
+                      onGenerate={() => openSceneGenerator('out')}
                       onDownload={() => handleDownloadFrame('out')}
                     />
                   )}
@@ -988,6 +1015,63 @@ export function PlanEditor({
           onSelect={(url) => handleImageSelect(url)}
           title={`Bible - Frame ${pickingFrame === 'in' ? 'In' : 'Out'}`}
         />
+
+        {/* Scene Generator (QuickShot with Bible integration) */}
+        <Dialog open={showSceneGenerator} onOpenChange={(open) => {
+          setShowSceneGenerator(open);
+          if (!open) setGeneratingFrame(null);
+        }}>
+          <DialogContent
+            className={cn(
+              'max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh]',
+              'flex flex-col p-0 gap-0',
+              'bg-[#0a0e12] border-white/10',
+              '[&>button]:hidden'
+            )}
+          >
+            <DialogHeader className="flex-shrink-0 px-6 py-4 border-b border-white/10 bg-[#0f1419]">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                    <Wand2 className="w-5 h-5 text-purple-400" />
+                  </div>
+                  <div>
+                    <DialogTitle className="text-lg font-semibold text-white">
+                      Générer {generatingFrame === 'in' ? 'Frame In' : 'Frame Out'}
+                    </DialogTitle>
+                    <p className="text-sm text-slate-400">
+                      Utilisez @Personnage #Lieu !Look pour créer une scène
+                    </p>
+                  </div>
+                </div>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="border-white/10 text-slate-300 hover:bg-white/5"
+                  onClick={() => {
+                    setShowSceneGenerator(false);
+                    setGeneratingFrame(null);
+                  }}
+                >
+                  Fermer
+                </Button>
+              </div>
+            </DialogHeader>
+
+            <div className="flex-1 overflow-y-auto p-6">
+              <QuickShotGenerator
+                projectId={projectId}
+                defaultAspectRatio={aspectRatio}
+                onShotsGenerated={handleGeneratedShots}
+                lockAspectRatio={true}
+                showPlaceholders={true}
+                title=""
+                description=""
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
       </DialogContent>
 
       {/* Fullscreen Video */}
