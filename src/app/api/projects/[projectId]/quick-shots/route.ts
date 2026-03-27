@@ -18,12 +18,21 @@ interface RouteParams {
   params: Promise<{ projectId: string }>;
 }
 
+interface LookVariation {
+  id: string;
+  name: string;
+  description: string;
+  imageUrl?: string;
+  reference?: string; // Generated reference like !RobeDeSoiree
+}
+
 interface EntityWithImage {
   reference: string;
   name: string;
   visual_description: string;
   reference_images: string[];
   type: 'character' | 'prop' | 'location';
+  looks?: LookVariation[]; // Looks for characters
 }
 
 // Reference system has been removed - keeping interface for type compatibility
@@ -110,12 +119,23 @@ async function fetchEntitiesWithImages(
     seenRefs.add(ref.toLowerCase());
 
     const data = ga.data as Record<string, unknown>;
+
+    // Extract looks for characters and generate references
+    let looks: LookVariation[] | undefined;
+    if (ga.asset_type === 'character' && Array.isArray(data?.looks)) {
+      looks = (data.looks as LookVariation[]).map(look => ({
+        ...look,
+        reference: generateReferenceName(look.name, '!'),
+      }));
+    }
+
     entities.push({
       reference: ref,
       name: ga.name,
       visual_description: (data?.visual_description as string) || (data?.description as string) || '',
       reference_images: ga.reference_images || [],
       type: ga.asset_type as 'character' | 'prop' | 'location',
+      looks,
     });
   }
 
@@ -166,6 +186,31 @@ function findMentionedEntities(prompt: string, entities: EntityWithImage[]): Ent
   }
 
   return mentionedEntities;
+}
+
+// Find mentioned looks in prompt and return their images
+function findMentionedLookImages(prompt: string, entities: EntityWithImage[]): string[] {
+  const lookMentions = prompt.match(/![a-zA-Z][a-zA-Z0-9]*/g) || [];
+  const lookImages: string[] = [];
+  const seenLooks = new Set<string>();
+
+  for (const lookMention of lookMentions) {
+    // Search for this look in all characters
+    for (const entity of entities) {
+      if (entity.type !== 'character' || !entity.looks) continue;
+
+      const look = entity.looks.find(l =>
+        l.reference?.toLowerCase() === lookMention.toLowerCase()
+      );
+
+      if (look && look.imageUrl && !seenLooks.has(look.id)) {
+        seenLooks.add(look.id);
+        lookImages.push(look.imageUrl);
+      }
+    }
+  }
+
+  return lookImages;
 }
 
 // Get reference images for an entity (front + side for best consistency)
@@ -233,6 +278,81 @@ function expandReferences(text: string, references: ReferenceImage[]): string {
       expanded = expanded.replace(regex, ref.description);
     }
   }
+  return expanded;
+}
+
+// Expand !Look mentions for characters
+// Handles patterns like "@Character!Look" or standalone "!Look" (uses last mentioned character)
+function expandCharacterLooks(text: string, entities: EntityWithImage[]): string {
+  let expanded = text;
+
+  // Build a map of all looks from all characters
+  const lookMap = new Map<string, { look: LookVariation; character: EntityWithImage }>();
+  for (const entity of entities) {
+    if (entity.type === 'character' && entity.looks) {
+      for (const look of entity.looks) {
+        if (look.reference) {
+          lookMap.set(look.reference.toLowerCase(), { look, character: entity });
+        }
+      }
+    }
+  }
+
+  // Pattern 1: @Character!Look - explicit character + look combination
+  // This replaces both the character mention and look with combined description
+  const combinedPattern = /(@[a-zA-Z][a-zA-Z0-9]*)(![[a-zA-Z][a-zA-Z0-9]*)/gi;
+  expanded = expanded.replace(combinedPattern, (match, charRef, lookRef) => {
+    // Find the character
+    const character = entities.find(e =>
+      e.type === 'character' && e.reference.toLowerCase() === charRef.toLowerCase()
+    );
+    if (!character || !character.looks) return match;
+
+    // Find the look in this specific character's looks
+    const look = character.looks.find(l =>
+      l.reference?.toLowerCase() === lookRef.toLowerCase()
+    );
+    if (!look) return match;
+
+    // Combine: character visual description + look description
+    const charDesc = character.visual_description || character.name;
+    const lookDesc = look.description || '';
+    return lookDesc ? `${charDesc}, ${lookDesc}` : charDesc;
+  });
+
+  // Pattern 2: Standalone !Look - find associated character or use the look description alone
+  // Look for !Look that isn't preceded by @Character
+  const standaloneLookPattern = /(?<!@[a-zA-Z][a-zA-Z0-9]*)(![[a-zA-Z][a-zA-Z0-9]*)/gi;
+  expanded = expanded.replace(standaloneLookPattern, (match, lookRef) => {
+    // Try to find this look in any character
+    const lookData = lookMap.get(lookRef.toLowerCase());
+    if (!lookData) return match;
+
+    // Find the last mentioned character before this look in the original text
+    const matchIndex = expanded.indexOf(match);
+    const textBefore = expanded.substring(0, matchIndex);
+    const charMentions = textBefore.match(/@[a-zA-Z][a-zA-Z0-9]*/g) || [];
+    const lastCharMention = charMentions[charMentions.length - 1];
+
+    if (lastCharMention) {
+      // Check if this look belongs to the last mentioned character
+      const lastChar = entities.find(e =>
+        e.type === 'character' && e.reference.toLowerCase() === lastCharMention.toLowerCase()
+      );
+      if (lastChar && lastChar.looks) {
+        const charLook = lastChar.looks.find(l =>
+          l.reference?.toLowerCase() === lookRef.toLowerCase()
+        );
+        if (charLook) {
+          return charLook.description || match;
+        }
+      }
+    }
+
+    // Fallback: just use the look description
+    return lookData.look.description || match;
+  });
+
   return expanded;
 }
 
@@ -358,13 +478,17 @@ async function optimizePromptForGeneration(
     description: r.description?.substring(0, 50) + (r.description && r.description.length > 50 ? '...' : '') || '(NO DESCRIPTION!)'
   })));
 
-  // First expand entity mentions (@character, #location)
-  let expandedPrompt = expandMentions(frenchPrompt, entities);
-  console.log('3. After @/# expansion:', expandedPrompt);
+  // First expand character looks (@Character!Look combinations)
+  let expandedPrompt = expandCharacterLooks(frenchPrompt, entities);
+  console.log('3. After !Look expansion:', expandedPrompt);
+
+  // Then expand entity mentions (@character, #location)
+  expandedPrompt = expandMentions(expandedPrompt, entities);
+  console.log('4. After @/# expansion:', expandedPrompt);
 
   // Then expand !references to their stored prompts (generated at import time)
   expandedPrompt = expandReferences(expandedPrompt, references);
-  console.log('4. After ! expansion:', expandedPrompt);
+  console.log('5. After !ref expansion:', expandedPrompt);
   console.log('5. Skip optimization:', skipOptimization);
   console.log('===================================\n');
 
@@ -435,8 +559,9 @@ async function generateSerialPrompts(
   references: ReferenceImage[],
   count: number
 ): Promise<string[]> {
-  // Expand mentions first
-  let expandedPrompt = expandMentions(themePrompt, entities);
+  // Expand mentions first (looks, then characters/locations, then references)
+  let expandedPrompt = expandCharacterLooks(themePrompt, entities);
+  expandedPrompt = expandMentions(expandedPrompt, entities);
   expandedPrompt = expandReferences(expandedPrompt, references);
 
   if (!process.env.AI_CLAUDE_KEY) {
@@ -580,6 +705,13 @@ async function handleStreamingGeneration(params: StreamingGenerationParams): Pro
           if (referenceImageUrls.length >= MAX_TOTAL_REFS - poseReferences.length) break;
           referenceImageUrls.push(ref);
         }
+      }
+
+      // Add look images (costumes, styles) if mentioned
+      const lookImages = findMentionedLookImages(prompt, entities);
+      for (const lookImg of lookImages) {
+        if (referenceImageUrls.length >= MAX_TOTAL_REFS - poseReferences.length) break;
+        referenceImageUrls.push(lookImg);
       }
 
       // Add location/prop references if space remains (1 each)
@@ -1282,6 +1414,13 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
+    // Add look images (costumes, styles) if mentioned
+    const lookImages = findMentionedLookImages(prompt, entities);
+    for (const lookImg of lookImages) {
+      if (referenceImageUrls.length >= MAX_TOTAL_REFS - poseReferences.length) break;
+      referenceImageUrls.push(lookImg);
+    }
+
     // Add location/prop references if space remains (1 each)
     for (const entity of otherEntities) {
       if (referenceImageUrls.length >= MAX_TOTAL_REFS - poseReferences.length) break;
@@ -1298,7 +1437,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
-    console.log(`Reference strategy: ${numCharacters} characters × ${imagesPerCharacter} images, ${poseImageUrls.length} pose refs`);
+    console.log(`Reference strategy: ${numCharacters} characters × ${imagesPerCharacter} images, ${lookImages.length} look refs, ${poseImageUrls.length} pose refs`);
     console.log('Using model:', useKlingO1 ? 'Kling O1 Image' : useSeedream5 ? 'Seedream 5' : 'Nano Banana 2');
 
     // Upload reference images if available
