@@ -433,6 +433,7 @@ export function PlanEditor({
   if (!plan) return null;
 
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
       <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] bg-[#0f1419] border-white/10 p-0 overflow-hidden flex flex-col">
         {/* HEADER */}
@@ -1016,62 +1017,6 @@ export function PlanEditor({
           title={`Bible - Frame ${pickingFrame === 'in' ? 'In' : 'Out'}`}
         />
 
-        {/* Scene Generator (QuickShot with Bible integration) */}
-        <Dialog open={showSceneGenerator} onOpenChange={(open) => {
-          setShowSceneGenerator(open);
-          if (!open) setGeneratingFrame(null);
-        }}>
-          <DialogContent
-            className={cn(
-              'max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh]',
-              'flex flex-col p-0 gap-0',
-              'bg-[#0a0e12] border-white/10',
-              '[&>button]:hidden'
-            )}
-          >
-            <DialogHeader className="flex-shrink-0 px-6 py-4 border-b border-white/10 bg-[#0f1419]">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                    <Wand2 className="w-5 h-5 text-purple-400" />
-                  </div>
-                  <div>
-                    <DialogTitle className="text-lg font-semibold text-white">
-                      Générer {generatingFrame === 'in' ? 'Frame In' : 'Frame Out'}
-                    </DialogTitle>
-                    <p className="text-sm text-slate-400">
-                      Utilisez @Personnage #Lieu !Look pour créer une scène
-                    </p>
-                  </div>
-                </div>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="border-white/10 text-slate-300 hover:bg-white/5"
-                  onClick={() => {
-                    setShowSceneGenerator(false);
-                    setGeneratingFrame(null);
-                  }}
-                >
-                  Fermer
-                </Button>
-              </div>
-            </DialogHeader>
-
-            <div className="flex-1 overflow-y-auto p-6">
-              <QuickShotGenerator
-                projectId={projectId}
-                defaultAspectRatio={aspectRatio}
-                onShotsGenerated={handleGeneratedShots}
-                lockAspectRatio={true}
-                showPlaceholders={true}
-                title=""
-                description=""
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
       </DialogContent>
 
       {/* Fullscreen Video */}
@@ -1112,6 +1057,64 @@ export function PlanEditor({
         document.body
       )}
     </Dialog>
+
+    {/* Scene Generator (QuickShot with Bible integration) - Outside main dialog */}
+    <Dialog open={showSceneGenerator} onOpenChange={(open) => {
+      setShowSceneGenerator(open);
+      if (!open) setGeneratingFrame(null);
+    }}>
+      <DialogContent
+        className={cn(
+          'max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh]',
+          'flex flex-col p-0 gap-0',
+          'bg-[#0a0e12] border-white/10',
+          '[&>button]:hidden'
+        )}
+      >
+        <DialogHeader className="flex-shrink-0 px-6 py-4 border-b border-white/10 bg-[#0f1419]">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                <Wand2 className="w-5 h-5 text-purple-400" />
+              </div>
+              <div>
+                <DialogTitle className="text-lg font-semibold text-white">
+                  Générer {generatingFrame === 'in' ? 'Frame In' : 'Frame Out'}
+                </DialogTitle>
+                <p className="text-sm text-slate-400">
+                  Utilisez @Personnage #Lieu !Look pour créer une scène
+                </p>
+              </div>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              className="border-white/10 text-slate-300 hover:bg-white/5"
+              onClick={() => {
+                setShowSceneGenerator(false);
+                setGeneratingFrame(null);
+              }}
+            >
+              Fermer
+            </Button>
+          </div>
+        </DialogHeader>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          <QuickShotGenerator
+            projectId={projectId}
+            defaultAspectRatio={aspectRatio}
+            onShotsGenerated={handleGeneratedShots}
+            lockAspectRatio={true}
+            showPlaceholders={true}
+            title=""
+            description=""
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
+  </>
   );
 }
 
