@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { User, MapPin, Package, Search, X, Loader2, Image as ImageIcon } from 'lucide-react';
+import { User, MapPin, Package, Search, X, Loader2, Image as ImageIcon, Library, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -13,6 +13,7 @@ import {
 import { StorageImg } from '@/components/ui/storage-image';
 import { cn } from '@/lib/utils';
 import type { GlobalAssetType } from '@/types/database';
+import { GlobalAssetPicker } from '@/components/bible/GlobalAssetPicker';
 
 interface BibleAsset {
   id: string;
@@ -23,6 +24,8 @@ interface BibleAsset {
     visual_description?: string;
     looks?: Array<{ id?: string; name: string; description: string; imageUrl: string }>;
   };
+  // Selected look IDs from local_overrides
+  selected_look_ids?: string[];
 }
 
 interface ProjectBiblePickerProps {
@@ -53,6 +56,7 @@ export function ProjectBiblePicker({
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabType>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [showGlobalPicker, setShowGlobalPicker] = useState(false);
 
   const fetchAssets = useCallback(async () => {
     setIsLoading(true);
@@ -93,7 +97,7 @@ export function ProjectBiblePicker({
         : true
     );
 
-  // Get all images from an asset (reference_images + looks)
+  // Get images from an asset (reference_images + selected looks only)
   const getAssetImages = (asset: BibleAsset): { url: string; label?: string }[] => {
     const images: { url: string; label?: string }[] = [];
 
@@ -104,10 +108,11 @@ export function ProjectBiblePicker({
       });
     }
 
-    // Add looks images for characters
-    if (asset.data?.looks) {
+    // Add ONLY selected looks for characters
+    if (asset.data?.looks && asset.selected_look_ids && asset.selected_look_ids.length > 0) {
+      const selectedIds = new Set(asset.selected_look_ids);
       asset.data.looks.forEach((look) => {
-        if (look.imageUrl) {
+        if (look.imageUrl && look.id && selectedIds.has(look.id)) {
           images.push({ url: look.imageUrl, label: look.name });
         }
       });
@@ -120,6 +125,11 @@ export function ProjectBiblePicker({
     onSelect(imageUrl, asset.name, asset.asset_type);
     onOpenChange(false);
   };
+
+  const handleAssetImported = useCallback(() => {
+    // Refresh the asset list after importing
+    fetchAssets();
+  }, [fetchAssets]);
 
   const getAssetIcon = (type: GlobalAssetType) => {
     switch (type) {
@@ -151,10 +161,21 @@ export function ProjectBiblePicker({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[80vh] bg-[#0d1520] border-white/10 flex flex-col">
         <DialogHeader className="flex-shrink-0">
-          <DialogTitle className="text-white flex items-center gap-2">
-            <ImageIcon className="w-5 h-5 text-purple-400" />
-            {title}
-          </DialogTitle>
+          <div className="flex items-center justify-between">
+            <DialogTitle className="text-white flex items-center gap-2">
+              <ImageIcon className="w-5 h-5 text-purple-400" />
+              {title}
+            </DialogTitle>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowGlobalPicker(true)}
+              className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 hover:text-blue-300"
+            >
+              <Library className="w-4 h-4 mr-2" />
+              Bibliothèque
+            </Button>
+          </div>
         </DialogHeader>
 
         {/* Tabs */}
@@ -217,9 +238,18 @@ export function ProjectBiblePicker({
                   ? 'Aucun résultat pour cette recherche'
                   : 'Aucun asset avec des images dans ce projet'}
               </p>
-              <p className="text-slate-500 text-xs mt-1">
-                Importez des personnages, lieux ou props depuis la Bible globale
+              <p className="text-slate-500 text-xs mt-1 mb-4">
+                Importez des personnages, lieux ou props depuis la bibliothèque
               </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowGlobalPicker(true)}
+                className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+              >
+                <Plus className="w-4 h-4 mr-2" />
+                Importer depuis la bibliothèque
+              </Button>
             </div>
           ) : (
             <div className="space-y-6 py-2">
@@ -291,6 +321,14 @@ export function ProjectBiblePicker({
           </Button>
         </div>
       </DialogContent>
+
+      {/* Global Asset Picker for importing */}
+      <GlobalAssetPicker
+        open={showGlobalPicker}
+        onOpenChange={setShowGlobalPicker}
+        projectId={projectId}
+        onAssetImported={handleAssetImported}
+      />
     </Dialog>
   );
 }

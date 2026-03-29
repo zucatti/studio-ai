@@ -149,6 +149,7 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
       audioUrl: audioPublicUrl,
       audioStart,
       audioEnd,
+      jobId, // For cancellation support
     };
 
     // Generate video

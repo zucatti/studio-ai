@@ -46,6 +46,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     // Build update object - all allowed fields
     const allowedFields = [
       'relative_start',
+      'duration', // Important: keep in sync with relative_start
       'description',
       'animation_prompt',
       'storyboard_image_url',
@@ -79,7 +80,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       .update(updateData)
       .eq('id', shotId)
       .eq('section_id', sectionId)
-      .select('id, description, relative_start, sort_order, animation_prompt, storyboard_image_url, first_frame_url, last_frame_url, generated_video_url, shot_type, camera_angle, camera_movement')
+      .select('id, description, relative_start, sort_order, animation_prompt, storyboard_image_url, first_frame_url, last_frame_url, generated_video_url, shot_type, camera_angle, camera_movement, storyboard_prompt, first_frame_prompt, last_frame_prompt')
       .single();
 
     if (updateError) {

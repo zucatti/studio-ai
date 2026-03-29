@@ -15,6 +15,8 @@ export interface MentionSuggestion {
   image?: string;
   description?: string;
   looks?: Array<{ id?: string; name: string; description: string; imageUrl: string }>;
+  // IDs of looks selected for this project (for filtering)
+  selectedLookIds?: string[];
 }
 
 interface MentionInputProps {
@@ -219,6 +221,8 @@ export function MentionInput({
               description: a.data?.visual_description,
               // Include looks for characters (needed for ! autocomplete)
               looks: a.asset_type === 'character' ? (a.data?.looks || []) : undefined,
+              // Include selected look IDs for filtering
+              selectedLookIds: a.asset_type === 'character' ? (a.selected_look_ids || []) : undefined,
             }));
         }
 
@@ -255,6 +259,7 @@ export function MentionInput({
                 image: a.reference_images?.[0],
                 description: a.data?.visual_description,
                 looks: a.data?.looks || [],
+                selectedLookIds: a.selected_look_ids || [],
               }));
             setCachedSuggestions(cacheKey, fetchedCharacters);
             characters = fetchedCharacters;
@@ -271,9 +276,15 @@ export function MentionInput({
             // Set the character name for the dropdown header
             setCurrentCharacterForLooks(matchingChar.name);
 
-            // Return that character's looks as suggestions
-            suggestions = matchingChar.looks.map((look, idx) => ({
-              id: `${matchingChar.id}-look-${idx}`,
+            // Filter looks by selected look IDs (only show looks selected for this project)
+            const selectedIds = new Set(matchingChar.selectedLookIds || []);
+            const filteredLooks = selectedIds.size > 0
+              ? matchingChar.looks.filter((look) => look.id && selectedIds.has(look.id))
+              : []; // If no looks selected, show none
+
+            // Return filtered looks as suggestions
+            suggestions = filteredLooks.map((look, idx) => ({
+              id: `${matchingChar.id}-look-${look.id || idx}`,
               reference: generateReference(look.name, '!'),
               name: look.name,
               type: 'reference' as const,
@@ -597,17 +608,17 @@ export function MentionInput({
       {isOpen && typeof document !== 'undefined' && createPortal(
         <div
           ref={dropdownRef}
-          className="fixed z-[99999] w-72 max-h-64 overflow-y-auto bg-[#1a2433] border border-white/10 rounded-lg shadow-xl"
+          className="fixed z-[99999] w-72 max-h-64 flex flex-col bg-[#1a2433] border border-white/10 rounded-lg shadow-xl"
           style={{
             top: dropdownPosition.top,
             left: dropdownPosition.left,
             pointerEvents: 'auto',
           }}
         >
-          {/* Header */}
+          {/* Header - sticky */}
           {config && (
             <div className={cn(
-              'px-3 py-2 border-b border-white/10 flex items-center gap-2',
+              'px-3 py-2 border-b border-white/10 flex items-center gap-2 flex-shrink-0',
               config.bgColor
             )}>
               <config.icon className={cn('w-4 h-4', config.color)} />
@@ -622,13 +633,13 @@ export function MentionInput({
             </div>
           )}
 
-          {/* Suggestions */}
+          {/* Suggestions - scrollable */}
           {filteredSuggestions.length === 0 ? (
             <div className="px-3 py-4 text-center text-sm text-slate-500">
               {isLoading ? 'Chargement...' : 'Aucun résultat'}
             </div>
           ) : (
-            <div className="py-1">
+            <div className="py-1 overflow-y-auto flex-1 min-h-0">
               {filteredSuggestions.map((suggestion, index) => {
                 const Icon = suggestion.type === 'character' ? User
                   : suggestion.type === 'reference' ? ImageIcon

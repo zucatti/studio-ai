@@ -5,7 +5,7 @@ import { uploadFile, getSignedFileUrl, parseStorageUrl, STORAGE_BUCKET } from '@
 import { fal } from '@fal-ai/client';
 import Anthropic from '@anthropic-ai/sdk';
 import { logFalUsage, logClaudeUsage } from '@/lib/ai/log-api-usage';
-import { generateReferenceName } from '@/lib/reference-name';
+import { generateReferenceName, generateLookReferenceName } from '@/lib/reference-name';
 import { createSSEStream, createSSEHeaders, type GenerationProgressEvent } from '@/lib/sse';
 import type { AspectRatio } from '@/types/database';
 
@@ -125,7 +125,7 @@ async function fetchEntitiesWithImages(
     if (ga.asset_type === 'character' && Array.isArray(data?.looks)) {
       looks = (data.looks as LookVariation[]).map(look => ({
         ...look,
-        reference: generateReferenceName(look.name, '!'),
+        reference: generateLookReferenceName(look.name),
       }));
     }
 

@@ -446,6 +446,7 @@ export function BibleCharacters({ projectId, onInsertReference, showGlobalOnly =
         open={isFormOpen}
         onOpenChange={handleFormClose}
         character={editingCharacter}
+        projectId={projectId}
       />
 
       {/* Delete Confirmation Dialog */}

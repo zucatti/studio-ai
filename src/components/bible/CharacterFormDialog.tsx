@@ -59,12 +59,14 @@ import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { generateReferenceName, generateLookReferenceName } from '@/lib/reference-name';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { invalidateMentionCache } from '@/components/ui/mention-input';
 
 interface CharacterFormDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   character?: GlobalAsset | null;
   onSuccess?: (character: GlobalAsset) => void;
+  projectId?: string;
 }
 
 interface ElevenLabsVoice {
@@ -130,6 +132,7 @@ export function CharacterFormDialog({
   onOpenChange,
   character,
   onSuccess,
+  projectId,
 }: CharacterFormDialogProps) {
   const isEditing = !!character;
 
@@ -140,7 +143,89 @@ export function CharacterFormDialog({
     queueCharacterImageGeneration,
     uploadCharacterImage,
     isGenerating,
+    isAssetInProject,
+    importGlobalAsset,
   } = useBibleStore();
+
+  // Check if character is already in project
+  const isInProject = character && projectId ? isAssetInProject(character.id) : false;
+  const [isImporting, setIsImporting] = useState(false);
+
+  const handleImportToProject = async () => {
+    if (!character || !projectId || isInProject) return;
+    setIsImporting(true);
+    try {
+      await importGlobalAsset(projectId, character.id);
+      toast.success(`${character.name} ajouté au projet`);
+    } catch (error) {
+      toast.error("Erreur lors de l'ajout au projet");
+    } finally {
+      setIsImporting(false);
+    }
+  };
+
+  // Selected looks for project
+  const [selectedLookIds, setSelectedLookIds] = useState<Set<string>>(new Set());
+  const [loadingLookId, setLoadingLookId] = useState<string | null>(null);
+
+  // Fetch selected looks when dialog opens
+  useEffect(() => {
+    if (open && character && projectId) {
+      fetch(`/api/projects/${projectId}/assets/${character.id}/looks`)
+        .then(res => res.json())
+        .then(data => {
+          setSelectedLookIds(new Set(data.selectedLookIds || []));
+        })
+        .catch(err => console.error('Error fetching selected looks:', err));
+    }
+  }, [open, character, projectId]);
+
+  const handleToggleLook = async (lookId: string) => {
+    if (!character || !projectId) return;
+
+    setLoadingLookId(lookId);
+    const isSelected = selectedLookIds.has(lookId);
+
+    try {
+      if (isSelected) {
+        // Remove look
+        const res = await fetch(
+          `/api/projects/${projectId}/assets/${character.id}/looks?lookId=${lookId}`,
+          { method: 'DELETE' }
+        );
+        if (res.ok) {
+          setSelectedLookIds(prev => {
+            const next = new Set(prev);
+            next.delete(lookId);
+            return next;
+          });
+          // Invalidate mention cache so dropdown updates
+          invalidateMentionCache(projectId);
+          toast.success('Look retiré du projet');
+        }
+      } else {
+        // Add look
+        const res = await fetch(
+          `/api/projects/${projectId}/assets/${character.id}/looks`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ lookId }),
+          }
+        );
+        if (res.ok) {
+          setSelectedLookIds(prev => new Set([...prev, lookId]));
+          // Invalidate mention cache so dropdown updates
+          invalidateMentionCache(projectId);
+          toast.success('Look ajouté au projet');
+        }
+      }
+    } catch (error) {
+      toast.error('Erreur lors de la modification');
+    } finally {
+      setLoadingLookId(null);
+    }
+  };
 
   // Form state
   const [name, setName] = useState(character?.name || '');
@@ -1018,6 +1103,30 @@ export function CharacterFormDialog({
 
             {/* Action buttons in header */}
             <div className="flex items-center gap-3">
+              {/* Import to project button */}
+              {isEditing && projectId && (
+                isInProject ? (
+                  <span className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-green-400 bg-green-500/10 rounded-lg border border-green-500/30">
+                    <Check className="w-4 h-4" />
+                    Dans le projet
+                  </span>
+                ) : (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleImportToProject}
+                    disabled={isImporting}
+                    className="border-green-500/30 text-green-400 hover:bg-green-500/10 hover:text-green-300"
+                  >
+                    {isImporting ? (
+                      <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                    ) : (
+                      <Plus className="w-4 h-4 mr-1.5" />
+                    )}
+                    Ajouter au projet
+                  </Button>
+                )
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -1713,6 +1822,33 @@ export function CharacterFormDialog({
                             </div>
                           </div>
                           <div className="absolute top-1.5 right-1.5 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            {/* Add/Remove from project button */}
+                            {projectId && (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className={cn(
+                                  "h-6 w-6",
+                                  selectedLookIds.has(look.id)
+                                    ? "bg-green-500/80 text-white hover:bg-red-500/80"
+                                    : "bg-black/50 text-white hover:bg-green-500/80"
+                                )}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleToggleLook(look.id);
+                                }}
+                                disabled={loadingLookId === look.id}
+                                title={selectedLookIds.has(look.id) ? "Retirer du projet" : "Ajouter au projet"}
+                              >
+                                {loadingLookId === look.id ? (
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                ) : selectedLookIds.has(look.id) ? (
+                                  <Check className="w-3 h-3" />
+                                ) : (
+                                  <Plus className="w-3 h-3" />
+                                )}
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"

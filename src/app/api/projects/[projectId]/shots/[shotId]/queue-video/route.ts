@@ -271,6 +271,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Update shot status
+    // Note: video_prompt will be saved once migration 20260328000001_video_prompt.sql is run
     await supabase
       .from('shots')
       .update({

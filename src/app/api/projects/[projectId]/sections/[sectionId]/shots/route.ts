@@ -42,6 +42,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
     }
 
     // Fetch shots for this section
+    // Note: video_prompt column added via migration - only query if column exists
     const { data: shots, error: shotsError } = await supabase
       .from('shots')
       .select(`
@@ -49,6 +50,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         shot_type, camera_angle, camera_movement,
         storyboard_image_url, first_frame_url, last_frame_url,
         animation_prompt, generated_video_url, generation_status,
+        storyboard_prompt, first_frame_prompt, last_frame_prompt,
         has_dialogue, dialogue_text, dialogue_character_id, dialogue_audio_url,
         audio_mode, audio_asset_id, audio_start, audio_end
       `)

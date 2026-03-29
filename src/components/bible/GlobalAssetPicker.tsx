@@ -45,6 +45,7 @@ export function GlobalAssetPicker({
     globalAssets,
     isLoading,
     fetchGlobalAssets,
+    fetchProjectAssets,
     importGlobalAsset,
     isAssetInProject,
   } = useBibleStore();
@@ -52,8 +53,10 @@ export function GlobalAssetPicker({
   useEffect(() => {
     if (open) {
       fetchGlobalAssets('');
+      // Also fetch project assets to correctly filter already-imported assets
+      fetchProjectAssets(projectId);
     }
-  }, [open, fetchGlobalAssets]);
+  }, [open, projectId, fetchGlobalAssets, fetchProjectAssets]);
 
   const currentTab = TABS.find(t => t.value === activeTab);
   const filteredAssets = globalAssets

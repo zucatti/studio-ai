@@ -90,6 +90,8 @@ const musicVideoNavigation: NavSection = {
   title: 'PROJET',
   items: [
     { name: 'Clip', href: '/clip', icon: Music },
+    { name: 'Rush', href: '/rush', icon: Zap },
+    { name: 'Gallery', href: '/gallery', icon: Grid3X3 },
     { name: 'Bible', href: '/bible', icon: BookOpen },
     { name: 'Storyboard', href: '/storyboard', icon: ImageIcon },
     { name: 'Production', href: '/production', icon: PlayCircle },

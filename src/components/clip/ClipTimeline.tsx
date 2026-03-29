@@ -52,6 +52,11 @@ interface Shot {
   shot_type?: ShotType;
   camera_angle?: CameraAngle;
   camera_movement?: CameraMovement;
+  // Prompt fields for traceability
+  storyboard_prompt?: string;
+  first_frame_prompt?: string;
+  last_frame_prompt?: string;
+  video_prompt?: string;
   // Dialogue fields
   has_dialogue?: boolean;
   dialogue_text?: string;
@@ -226,12 +231,20 @@ export function ClipTimeline({
       // Fetch fresh shot data to avoid showing stale video
       console.log('[ClipTimeline] Opening shot editor, fetching fresh data for:', shot.id);
       console.log('[ClipTimeline] Cached video URL:', shot.generated_video_url);
+      console.log('[ClipTimeline] Local duration:', shot.duration);
 
       const res = await fetch(`/api/projects/${projectId}/shots/${shot.id}`);
       if (res.ok) {
         const freshShot = await res.json();
         console.log('[ClipTimeline] Fresh video URL:', freshShot.generated_video_url);
-        setEditingShot({ shot: { ...shot, ...freshShot }, sectionId, shotIndex });
+        console.log('[ClipTimeline] Fresh duration from DB:', freshShot.duration);
+        // IMPORTANT: Preserve local duration (calculated from relative_start) over DB duration
+        // DB duration might be stale if shots were resized before this fix
+        setEditingShot({
+          shot: { ...shot, ...freshShot, duration: shot.duration },
+          sectionId,
+          shotIndex,
+        });
       } else {
         console.warn('[ClipTimeline] Failed to fetch fresh shot data, status:', res.status);
         // Fallback to cached data if fetch fails
@@ -565,6 +578,9 @@ export function ClipTimeline({
         // Moving left edge: changes this shot's start and previous shot's duration
         let newStart = resizingShot.initialStart + deltaTime;
 
+        // Snap to whole seconds for cleaner values
+        newStart = Math.round(newStart);
+
         // Constraints:
         // - This shot: MIN <= duration <= MAX
         // - Previous shot (if any): MIN <= duration <= MAX
@@ -591,6 +607,9 @@ export function ClipTimeline({
       } else {
         // Moving right edge: changes this shot's duration and next shot's start
         let newEnd = resizingShot.initialStart + resizingShot.initialDuration + deltaTime;
+
+        // Snap to whole seconds for cleaner values
+        newEnd = Math.round(newEnd);
 
         // Constraints:
         // - This shot: MIN <= duration <= MAX
@@ -641,7 +660,10 @@ export function ClipTimeline({
           fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${shot.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ relative_start: shot.relative_start }),
+            body: JSON.stringify({
+              relative_start: shot.relative_start,
+              duration: shot.duration, // Also save duration!
+            }),
           })
         );
       }
@@ -652,7 +674,10 @@ export function ClipTimeline({
           fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${prevShot.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ relative_start: prevShot.relative_start }),
+            body: JSON.stringify({
+              relative_start: prevShot.relative_start,
+              duration: prevShot.duration, // Also save duration!
+            }),
           })
         );
       } else if (resizingShot.edge === 'right' && nextShot) {
@@ -660,7 +685,10 @@ export function ClipTimeline({
           fetch(`/api/projects/${projectId}/sections/${resizingShot.sectionId}/shots/${nextShot.id}`, {
             method: 'PATCH',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ relative_start: nextShot.relative_start }),
+            body: JSON.stringify({
+              relative_start: nextShot.relative_start,
+              duration: nextShot.duration, // Also save duration!
+            }),
           })
         );
       }
@@ -1629,6 +1657,11 @@ export function ClipTimeline({
             camera_angle: editingShot.shot.camera_angle,
             camera_movement: editingShot.shot.camera_movement,
             generated_video_url: editingShot.shot.generated_video_url,
+            // Prompt fields for traceability
+            storyboard_prompt: editingShot.shot.storyboard_prompt,
+            first_frame_prompt: editingShot.shot.first_frame_prompt,
+            last_frame_prompt: editingShot.shot.last_frame_prompt,
+            video_prompt: editingShot.shot.video_prompt,
           }}
           previousPlan={(() => {
             // Find previous shot in this section
@@ -1709,10 +1742,17 @@ export function ClipTimeline({
           }}
           onGenerateVideo={handleGenerateVideo}
           isGeneratingVideo={(() => {
-            // Use local state OR progress status to prevent race condition on double-click
-            if (isGeneratingVideo) return true;
+            // Use progress status as primary source of truth
+            // isGeneratingVideo is only true during API call (prevents double-click)
             const progress = editingShot?.shot.id ? generationProgress.get(editingShot.shot.id) : undefined;
-            return progress?.status === 'generating';
+            // Show generating UI if: API call in progress OR job is actively generating
+            if (isGeneratingVideo) return true;
+            if (progress?.status === 'generating') return true;
+            // Also check if we just queued (progress exists but not completed/failed)
+            if (progress && progress.status !== 'completed' && progress.status !== 'error' && progress.status !== 'failed') {
+              return true;
+            }
+            return false;
           })()}
           videoGenerationProgress={editingShot?.shot.id ? generationProgress.get(editingShot.shot.id) : undefined}
         />

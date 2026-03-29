@@ -24,6 +24,9 @@ export interface VideoGenerationRequest {
   audioUrl?: string;
   audioStart?: number;
   audioEnd?: number;
+
+  // For cancellation support
+  jobId?: string;
 }
 
 export interface VideoGenerationResult {

@@ -281,6 +281,7 @@ export interface Database {
           first_frame_prompt: string | null;
           last_frame_prompt: string | null;
           generated_video_url: string | null;
+          video_prompt: string | null;
           generation_status: GenerationStatus;
           generation_error: string | null;
           status: ShotStatus;
@@ -316,6 +317,7 @@ export interface Database {
           first_frame_prompt?: string | null;
           last_frame_prompt?: string | null;
           generated_video_url?: string | null;
+          video_prompt?: string | null;
           generation_status?: GenerationStatus;
           generation_error?: string | null;
           status?: ShotStatus;
@@ -349,6 +351,7 @@ export interface Database {
           first_frame_prompt?: string | null;
           last_frame_prompt?: string | null;
           generated_video_url?: string | null;
+          video_prompt?: string | null;
           generation_status?: GenerationStatus;
           generation_error?: string | null;
           status?: ShotStatus;

@@ -24,12 +24,13 @@ const JOB_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>
   look: Shirt,
 };
 
-function JobCard({ job, onCancel }: { job: GenerationJob; onCancel: () => void }) {
+function JobCard({ job, onCancel, onDelete }: { job: GenerationJob; onCancel: () => void; onDelete: () => void }) {
   const statusConfig = STATUS_CONFIG[job.status];
   const StatusIcon = statusConfig.icon;
   const TypeIcon = JOB_TYPE_ICONS[job.job_type] || Image;
   const isActive = ['pending', 'queued', 'running'].includes(job.status);
   const isRunning = job.status === 'running';
+  const isFinished = ['completed', 'failed', 'cancelled'].includes(job.status);
 
   return (
     <div
@@ -71,6 +72,17 @@ function JobCard({ job, onCancel }: { job: GenerationJob; onCancel: () => void }
             title="Annuler"
           >
             <X className="w-4 h-4" />
+          </Button>
+        )}
+        {isFinished && (
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-slate-400 hover:text-slate-300 hover:bg-white/5 flex-shrink-0"
+            onClick={onDelete}
+            title="Supprimer"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
           </Button>
         )}
       </div>
@@ -122,7 +134,7 @@ function JobCard({ job, onCancel }: { job: GenerationJob; onCancel: () => void }
 }
 
 export function QueuePanel() {
-  const { jobs, isPanelOpen, setPanelOpen, cancelJob, startPolling, activeJobsCount } = useJobsStore();
+  const { jobs, isPanelOpen, setPanelOpen, cancelJob, deleteJob, startPolling, activeJobsCount } = useJobsStore();
 
   // Start polling when panel opens
   useEffect(() => {
@@ -184,6 +196,7 @@ export function QueuePanel() {
                     key={job.id}
                     job={job}
                     onCancel={() => cancelJob(job.id)}
+                    onDelete={() => deleteJob(job.id)}
                   />
                 ))}
               </div>
@@ -193,16 +206,30 @@ export function QueuePanel() {
           {/* Recent Jobs */}
           {recentJobs.length > 0 && (
             <div>
-              <h3 className="text-sm font-medium text-slate-400 mb-3 flex items-center gap-2">
-                <Clock className="w-4 h-4" />
-                Récents
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-slate-400 flex items-center gap-2">
+                  <Clock className="w-4 h-4" />
+                  Récents
+                </h3>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 text-xs text-slate-500 hover:text-red-400"
+                  onClick={() => {
+                    recentJobs.forEach((job) => deleteJob(job.id));
+                  }}
+                >
+                  <Trash2 className="w-3 h-3 mr-1" />
+                  Tout effacer
+                </Button>
+              </div>
               <div className="space-y-2">
                 {recentJobs.map((job) => (
                   <JobCard
                     key={job.id}
                     job={job}
                     onCancel={() => {}}
+                    onDelete={() => deleteJob(job.id)}
                   />
                 ))}
               </div>

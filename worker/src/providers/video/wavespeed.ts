@@ -11,6 +11,7 @@ import type {
   ProgressCallback,
 } from './types.js';
 import { aiConfig } from '../../config.js';
+import { getSupabase } from '../../supabase.js';
 
 const WAVESPEED_API_BASE = 'https://api.wavespeed.ai/api/v3';
 
@@ -157,6 +158,28 @@ export class WaveSpeedProvider implements VideoProvider {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       await new Promise(resolve => setTimeout(resolve, pollInterval));
 
+      // Check if job was cancelled (every 5 attempts = 10 seconds)
+      if (request.jobId && attempt % 5 === 0) {
+        try {
+          const supabase = getSupabase();
+          const { data: job } = await supabase
+            .from('generation_jobs')
+            .select('status')
+            .eq('id', request.jobId)
+            .single();
+
+          if (job?.status === 'cancelled') {
+            console.log(`[WaveSpeed] Job ${request.jobId} was cancelled, stopping`);
+            throw new Error('Job cancelled by user');
+          }
+        } catch (checkError) {
+          // Ignore check errors, continue with generation
+          if ((checkError as Error).message === 'Job cancelled by user') {
+            throw checkError;
+          }
+        }
+      }
+
       const pollResponse = await fetch(pollUrl, {
         headers: { 'Authorization': `Bearer ${apiKey}` },
       });
@@ -173,9 +196,15 @@ export class WaveSpeedProvider implements VideoProvider {
       const status = pollData.data?.status;
       const progress = pollData.data?.progress || 0;
 
+      // Log progress every 10 attempts (20 seconds)
+      if (attempt % 10 === 0) {
+        console.log(`[WaveSpeed] Poll ${attempt}/${maxAttempts}: status=${status}, progress=${progress}%`);
+      }
+
       // Update progress (scale 15-90)
       const scaledProgress = 15 + Math.round(progress * 0.75);
-      await onProgress?.(scaledProgress, 'Génération en cours...');
+      const timeElapsed = Math.round((attempt * pollInterval) / 1000);
+      await onProgress?.(scaledProgress, `${modelInfo?.name || 'WaveSpeed'}: ${Math.round(progress)}% (${timeElapsed}s)`);
 
       if (status === 'completed') {
         const outputs = pollData.data?.outputs;

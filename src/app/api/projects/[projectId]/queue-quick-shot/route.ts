@@ -13,7 +13,7 @@
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { enqueueQuickShotGen } from '@/lib/bullmq';
-import { generateReferenceName } from '@/lib/reference-name';
+import { generateReferenceName, generateLookReferenceName } from '@/lib/reference-name';
 import { getSignedFileUrl } from '@/lib/storage';
 import type { AspectRatio } from '@/types/database';
 
@@ -127,7 +127,7 @@ async function fetchEntitiesWithImages(
     if (ga.asset_type === 'character' && Array.isArray(data?.looks)) {
       looks = (data.looks as LookVariation[]).map(look => ({
         ...look,
-        reference: generateReferenceName(look.name, '!'),
+        reference: generateLookReferenceName(look.name),
       }));
     }
 

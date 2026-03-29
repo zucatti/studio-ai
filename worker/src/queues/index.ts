@@ -10,6 +10,7 @@ import { processVideoGenJob, type VideoGenJobData } from '../processors/video-ge
 import { processImageGenJob, type ImageGenJobData } from '../processors/image-gen.processor.js';
 import { processAudioGenJob, type AudioGenJobData } from '../processors/audio-gen.processor.js';
 import { processFFmpegJob, type FFmpegJobData } from '../processors/ffmpeg.processor.js';
+import { processQuickShotGenJob, type QuickShotGenJobData } from '../processors/quick-shot-gen.processor.js';
 
 // Get worker options for a specific queue
 function getWorkerOptions(queueName: string): WorkerOptions {
@@ -111,6 +112,28 @@ export function createWorkers(): Worker[] {
   registerWorker(ffmpegWorker);
   workers.push(ffmpegWorker);
   console.log(`[Worker] FFmpeg processing worker started (concurrency: ${QUEUE_CONFIG[QUEUE_NAMES.FFMPEG].concurrency})`);
+
+  // Quick-shot generation worker
+  const quickShotGenWorker = new Worker<QuickShotGenJobData>(
+    QUEUE_NAMES.QUICK_SHOT_GEN,
+    processQuickShotGenJob,
+    getWorkerOptions(QUEUE_NAMES.QUICK_SHOT_GEN)
+  );
+  quickShotGenWorker.on('active', (job) => {
+    console.log(`[QuickShotGen] Job ${job.id} started processing`);
+  });
+  quickShotGenWorker.on('completed', (job) => {
+    console.log(`[QuickShotGen] Job ${job.id} completed`);
+  });
+  quickShotGenWorker.on('failed', (job, error) => {
+    console.error(`[QuickShotGen] Job ${job?.id} failed:`, error.message);
+  });
+  quickShotGenWorker.on('error', (error) => {
+    console.error(`[QuickShotGen] Worker error:`, error);
+  });
+  registerWorker(quickShotGenWorker);
+  workers.push(quickShotGenWorker);
+  console.log(`[Worker] Quick-shot generation worker started (concurrency: ${QUEUE_CONFIG[QUEUE_NAMES.QUICK_SHOT_GEN].concurrency})`);
 
   return workers;
 }

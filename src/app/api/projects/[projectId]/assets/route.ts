@@ -46,16 +46,21 @@ export async function GET(request: Request, { params }: RouteParams) {
     console.log('[Assets API] Raw project assets:', projectAssets?.length || 0, JSON.stringify(projectAssets, null, 2));
 
     // Flatten the data for easier consumption
-    const assets = (projectAssets || []).map((pa: any) => ({
-      id: pa.global_assets?.id || pa.global_asset_id,
-      project_asset_id: pa.id,
-      name: pa.global_assets?.name || '',
-      asset_type: pa.global_assets?.asset_type || '',
-      data: { ...(pa.global_assets?.data || {}), ...(pa.local_overrides || {}) },
-      reference_images: pa.global_assets?.reference_images || [],
-      tags: pa.global_assets?.tags || [],
-      created_at: pa.created_at,
-    }));
+    const assets = (projectAssets || []).map((pa: any) => {
+      const localOverrides = pa.local_overrides || {};
+      return {
+        id: pa.global_assets?.id || pa.global_asset_id,
+        project_asset_id: pa.id,
+        name: pa.global_assets?.name || '',
+        asset_type: pa.global_assets?.asset_type || '',
+        data: { ...(pa.global_assets?.data || {}), ...localOverrides },
+        reference_images: pa.global_assets?.reference_images || [],
+        tags: pa.global_assets?.tags || [],
+        created_at: pa.created_at,
+        // Extract selected_look_ids for easy access
+        selected_look_ids: localOverrides.selected_look_ids || [],
+      };
+    });
 
     console.log('[Assets API] Returning flattened assets:', assets.length);
 
