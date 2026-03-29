@@ -164,9 +164,11 @@ export function PlanEditor({
   const [copiedVideoPrompt, setCopiedVideoPrompt] = useState(false);
 
   // Sticky generating state to prevent flickering
-  // Once we start generating, stay in that mode until explicitly completed
+  // Once we start generating, stay in that mode until video URL changes
   const [stickyGenerating, setStickyGenerating] = useState(false);
   const lastVideoUrlRef = useRef(plan?.generated_video_url);
+  // Track if we've ever completed for this plan to prevent re-triggering
+  const hasCompletedRef = useRef(false);
 
   // Bible store
   const { projectAssets, fetchProjectAssets } = useBibleStore();
@@ -202,28 +204,48 @@ export function PlanEditor({
 
   // Manage sticky generating state to prevent flickering
   useEffect(() => {
-    // Start sticky mode when generation begins
-    if (isGeneratingVideo && !stickyGenerating) {
+    // Reset completion tracking when plan changes
+    if (plan?.id) {
+      hasCompletedRef.current = false;
+    }
+  }, [plan?.id]);
+
+  useEffect(() => {
+    // Start sticky mode when generation begins (only if not already completed)
+    if (isGeneratingVideo && !stickyGenerating && !hasCompletedRef.current) {
       setStickyGenerating(true);
       lastVideoUrlRef.current = plan?.generated_video_url;
     }
 
-    // End sticky mode when:
-    // 1. Video URL changed (new video is ready)
-    // 2. Progress shows completed or error
+    // End sticky mode ONLY when video URL actually changed (new video is ready)
+    // Don't rely on status alone as it can flicker during polling
     if (stickyGenerating) {
       const videoUrlChanged = plan?.generated_video_url && plan.generated_video_url !== lastVideoUrlRef.current;
-      const progressCompleted = videoGenerationProgress?.status === 'completed' || videoGenerationProgress?.status === 'error';
+      const isError = videoGenerationProgress?.status === 'error' || videoGenerationProgress?.status === 'failed';
 
-      if (videoUrlChanged || progressCompleted) {
+      if (videoUrlChanged) {
+        // New video is ready - end sticky mode and mark as completed
         setStickyGenerating(false);
         lastVideoUrlRef.current = plan?.generated_video_url;
+        hasCompletedRef.current = true;
+      } else if (isError) {
+        // Error occurred - end sticky mode
+        setStickyGenerating(false);
+        hasCompletedRef.current = true;
       }
     }
   }, [isGeneratingVideo, stickyGenerating, plan?.generated_video_url, videoGenerationProgress?.status]);
 
   // Effective generating state (combines prop and sticky state)
-  const effectivelyGenerating = isGeneratingVideo || stickyGenerating;
+  // Once we've completed (video URL changed), never show generating state again for this session
+  // This prevents flickering from polling inconsistencies
+  const effectivelyGenerating = useMemo(() => {
+    // If we've already completed generation and have a video, don't show generating
+    if (hasCompletedRef.current && plan?.generated_video_url) {
+      return false;
+    }
+    return isGeneratingVideo || stickyGenerating;
+  }, [isGeneratingVideo, stickyGenerating, plan?.generated_video_url]);
 
   // ESC key for fullscreen
   useEffect(() => {
