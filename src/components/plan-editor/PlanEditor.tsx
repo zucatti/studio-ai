@@ -37,6 +37,9 @@ import {
   X,
   Loader2,
   Wand2,
+  FileText,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { useBibleStore } from '@/store/bible-store';
 import { cn } from '@/lib/utils';
@@ -51,7 +54,7 @@ import type {
   ASPECT_RATIO_CONFIG as AspectConfigType,
 } from './types';
 import { MODE_CONFIG, ASPECT_RATIO_CONFIG } from './types';
-import type { ShotType, CameraAngle, CameraMovement } from '@/types/database';
+import type { ShotType, CameraAngle, CameraMovement, Shot } from '@/types/database';
 
 // Shot types
 const SHOT_TYPES: { value: ShotType; label: string }[] = [
@@ -156,6 +159,15 @@ export function PlanEditor({
   // Frame linking state
   const [isExtractingFrame, setIsExtractingFrame] = useState(false);
 
+  // Prompt display state
+  const [showVideoPrompt, setShowVideoPrompt] = useState(false);
+  const [copiedVideoPrompt, setCopiedVideoPrompt] = useState(false);
+
+  // Sticky generating state to prevent flickering
+  // Once we start generating, stay in that mode until explicitly completed
+  const [stickyGenerating, setStickyGenerating] = useState(false);
+  const lastVideoUrlRef = useRef(plan?.generated_video_url);
+
   // Bible store
   const { projectAssets, fetchProjectAssets } = useBibleStore();
 
@@ -187,6 +199,31 @@ export function PlanEditor({
       setShowVideoPreview(true);
     }
   }, [plan?.generated_video_url, isGeneratingVideo]);
+
+  // Manage sticky generating state to prevent flickering
+  useEffect(() => {
+    // Start sticky mode when generation begins
+    if (isGeneratingVideo && !stickyGenerating) {
+      setStickyGenerating(true);
+      lastVideoUrlRef.current = plan?.generated_video_url;
+    }
+
+    // End sticky mode when:
+    // 1. Video URL changed (new video is ready)
+    // 2. Progress shows completed or error
+    if (stickyGenerating) {
+      const videoUrlChanged = plan?.generated_video_url && plan.generated_video_url !== lastVideoUrlRef.current;
+      const progressCompleted = videoGenerationProgress?.status === 'completed' || videoGenerationProgress?.status === 'error';
+
+      if (videoUrlChanged || progressCompleted) {
+        setStickyGenerating(false);
+        lastVideoUrlRef.current = plan?.generated_video_url;
+      }
+    }
+  }, [isGeneratingVideo, stickyGenerating, plan?.generated_video_url, videoGenerationProgress?.status]);
+
+  // Effective generating state (combines prop and sticky state)
+  const effectivelyGenerating = isGeneratingVideo || stickyGenerating;
 
   // ESC key for fullscreen
   useEffect(() => {
@@ -263,7 +300,7 @@ export function PlanEditor({
     setShowSceneGenerator(true);
   }, []);
 
-  const handleGeneratedShots = useCallback((shots: { storyboard_image_url?: string }[]) => {
+  const handleGeneratedShots = useCallback((shots: Shot[]) => {
     if (shots.length > 0 && shots[0].storyboard_image_url) {
       const url = shots[0].storyboard_image_url;
       if (generatingFrame === 'in') {
@@ -275,6 +312,18 @@ export function PlanEditor({
       setGeneratingFrame(null);
       toast.success(`Frame ${generatingFrame === 'in' ? 'In' : 'Out'} générée`);
     }
+  }, [generatingFrame, onUpdate]);
+
+  // Handle image selection from multi-mode generator
+  const handleImageSelected = useCallback((imageUrl: string) => {
+    if (generatingFrame === 'in') {
+      onUpdate({ storyboard_image_url: imageUrl, first_frame_url: imageUrl });
+    } else if (generatingFrame === 'out') {
+      onUpdate({ last_frame_url: imageUrl });
+    }
+    setShowSceneGenerator(false);
+    setGeneratingFrame(null);
+    toast.success(`Frame ${generatingFrame === 'in' ? 'In' : 'Out'} sélectionnée`);
   }, [generatingFrame, onUpdate]);
 
   const handleImageSelect = useCallback((url: string) => {
@@ -425,18 +474,47 @@ export function PlanEditor({
     toast.success('Téléchargement démarré');
   }, [plan]);
 
+  const handleClearFrame = useCallback((type: 'in' | 'out') => {
+    if (type === 'in') {
+      onUpdate({
+        storyboard_image_url: null,
+        first_frame_url: null,
+        storyboard_prompt: null,
+        first_frame_prompt: null,
+      });
+    } else {
+      onUpdate({
+        last_frame_url: null,
+        last_frame_prompt: null,
+      });
+    }
+    toast.success(`Frame ${type === 'in' ? 'In' : 'Out'} supprimée`);
+  }, [onUpdate]);
+
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
     const seconds = Math.floor(time % 60);
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  const handleCopyVideoPrompt = useCallback(async () => {
+    if (plan?.video_prompt) {
+      await navigator.clipboard.writeText(plan.video_prompt);
+      setCopiedVideoPrompt(true);
+      setTimeout(() => setCopiedVideoPrompt(false), 2000);
+    }
+  }, [plan?.video_prompt]);
+
   if (!plan) return null;
 
   return (
     <>
     <Dialog open={open} onOpenChange={onOpenChange} modal={false}>
-      <DialogContent className="max-w-[95vw] w-[95vw] h-[90vh] bg-[#0f1419] border-white/10 p-0 overflow-hidden flex flex-col">
+      <DialogContent
+        className="max-w-[95vw] w-[95vw] h-[90vh] bg-[#0f1419] border-white/10 p-0 overflow-hidden flex flex-col"
+        onPointerDownOutside={(e) => e.preventDefault()}
+        onInteractOutside={(e) => e.preventDefault()}
+      >
         {/* HEADER */}
         <DialogHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">
           <div className="flex items-center justify-between">
@@ -599,7 +677,7 @@ export function PlanEditor({
               <div className="w-32" />
 
               {/* View toggle */}
-              {config.showVideoGeneration && (plan.generated_video_url || isGeneratingVideo || videoGenerationProgress) ? (
+              {config.showVideoGeneration && (plan.generated_video_url || effectivelyGenerating || videoGenerationProgress) ? (
                 <div className="inline-flex rounded-lg bg-white/5 p-1">
                   <button
                     onClick={() => setShowVideoPreview(true)}
@@ -633,14 +711,14 @@ export function PlanEditor({
                     size="sm"
                     className={cn(
                       'h-8',
-                      canGenerateVideo && !isGeneratingVideo
+                      canGenerateVideo && !effectivelyGenerating
                         ? 'bg-blue-600 hover:bg-blue-700'
                         : 'bg-slate-700 text-slate-400 cursor-not-allowed'
                     )}
                     onClick={handleGenerateVideo}
-                    disabled={!canGenerateVideo || isGeneratingVideo}
+                    disabled={!canGenerateVideo || effectivelyGenerating}
                   >
-                    {isGeneratingVideo ? (
+                    {effectivelyGenerating ? (
                       <>
                         <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
                         {videoGenerationProgress?.progress || 0}%
@@ -657,10 +735,11 @@ export function PlanEditor({
             </div>
 
             {/* Video Preview Mode */}
-            {showVideoPreview && (plan.generated_video_url || isGeneratingVideo) ? (
+            {showVideoPreview && (plan.generated_video_url || effectivelyGenerating) ? (
               <div className="flex-1 flex items-center justify-center">
                 {/* Generation in progress card - show when generating, even if there's a previous video */}
-                {isGeneratingVideo ? (
+                {/* effectivelyGenerating stays true until new video is ready, preventing flicker */}
+                {effectivelyGenerating ? (
                   <div
                     className="relative rounded-xl overflow-hidden border-2 border-purple-500/50"
                     style={frameStyle}
@@ -774,10 +853,72 @@ export function PlanEditor({
                   )}
 
                   {/* Label */}
-                  <div className="absolute top-2 left-2 px-2 py-0.5 rounded bg-blue-500/80 text-xs font-medium text-white flex items-center gap-1">
-                    <Video className="w-3 h-3" />
-                    Vidéo générée
+                  <div className="absolute top-2 left-2 flex items-center gap-2">
+                    <div className="px-2 py-0.5 rounded bg-blue-500/80 text-xs font-medium text-white flex items-center gap-1">
+                      <Video className="w-3 h-3" />
+                      Vidéo générée
+                    </div>
+                    {/* Video prompt button */}
+                    {plan?.video_prompt && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowVideoPrompt(!showVideoPrompt);
+                        }}
+                        className={cn(
+                          'px-2 py-0.5 rounded text-xs font-medium transition-all flex items-center gap-1',
+                          showVideoPrompt
+                            ? 'bg-purple-500 text-white'
+                            : 'bg-black/60 text-slate-300 opacity-0',
+                          isVideoHovered && 'opacity-100'
+                        )}
+                        title="Voir le prompt vidéo"
+                      >
+                        <FileText className="w-3 h-3" />
+                        Prompt
+                      </button>
+                    )}
                   </div>
+
+                  {/* Video prompt display panel */}
+                  {showVideoPrompt && plan?.video_prompt && (
+                    <div
+                      className="absolute top-10 left-2 right-2 bg-black/90 backdrop-blur-sm rounded-lg p-3 z-20"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1 mb-1">
+                            <FileText className="w-3 h-3 text-purple-400" />
+                            <span className="text-xs font-medium text-purple-300">Prompt vidéo</span>
+                          </div>
+                          <p className="text-xs text-slate-300 leading-relaxed max-h-24 overflow-y-auto">
+                            {plan.video_prompt}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          <button
+                            onClick={handleCopyVideoPrompt}
+                            className="p-1.5 rounded bg-white/10 hover:bg-white/20 transition-colors"
+                            title="Copier le prompt"
+                          >
+                            {copiedVideoPrompt ? (
+                              <Check className="w-3 h-3 text-green-400" />
+                            ) : (
+                              <Copy className="w-3 h-3 text-white" />
+                            )}
+                          </button>
+                          <button
+                            onClick={() => setShowVideoPrompt(false)}
+                            className="p-1.5 rounded bg-white/10 hover:bg-white/20 transition-colors"
+                            title="Fermer"
+                          >
+                            <X className="w-3 h-3 text-white" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Controls */}
                   <div className={cn(
@@ -850,12 +991,14 @@ export function PlanEditor({
                   <FrameEditor
                     type="in"
                     imageUrl={plan.storyboard_image_url || plan.first_frame_url}
+                    prompt={plan.first_frame_prompt || plan.storyboard_prompt}
                     width={frameStyle.width}
                     height={frameStyle.height}
                     onOpenGallery={() => openGalleryPicker('in')}
                     onOpenBible={() => openBiblePicker('in')}
                     onGenerate={() => openSceneGenerator('in')}
                     onDownload={() => handleDownloadFrame('in')}
+                    onClear={() => handleClearFrame('in')}
                     canLinkPrevious={hasPreviousFrame}
                     onLinkPrevious={copyFromPreviousPlan}
                     willExtractFromVideo={willExtractFromVideo}
@@ -873,12 +1016,14 @@ export function PlanEditor({
                     <FrameEditor
                       type="out"
                       imageUrl={plan.last_frame_url}
+                      prompt={plan.last_frame_prompt}
                       width={frameStyle.width}
                       height={frameStyle.height}
                       onOpenGallery={() => openGalleryPicker('out')}
                       onOpenBible={() => openBiblePicker('out')}
                       onGenerate={() => openSceneGenerator('out')}
                       onDownload={() => handleDownloadFrame('out')}
+                      onClear={() => handleClearFrame('out')}
                     />
                   )}
                 </div>
@@ -1109,8 +1254,10 @@ export function PlanEditor({
             projectId={projectId}
             defaultAspectRatio={aspectRatio}
             onShotsGenerated={handleGeneratedShots}
+            onImageSelected={handleImageSelected}
             lockAspectRatio={true}
             showPlaceholders={true}
+            mode="multi"
             title=""
             description=""
           />

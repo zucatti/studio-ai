@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { fal } from '@fal-ai/client';
 import { uploadFile, STORAGE_BUCKET } from '@/lib/storage';
 import { extractImageUrl, extractVideoUrl } from '@/lib/provider-mappings';
+import { cancelBullMQJob } from '@/lib/bullmq/queues';
 
 // Configure fal.ai
 fal.config({
@@ -252,7 +253,9 @@ export async function GET(
 
 /**
  * DELETE /api/jobs/[jobId]
- * Cancel a job
+ * Cancel or delete a job
+ * - Default: Cancel active jobs (mark as cancelled)
+ * - With forceDelete: Delete job from database entirely
  */
 export async function DELETE(
   request: NextRequest,
@@ -267,6 +270,15 @@ export async function DELETE(
     const { jobId } = await params;
     const supabase = createServerSupabaseClient();
 
+    // Check if this is a force delete request
+    let forceDelete = false;
+    try {
+      const body = await request.json();
+      forceDelete = body?.forceDelete === true;
+    } catch {
+      // No body or invalid JSON, default to cancel
+    }
+
     // Get job
     const { data: job, error } = await supabase
       .from('generation_jobs')
@@ -279,7 +291,28 @@ export async function DELETE(
       return NextResponse.json({ error: 'Job not found' }, { status: 404 });
     }
 
-    // Can only cancel pending/queued/running jobs
+    // Force delete: Remove from database entirely
+    if (forceDelete) {
+      // Try to cancel in BullMQ first (in case it's still queued)
+      try {
+        await cancelBullMQJob(jobId);
+      } catch {
+        // Ignore errors
+      }
+
+      const { error: deleteError } = await supabase
+        .from('generation_jobs')
+        .delete()
+        .eq('id', jobId);
+
+      if (deleteError) {
+        return NextResponse.json({ error: deleteError.message }, { status: 500 });
+      }
+
+      return NextResponse.json({ success: true, message: 'Job deleted' });
+    }
+
+    // Cancel: Only for active jobs
     if (!['pending', 'queued', 'running'].includes(job.status)) {
       return NextResponse.json(
         { error: 'Cannot cancel job with status: ' + job.status },
@@ -293,10 +326,22 @@ export async function DELETE(
         await fal.queue.cancel(job.fal_endpoint, {
           requestId: job.fal_request_id,
         });
+        console.log(`[Jobs] Cancelled fal.ai job ${job.fal_request_id}`);
       } catch (falError) {
         console.error('[Jobs] Error cancelling fal job:', falError);
         // Continue anyway, we'll mark as cancelled in DB
       }
+    }
+
+    // Try to cancel in BullMQ (for video-gen, quick-shot-gen, etc.)
+    try {
+      const cancelled = await cancelBullMQJob(jobId);
+      if (cancelled) {
+        console.log(`[Jobs] Cancelled BullMQ job ${jobId}`);
+      }
+    } catch (bullError) {
+      console.error('[Jobs] Error cancelling BullMQ job:', bullError);
+      // Continue anyway, we'll mark as cancelled in DB
     }
 
     // Update job as cancelled

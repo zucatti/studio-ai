@@ -143,6 +143,7 @@ export default function QuickShotPage() {
         projectId={projectId}
         defaultAspectRatio={project?.aspect_ratio || '2:3'}
         onShotsGenerated={handleShotsGenerated}
+        mode="multi"
       />
 
       {/* Results */}

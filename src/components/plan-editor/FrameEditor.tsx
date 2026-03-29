@@ -2,7 +2,6 @@
 
 import { useState, useCallback } from 'react';
 import { StorageImg } from '@/components/ui/storage-image';
-import { Button } from '@/components/ui/button';
 import {
   ImageIcon,
   Images,
@@ -12,15 +11,28 @@ import {
   Wand2,
   Loader2,
   X,
+  FileText,
+  Copy,
+  Check,
+  Maximize2,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import {
+  Dialog,
+  DialogContent,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 export interface FrameEditorProps {
   type: 'in' | 'out';
   imageUrl?: string | null;
   width: number;
   height: number;
+
+  // Prompt for traceability
+  prompt?: string | null;
 
   // Actions
   onOpenGallery: () => void;
@@ -45,6 +57,7 @@ export function FrameEditor({
   imageUrl,
   width,
   height,
+  prompt,
   onOpenGallery,
   onOpenBible,
   onGenerate,
@@ -58,8 +71,12 @@ export function FrameEditor({
   disabled,
 }: FrameEditorProps) {
   const [isHovered, setIsHovered] = useState(false);
+  const [showPrompt, setShowPrompt] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const hasImage = !!imageUrl;
+  const hasPrompt = !!prompt;
   const label = type === 'in' ? 'Frame In' : 'Frame Out';
   const borderColor = type === 'in' ? 'border-green-500/30' : 'border-red-500/30';
   const labelBg = type === 'in' ? 'bg-green-500/80' : 'bg-red-500/80';
@@ -72,6 +89,14 @@ export function FrameEditor({
       console.error('Link previous failed:', error);
     }
   }, [onLinkPrevious]);
+
+  const handleCopyPrompt = useCallback(async () => {
+    if (prompt) {
+      await navigator.clipboard.writeText(prompt);
+      setCopiedPrompt(true);
+      setTimeout(() => setCopiedPrompt(false), 2000);
+    }
+  }, [prompt]);
 
   return (
     <div
@@ -133,15 +158,88 @@ export function FrameEditor({
         {label}
       </div>
 
-      {/* Bouton clear si image */}
-      {hasImage && onClear && (
+      {/* Prompt indicator - next to label */}
+      {hasPrompt && hasImage && (
         <button
-          onClick={onClear}
-          className="absolute top-2 right-2 p-1.5 bg-black/60 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-500/80 transition-all"
-          title="Supprimer"
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowPrompt(!showPrompt);
+          }}
+          className={cn(
+            'absolute top-2 px-2 py-0.5 rounded text-xs font-medium transition-all',
+            showPrompt
+              ? 'bg-purple-500 text-white'
+              : 'bg-black/60 text-slate-300 opacity-0 hover:opacity-100',
+            isHovered && 'opacity-100'
+          )}
+          style={{ left: type === 'in' ? '76px' : '84px' }}
+          title="Voir le prompt"
         >
-          <X className="w-3 h-3 text-white" />
+          <FileText className="w-3 h-3 inline-block mr-1" />
+          Prompt
         </button>
+      )}
+
+      {/* Small overlay buttons - top right */}
+      {hasImage && isHovered && (
+        <div className="absolute top-2 right-2 flex gap-1.5 z-20">
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsFullscreen(true);
+            }}
+            className="p-1.5 bg-black/60 rounded-full hover:bg-slate-500/80 transition-colors backdrop-blur-sm"
+            title="Agrandir"
+          >
+            <Maximize2 className="w-3.5 h-3.5 text-white" />
+          </button>
+          {onClear && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onClear();
+              }}
+              className="p-1.5 bg-black/60 rounded-full hover:bg-red-500/80 transition-colors backdrop-blur-sm"
+              title="Supprimer"
+            >
+              <Trash2 className="w-3.5 h-3.5 text-white" />
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Prompt display panel */}
+      {showPrompt && hasPrompt && (
+        <div
+          className="absolute bottom-0 left-0 right-0 bg-black/90 backdrop-blur-sm p-3 z-10"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-xs text-slate-300 leading-relaxed flex-1 max-h-20 overflow-y-auto">
+              {prompt}
+            </p>
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={handleCopyPrompt}
+                className="p-1.5 rounded bg-white/10 hover:bg-white/20 transition-colors"
+                title="Copier le prompt"
+              >
+                {copiedPrompt ? (
+                  <Check className="w-3 h-3 text-green-400" />
+                ) : (
+                  <Copy className="w-3 h-3 text-white" />
+                )}
+              </button>
+              <button
+                onClick={() => setShowPrompt(false)}
+                className="p-1.5 rounded bg-white/10 hover:bg-white/20 transition-colors"
+                title="Fermer"
+              >
+                <X className="w-3 h-3 text-white" />
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Overlay hover avec actions */}
@@ -227,6 +325,75 @@ export function FrameEditor({
           )}
         </div>
       )}
+
+      {/* Fullscreen modal */}
+      <Dialog open={isFullscreen} onOpenChange={setIsFullscreen}>
+        <DialogContent className="max-w-[90vw] max-h-[90vh] p-0 bg-black/95 border-slate-700">
+          <DialogTitle className="sr-only">{label}</DialogTitle>
+          <div className="relative w-full h-full flex items-center justify-center p-4">
+            {imageUrl && (
+              <StorageImg
+                src={imageUrl}
+                alt={label}
+                className="max-w-full max-h-[85vh] object-contain rounded-lg"
+              />
+            )}
+            {/* Label overlay */}
+            <div
+              className={cn(
+                'absolute top-6 left-6 px-3 py-1 rounded text-sm font-medium text-white',
+                labelBg
+              )}
+            >
+              {label}
+            </div>
+            {/* Actions in fullscreen */}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3">
+              {onDownload && (
+                <button
+                  className="px-4 py-2 rounded-lg bg-green-500/80 hover:bg-green-500 text-white text-sm font-medium flex items-center gap-2 transition-colors"
+                  onClick={onDownload}
+                >
+                  <Download className="w-4 h-4" />
+                  Télécharger
+                </button>
+              )}
+              {onClear && (
+                <button
+                  className="px-4 py-2 rounded-lg bg-red-500/80 hover:bg-red-500 text-white text-sm font-medium flex items-center gap-2 transition-colors"
+                  onClick={() => {
+                    onClear();
+                    setIsFullscreen(false);
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Supprimer
+                </button>
+              )}
+            </div>
+            {/* Prompt display in fullscreen */}
+            {hasPrompt && (
+              <div className="absolute bottom-20 left-6 right-6 bg-black/80 backdrop-blur-sm rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <FileText className="w-4 h-4 text-purple-400 flex-shrink-0 mt-0.5" />
+                  <p className="text-sm text-slate-300 flex-1">{prompt}</p>
+                  <button
+                    onClick={handleCopyPrompt}
+                    className="p-1.5 rounded bg-white/10 hover:bg-white/20 transition-colors flex-shrink-0"
+                    title="Copier le prompt"
+                  >
+                    {copiedPrompt ? (
+                      <Check className="w-4 h-4 text-green-400" />
+                    ) : (
+                      <Copy className="w-4 h-4 text-white" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

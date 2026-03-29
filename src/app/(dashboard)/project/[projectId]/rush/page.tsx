@@ -149,6 +149,7 @@ export default function RushPage() {
         title="Rush Generator"
         lockAspectRatio={true}
         description="Generez des photos avec @Personnage #Lieu !Reference"
+        mode="multi"
       />
 
       {/* Images Grid */}

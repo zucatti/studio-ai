@@ -11,6 +11,7 @@ import {
   ImageGenJobData,
   AudioGenJobData,
   FFmpegJobData,
+  QuickShotGenJobData,
 } from './types';
 
 // Parse Redis port handling K8s service discovery format (tcp://host:port)
@@ -101,6 +102,13 @@ export function getFFmpegQueue(): Queue<FFmpegJobData> {
 }
 
 /**
+ * Get the quick-shot generation queue
+ */
+export function getQuickShotGenQueue(): Queue<QuickShotGenJobData> {
+  return getQueue(QUEUE_NAMES.QUICK_SHOT_GEN) as Queue<QuickShotGenJobData>;
+}
+
+/**
  * Add a video generation job
  */
 export async function enqueueVideoGen(
@@ -186,6 +194,101 @@ export async function enqueueFFmpeg(
     }
   );
   return job.id!;
+}
+
+/**
+ * Add a quick-shot generation job
+ */
+export async function enqueueQuickShotGen(
+  data: Omit<QuickShotGenJobData, 'type'>,
+  options?: { priority?: number; delay?: number }
+): Promise<string> {
+  console.log(`[BullMQ] Enqueueing quick-shot-gen job ${data.jobId}...`);
+  try {
+    const queue = getQuickShotGenQueue();
+    const job = await queue.add(
+      'quick-shot-gen',
+      { ...data, type: 'quick-shot-gen' },
+      {
+        jobId: data.jobId,
+        priority: options?.priority,
+        delay: options?.delay,
+      }
+    );
+    console.log(`[BullMQ] Quick-shot job ${job.id} added successfully`);
+    return job.id!;
+  } catch (error) {
+    console.error(`[BullMQ] Failed to enqueue quick-shot:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Cancel a BullMQ job by ID
+ * Tries to find and remove the job from all queues
+ */
+export async function cancelBullMQJob(jobId: string): Promise<boolean> {
+  console.log(`[BullMQ] Attempting to cancel job ${jobId}...`);
+
+  // Try all queues
+  for (const [name, queue] of queues.entries()) {
+    try {
+      const job = await queue.getJob(jobId);
+      if (job) {
+        const state = await job.getState();
+        console.log(`[BullMQ] Found job ${jobId} in queue ${name}, state: ${state}`);
+
+        if (state === 'waiting' || state === 'delayed') {
+          // Job is waiting, can be removed directly
+          await job.remove();
+          console.log(`[BullMQ] Removed waiting job ${jobId}`);
+          return true;
+        } else if (state === 'active') {
+          // Job is running - mark for cancellation (worker will check)
+          // We can't directly stop it, but we can update progress in Supabase
+          // which the worker can check
+          console.log(`[BullMQ] Job ${jobId} is active, marking for cancellation`);
+          await job.moveToFailed(new Error('Cancelled by user'), '', true);
+          return true;
+        } else if (state === 'completed' || state === 'failed') {
+          console.log(`[BullMQ] Job ${jobId} already finished (${state})`);
+          return true;
+        }
+      }
+    } catch (error) {
+      console.error(`[BullMQ] Error checking queue ${name}:`, error);
+    }
+  }
+
+  // Job not found in any queue - might be in a queue we haven't initialized yet
+  // Try initializing all queues and checking
+  const allQueueNames = Object.values(QUEUE_NAMES);
+  for (const name of allQueueNames) {
+    if (!queues.has(name)) {
+      try {
+        const queue = getQueue(name);
+        const job = await queue.getJob(jobId);
+        if (job) {
+          const state = await job.getState();
+          console.log(`[BullMQ] Found job ${jobId} in newly-opened queue ${name}, state: ${state}`);
+
+          if (state === 'waiting' || state === 'delayed') {
+            await job.remove();
+            return true;
+          } else if (state === 'active') {
+            await job.moveToFailed(new Error('Cancelled by user'), '', true);
+            return true;
+          }
+          return true;
+        }
+      } catch (error) {
+        console.error(`[BullMQ] Error checking queue ${name}:`, error);
+      }
+    }
+  }
+
+  console.log(`[BullMQ] Job ${jobId} not found in any queue`);
+  return false;
 }
 
 /**

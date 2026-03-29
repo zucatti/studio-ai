@@ -1,6 +1,6 @@
 'use client';
 
-import { Loader2 } from 'lucide-react';
+import { Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AspectRatio } from '@/types/database';
 
@@ -11,6 +11,7 @@ interface GeneratingPlaceholderProps {
   status?: PlaceholderStatus;
   progress?: number; // 0-100 for models that support it
   className?: string;
+  label?: string; // Optional label to show
 }
 
 // Map aspect ratios to padding-bottom percentages for responsive sizing
@@ -25,9 +26,9 @@ const ASPECT_RATIO_PADDING: Record<AspectRatio, string> = {
 
 const STATUS_LABELS: Record<PlaceholderStatus, string> = {
   queued: 'En file d\'attente...',
-  generating: 'Generation en cours...',
+  generating: 'Génération en cours...',
   uploading: 'Sauvegarde...',
-  completed: 'Termine!',
+  completed: 'Terminé!',
   error: 'Erreur',
 };
 
@@ -36,62 +37,77 @@ export function GeneratingPlaceholder({
   status = 'generating',
   progress,
   className,
+  label,
 }: GeneratingPlaceholderProps) {
   const paddingBottom = ASPECT_RATIO_PADDING[aspectRatio] || '100%';
+  const isActive = status === 'queued' || status === 'generating' || status === 'uploading';
 
   return (
     <div
       className={cn(
-        'relative w-full overflow-hidden rounded-lg bg-gradient-to-br from-slate-800/50 to-slate-900/50 border border-white/10',
+        'relative w-full overflow-hidden rounded-lg',
         className
       )}
       style={{ paddingBottom }}
     >
-      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-        {/* Animated background shimmer */}
-        <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent animate-shimmer" />
+      {/* Animated rainbow radial gradient background */}
+      {isActive && (
+        <div
+          className="absolute inset-0"
+          style={{
+            background: 'conic-gradient(from 0deg, #ff0000, #ff8000, #ffff00, #00ff00, #00ffff, #0080ff, #8000ff, #ff0080, #ff0000)',
+            animation: 'rainbow-spin 3s linear infinite',
+            filter: 'blur(30px)',
+            opacity: 0.6,
+            transform: 'scale(1.3)',
+          }}
+        />
+      )}
 
-        {/* Spinner */}
+      {/* Dark overlay for readability */}
+      <div className="absolute inset-0 bg-black/30" />
+
+      {/* Content */}
+      <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+        {/* Icon with pulsing ring */}
         <div className="relative">
-          <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-          {/* Progress ring (if progress available) */}
-          {progress !== undefined && progress > 0 && (
-            <svg className="absolute inset-0 w-8 h-8 -rotate-90">
-              <circle
-                cx="16"
-                cy="16"
-                r="14"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                className="text-blue-500/30"
-              />
-              <circle
-                cx="16"
-                cy="16"
-                r="14"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeDasharray={`${progress * 0.88} 88`}
-                className="text-blue-500"
-              />
-            </svg>
+          <Wand2 className="w-8 h-8 text-white/80" />
+          {isActive && (
+            <div className="absolute inset-0 -m-2 rounded-full border-2 border-white/30 animate-ping" />
           )}
         </div>
 
         {/* Status text */}
-        <span className="text-xs text-slate-400 font-medium">
+        <span className="text-sm font-medium text-white">
           {STATUS_LABELS[status] || status}
         </span>
 
+        {/* Optional label */}
+        {label && (
+          <span className="text-xs text-white/70 bg-black/40 px-2 py-0.5 rounded">
+            {label}
+          </span>
+        )}
+
         {/* Progress percentage */}
         {progress !== undefined && progress > 0 && (
-          <span className="text-xs text-slate-500 tabular-nums">
+          <span className="text-lg font-bold text-white/90">
             {Math.round(progress)}%
           </span>
         )}
       </div>
+
+      {/* CSS for rainbow animation */}
+      <style jsx>{`
+        @keyframes rainbow-spin {
+          from {
+            transform: scale(1.3) rotate(0deg);
+          }
+          to {
+            transform: scale(1.3) rotate(360deg);
+          }
+        }
+      `}</style>
     </div>
   );
 }

@@ -48,6 +48,12 @@ export interface PlanData {
 
   // Vidéo générée (optionnel)
   generated_video_url?: string | null;
+
+  // Prompts utilisés pour la génération (traçabilité)
+  storyboard_prompt?: string | null;
+  first_frame_prompt?: string | null;
+  last_frame_prompt?: string | null;
+  video_prompt?: string | null;
 }
 
 /**

@@ -21,6 +21,7 @@ export async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)"
+    // Exclude static files, upload API (large file uploads), and other static assets
+    "/((?!_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt|api/upload).*)"
   ]
 };

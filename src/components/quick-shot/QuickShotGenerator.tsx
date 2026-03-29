@@ -6,24 +6,35 @@ import { MentionInput } from '@/components/ui/mention-input';
 import { Label } from '@/components/ui/label';
 import { GeneratingPlaceholder } from '@/components/ui/generating-placeholder';
 import { PromptWizard } from './PromptWizard';
+import { StorageImg } from '@/components/ui/storage-image';
 import { useGeneration } from '@/contexts/generation-context';
-import { Sparkles, Loader2, Minus, Plus, ChevronDown, Wand2, Layers, Lock } from 'lucide-react';
+import { Sparkles, Loader2, Minus, Plus, ChevronDown, Wand2, Layers, Lock, Check, RefreshCw, Maximize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Lightbox, type LightboxImage } from '@/components/ui/lightbox';
 import type { AspectRatio, Shot } from '@/types/database';
-import type { GenerationProgressEvent, GenerationStatus } from '@/lib/sse';
+import type { GenerationStatus } from '@/lib/sse';
 
 interface PlaceholderState {
   status: GenerationStatus;
   progress?: number;
   shotId?: string;
   imageUrl?: string;
+  jobId?: string;
+}
+
+interface GeneratedImage {
+  jobId: string;
+  imageUrl: string;
+  selected?: boolean;
 }
 
 interface QuickShotGeneratorProps {
   projectId: string;
   defaultAspectRatio: AspectRatio;
   onShotsGenerated: (shots: Shot[]) => void;
-  /** Custom API endpoint (defaults to /api/projects/{projectId}/quick-shots) */
+  /** Callback when user selects a single image */
+  onImageSelected?: (imageUrl: string) => void;
+  /** Custom API endpoint (defaults to /api/projects/{projectId}/queue-quick-shot) */
   apiEndpoint?: string;
   /** Custom title for the generator */
   title?: string;
@@ -37,6 +48,8 @@ interface QuickShotGeneratorProps {
   showSerialMode?: boolean;
   /** Called when generation starts - useful for switching views */
   onGenerationStart?: () => void;
+  /** Mode: 'single' auto-applies first result, 'multi' shows selection UI */
+  mode?: 'single' | 'multi';
 }
 
 const ASPECT_RATIO_OPTIONS: { value: AspectRatio; label: string }[] = [
@@ -55,10 +68,14 @@ const MODEL_OPTIONS = [
 
 type ModelType = typeof MODEL_OPTIONS[number]['value'];
 
+// Poll interval for job status
+const POLL_INTERVAL = 2000; // 2 seconds
+
 export function QuickShotGenerator({
   projectId,
   defaultAspectRatio,
   onShotsGenerated,
+  onImageSelected,
   apiEndpoint,
   title = 'Quick Shot Generator',
   description,
@@ -66,12 +83,13 @@ export function QuickShotGenerator({
   showPlaceholders = true,
   showSerialMode = true,
   onGenerationStart,
+  mode = 'single',
 }: QuickShotGeneratorProps) {
-  const effectiveApiEndpoint = apiEndpoint || `/api/projects/${projectId}/quick-shots`;
+  const effectiveApiEndpoint = apiEndpoint || `/api/projects/${projectId}/queue-quick-shot`;
   const [prompt, setPrompt] = useState('');
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>(defaultAspectRatio);
   const [selectedModel, setSelectedModel] = useState<ModelType>('fal-ai/nano-banana-2');
-  const [count, setCount] = useState(1);
+  const [count, setCount] = useState(mode === 'multi' ? 4 : 1);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [placeholders, setPlaceholders] = useState<PlaceholderState[]>([]);
@@ -81,20 +99,218 @@ export function QuickShotGenerator({
   const [serialMode, setSerialMode] = useState(false);
   const [resolution, setResolution] = useState<'1K' | '2K' | '4K'>('2K');
 
+  // Multi-image state
+  const [generatedImages, setGeneratedImages] = useState<GeneratedImage[]>([]);
+  const [selectedImageUrl, setSelectedImageUrl] = useState<string | null>(null);
+  const [completedCount, setCompletedCount] = useState(0);
+
+  // Lightbox state
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const [lightboxIndex, setLightboxIndex] = useState(0);
+
   const { addJob, updateJob } = useGeneration();
+  const activeJobsRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const jobIdRef = useRef<string | null>(null);
+  const pollIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Sync aspect ratio when defaultAspectRatio changes (e.g., after API fetch)
   useEffect(() => {
     setAspectRatio(defaultAspectRatio);
   }, [defaultAspectRatio]);
 
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+      // Clear all active job polls
+      for (const interval of activeJobsRef.current.values()) {
+        clearInterval(interval);
+      }
+      activeJobsRef.current.clear();
+    };
+  }, []);
+
+  // Poll job status for a single job (multi-mode)
+  const pollSingleJob = useCallback(async (jobId: string, index: number) => {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}`);
+      if (!res.ok) {
+        throw new Error('Failed to fetch job status');
+      }
+
+      const data = await res.json();
+      const job = data.job || data;
+      console.log(`[QuickShotGenerator] Job ${index + 1} status:`, job.status, job.progress);
+
+      // Update placeholder for this specific job
+      setPlaceholders(prev => prev.map((p, i) =>
+        i === index ? {
+          ...p,
+          status: job.status === 'completed' ? 'completed' : 'generating',
+          progress: job.progress,
+          jobId,
+        } : p
+      ));
+
+      // Check if completed
+      if (job.status === 'completed') {
+        // Stop polling this job
+        const interval = activeJobsRef.current.get(jobId);
+        if (interval) {
+          clearInterval(interval);
+          activeJobsRef.current.delete(jobId);
+        }
+
+        // Get the result
+        const result = job.result_data || job.output_data || {};
+        const imageUrl = result.imageUrl;
+
+        if (imageUrl) {
+          setGeneratedImages(prev => [...prev, { jobId, imageUrl }]);
+          setCompletedCount(prev => prev + 1);
+        }
+
+        // Update placeholder with image
+        setPlaceholders(prev => prev.map((p, i) =>
+          i === index ? { ...p, imageUrl, status: 'completed' } : p
+        ));
+
+        return;
+      }
+
+      // Check if failed
+      if (job.status === 'failed') {
+        const interval = activeJobsRef.current.get(jobId);
+        if (interval) {
+          clearInterval(interval);
+          activeJobsRef.current.delete(jobId);
+        }
+
+        setPlaceholders(prev => prev.map((p, i) =>
+          i === index ? { ...p, status: 'error' as GenerationStatus } : p
+        ));
+        setCompletedCount(prev => prev + 1);
+      }
+    } catch (err) {
+      console.error(`[QuickShotGenerator] Poll error for job ${index}:`, err);
+      const interval = activeJobsRef.current.get(jobId);
+      if (interval) {
+        clearInterval(interval);
+        activeJobsRef.current.delete(jobId);
+      }
+      setCompletedCount(prev => prev + 1);
+    }
+  }, []);
+
+  // Poll job status (single mode - original behavior)
+  const pollJobStatus = useCallback(async (jobId: string) => {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}`);
+      if (!res.ok) {
+        throw new Error('Failed to fetch job status');
+      }
+
+      const data = await res.json();
+      const job = data.job || data; // Handle both { job: {...} } and direct response
+      console.log('[QuickShotGenerator] Job status:', job.status, job.progress);
+
+      // Update status message
+      setStatusMessage(job.message || 'Génération en cours...');
+
+      // Update placeholder progress
+      setPlaceholders(prev => prev.map(p => ({
+        ...p,
+        status: job.status === 'completed' ? 'completed' : 'generating',
+        progress: job.progress,
+      })));
+
+      // Update job in global context
+      if (jobIdRef.current) {
+        updateJob(jobIdRef.current, {
+          status: job.status === 'completed' ? 'completed' : job.status === 'failed' ? 'error' : 'generating',
+        });
+      }
+
+      // Check if completed
+      if (job.status === 'completed') {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+
+        // Get the result - can be in result_data or output_data
+        const result = job.result_data || job.output_data || {};
+        const imageUrl = result.imageUrl;
+
+        if (imageUrl) {
+          // Create a shot-like object
+          const generatedShot = {
+            storyboard_image_url: imageUrl,
+            first_frame_url: imageUrl,
+          } as Shot;
+
+          onShotsGenerated([generatedShot]);
+          setPrompt('');
+        }
+
+        setPlaceholders([]);
+        setStatusMessage('');
+        setIsGenerating(false);
+        jobIdRef.current = null;
+        return;
+      }
+
+      // Check if failed
+      if (job.status === 'failed') {
+        if (pollIntervalRef.current) {
+          clearInterval(pollIntervalRef.current);
+          pollIntervalRef.current = null;
+        }
+
+        throw new Error(job.error_message || 'Generation failed');
+      }
+    } catch (err) {
+      console.error('[QuickShotGenerator] Poll error:', err);
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+        pollIntervalRef.current = null;
+      }
+
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      setPlaceholders([]);
+      setStatusMessage('');
+      setIsGenerating(false);
+
+      if (jobIdRef.current) {
+        updateJob(jobIdRef.current, {
+          status: 'error',
+          error: err instanceof Error ? err.message : 'An error occurred',
+        });
+        jobIdRef.current = null;
+      }
+    }
+  }, [onShotsGenerated, updateJob]);
+
+  // Check if all jobs completed (for multi-mode)
+  useEffect(() => {
+    if (mode === 'multi' && isGenerating && completedCount >= count) {
+      setIsGenerating(false);
+      setStatusMessage('');
+    }
+  }, [mode, isGenerating, completedCount, count]);
+
   const handleGenerate = useCallback(async () => {
+    console.log('[QuickShotGenerator] handleGenerate called', { prompt: prompt.trim(), effectiveApiEndpoint, mode, count });
     if (!prompt.trim()) return;
 
     setIsGenerating(true);
     setError(null);
-    setStatusMessage('Demarrage...');
+    setStatusMessage('En file d\'attente...');
+    setGeneratedImages([]);
+    setSelectedImageUrl(null);
+    setCompletedCount(0);
 
     // Notify parent that generation started
     onGenerationStart?.();
@@ -103,160 +319,128 @@ export function QuickShotGenerator({
     setPlaceholders(Array(count).fill(null).map(() => ({ status: 'queued' as GenerationStatus })));
 
     // Track generation in global context
-    const jobId = `quick-shot-${Date.now()}`;
-    jobIdRef.current = jobId;
+    const localJobId = `quick-shot-${Date.now()}`;
     addJob({
-      id: jobId,
+      id: localJobId,
       projectId,
       type: 'quick-shot',
-      status: 'pending',
+      status: 'generating',
       imageCount: count,
       completedCount: 0,
     });
 
-    try {
-      const res = await fetch(effectiveApiEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt: prompt.trim(),
-          aspectRatio,
-          model: selectedModel,
-          count,
-          resolution,
-          stream: true, // Enable SSE streaming
-          skipOptimization: !optimizePrompt,
-          serialMode, // Generate varied prompts for each image
-        }),
-      });
+    if (mode === 'multi') {
+      // Multi-mode: queue multiple jobs
+      try {
+        const jobIds: string[] = [];
 
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Failed to generate images');
-      }
+        for (let i = 0; i < count; i++) {
+          console.log(`[QuickShotGenerator] Queuing job ${i + 1}/${count}`);
+          const res = await fetch(effectiveApiEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt: prompt.trim(),
+              aspectRatio,
+              model: selectedModel,
+              resolution,
+              skipOptimization: !optimizePrompt,
+            }),
+          });
 
-      // Handle SSE stream
-      const reader = res.body?.getReader();
-      const decoder = new TextDecoder();
-
-      if (!reader) {
-        throw new Error('No response body');
-      }
-
-      const completedShots: Shot[] = [];
-      let buffer = '';
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || ''; // Keep incomplete line in buffer
-
-        for (const line of lines) {
-          if (line.startsWith('data: ')) {
-            try {
-              const event: GenerationProgressEvent = JSON.parse(line.slice(6));
-
-              switch (event.type) {
-                case 'init':
-                  // Placeholders already initialized
-                  break;
-
-                case 'progress':
-                  if (event.message) {
-                    setStatusMessage(event.message);
-                  }
-                  if (event.imageIndex !== undefined && event.status) {
-                    setPlaceholders(prev => {
-                      const next = [...prev];
-                      if (next[event.imageIndex!]) {
-                        next[event.imageIndex!] = {
-                          ...next[event.imageIndex!],
-                          status: event.status!,
-                          progress: event.progress,
-                        };
-                      }
-                      return next;
-                    });
-                  } else if (event.status === 'generating') {
-                    // Update all placeholders to generating
-                    setPlaceholders(prev => prev.map(p =>
-                      p.status === 'queued' ? { ...p, status: 'generating', progress: event.progress } : p
-                    ));
-                    // Update job status
-                    if (jobIdRef.current) {
-                      updateJob(jobIdRef.current, { status: 'generating' });
-                    }
-                  }
-                  break;
-
-                case 'image':
-                  // Mark specific image as completed
-                  if (event.imageIndex !== undefined) {
-                    setPlaceholders(prev => {
-                      const next = [...prev];
-                      if (next[event.imageIndex!]) {
-                        next[event.imageIndex!] = {
-                          status: 'completed',
-                          shotId: event.shotId,
-                          imageUrl: event.imageUrl,
-                        };
-                      }
-                      return next;
-                    });
-                  }
-                  break;
-
-                case 'complete':
-                  if (event.shots) {
-                    completedShots.push(...event.shots);
-                  }
-                  break;
-
-                case 'error':
-                  throw new Error(event.error || 'Generation failed');
-              }
-            } catch (parseErr) {
-              // Ignore JSON parse errors for incomplete chunks
-              if (line.trim() !== '') {
-                console.error('SSE parse error:', parseErr, 'Line:', line);
-              }
-            }
+          if (!res.ok) {
+            const data = await res.json();
+            console.error(`[QuickShotGenerator] Error queuing job ${i + 1}:`, data);
+            // Mark this placeholder as failed
+            setPlaceholders(prev => prev.map((p, idx) =>
+              idx === i ? { ...p, status: 'error' as GenerationStatus } : p
+            ));
+            setCompletedCount(prev => prev + 1);
+            continue;
           }
+
+          const data = await res.json();
+          console.log(`[QuickShotGenerator] Job ${i + 1} queued:`, data.jobId);
+          jobIds.push(data.jobId);
+
+          // Update placeholder to generating
+          setPlaceholders(prev => prev.map((p, idx) =>
+            idx === i ? { ...p, status: 'generating' as GenerationStatus, jobId: data.jobId } : p
+          ));
+
+          // Start polling for this job
+          const pollInterval = setInterval(() => {
+            pollSingleJob(data.jobId, i);
+          }, POLL_INTERVAL);
+          activeJobsRef.current.set(data.jobId, pollInterval);
+
+          // Poll immediately
+          pollSingleJob(data.jobId, i);
         }
-      }
 
-      // Generation complete - always update job status
-      if (jobIdRef.current) {
-        updateJob(jobIdRef.current, {
-          status: 'completed',
-          completedCount: completedShots.length,
+        setStatusMessage(`Génération de ${count} images...`);
+
+      } catch (err) {
+        console.error('[QuickShotGenerator] Multi-mode error:', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+        setIsGenerating(false);
+      }
+    } else {
+      // Single mode (original behavior)
+      try {
+        console.log('[QuickShotGenerator] Fetching', effectiveApiEndpoint);
+        const res = await fetch(effectiveApiEndpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: prompt.trim(),
+            aspectRatio,
+            model: selectedModel,
+            resolution,
+            skipOptimization: !optimizePrompt,
+          }),
         });
-      }
+        console.log('[QuickShotGenerator] Response status', res.status, res.ok);
 
-      if (completedShots.length > 0) {
-        onShotsGenerated(completedShots);
-        setPrompt('');
-      }
-      setPlaceholders([]);
-      setStatusMessage('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-      setPlaceholders([]);
-      // Update job as error
-      if (jobIdRef.current) {
-        updateJob(jobIdRef.current, {
+        if (!res.ok) {
+          const data = await res.json();
+          console.error('[QuickShotGenerator] Error response', data);
+          throw new Error(data.error || 'Failed to queue generation');
+        }
+
+        const data = await res.json();
+        console.log('[QuickShotGenerator] Job queued:', data.jobId);
+
+        // Store the real job ID
+        jobIdRef.current = data.jobId;
+        updateJob(localJobId, { id: data.jobId, status: 'generating' });
+
+        // Update placeholders to generating
+        setPlaceholders(prev => prev.map(p => ({ ...p, status: 'generating' as GenerationStatus })));
+        setStatusMessage('Génération en cours...');
+
+        // Start polling
+        pollIntervalRef.current = setInterval(() => {
+          pollJobStatus(data.jobId);
+        }, POLL_INTERVAL);
+
+        // Poll immediately
+        await pollJobStatus(data.jobId);
+
+      } catch (err) {
+        console.error('[QuickShotGenerator] Catch error', err);
+        setError(err instanceof Error ? err.message : 'An error occurred');
+        setPlaceholders([]);
+        setStatusMessage('');
+        setIsGenerating(false);
+
+        updateJob(localJobId, {
           status: 'error',
           error: err instanceof Error ? err.message : 'An error occurred',
         });
       }
-    } finally {
-      setIsGenerating(false);
-      jobIdRef.current = null;
     }
-  }, [prompt, aspectRatio, selectedModel, count, resolution, optimizePrompt, serialMode, projectId, onShotsGenerated, addJob, updateJob, effectiveApiEndpoint, onGenerationStart]);
+  }, [prompt, aspectRatio, selectedModel, count, resolution, optimizePrompt, projectId, addJob, updateJob, effectiveApiEndpoint, onGenerationStart, pollJobStatus, pollSingleJob, mode]);
 
   return (
     <div className="bg-[#0d1829] border border-white/10 rounded-xl p-6 space-y-6">
@@ -338,29 +522,31 @@ export function QuickShotGenerator({
           </div>
         </div>
 
-        {/* Count - Compact spinner */}
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-slate-400">Nombre</span>
-          <div className="flex items-center h-9 rounded-lg bg-white/5 border border-white/10 overflow-hidden">
-            <button
-              type="button"
-              onClick={() => setCount(Math.max(1, count - 1))}
-              disabled={count <= 1}
-              className="w-9 h-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <Minus className="w-3.5 h-3.5" />
-            </button>
-            <span className="w-8 text-center text-white text-sm font-medium tabular-nums">{count}</span>
-            <button
-              type="button"
-              onClick={() => setCount(Math.min(8, count + 1))}
-              disabled={count >= 8}
-              className="w-9 h-full flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-            </button>
+        {/* Count selector (multi-mode only) */}
+        {mode === 'multi' && (
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-400">Quantité</span>
+            <div className="flex items-center gap-1 bg-white/5 border border-white/10 rounded-lg">
+              <button
+                type="button"
+                onClick={() => setCount(Math.max(1, count - 1))}
+                disabled={count <= 1 || isGenerating}
+                className="p-2 text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Minus className="w-4 h-4" />
+              </button>
+              <span className="w-8 text-center text-white font-medium">{count}</span>
+              <button
+                type="button"
+                onClick={() => setCount(Math.min(8, count + 1))}
+                disabled={count >= 8 || isGenerating}
+                className="p-2 text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Model toggle */}
         <div className="inline-flex rounded-md bg-white/5 p-0.5 border border-white/10">
@@ -424,25 +610,20 @@ export function QuickShotGenerator({
           </div>
         </button>
 
-        {/* Serial Mode toggle */}
-        {showSerialMode && (
-          <button
-            type="button"
-            onClick={() => setSerialMode(!serialMode)}
-            className={cn(
-              'flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all',
-              serialMode
-                ? 'bg-purple-500/20 border-purple-500/50 text-purple-400'
-                : 'bg-white/5 border-white/10 text-slate-400 hover:text-slate-300 hover:border-white/20'
-            )}
-          >
-            <Layers className="w-4 h-4" />
-            <span className="text-sm font-medium">Série</span>
-          </button>
-        )}
-
         {/* Generate Button */}
-        <div className="flex-1 flex justify-end">
+        <div className="flex-1 flex justify-end gap-2">
+          {/* Regenerate button (multi-mode, after generation) */}
+          {mode === 'multi' && generatedImages.length > 0 && !isGenerating && (
+            <Button
+              onClick={handleGenerate}
+              disabled={!prompt.trim()}
+              variant="outline"
+              className="border-white/20 text-slate-300 hover:bg-white/10"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Régénérer
+            </Button>
+          )}
           <Button
             onClick={handleGenerate}
             disabled={!prompt.trim() || isGenerating}
@@ -451,12 +632,12 @@ export function QuickShotGenerator({
             {isGenerating ? (
               <>
                 <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Generation...
+                {mode === 'multi' ? `${completedCount}/${count}` : 'Génération...'}
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4 mr-2" />
-                Generer {count} image{count > 1 ? 's' : ''}
+                {mode === 'multi' ? `Générer ${count} images` : "Générer l'image"}
               </>
             )}
           </Button>
@@ -470,8 +651,127 @@ export function QuickShotGenerator({
         </div>
       )}
 
-      {/* Generation Progress - Placeholder Cards */}
-      {showPlaceholders && isGenerating && placeholders.length > 0 && (
+      {/* Multi-mode: Generated images with selection */}
+      {mode === 'multi' && (isGenerating || generatedImages.length > 0) && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-sm text-slate-400">
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>{statusMessage || `Génération ${completedCount}/${count}...`}</span>
+                </>
+              ) : (
+                <span className="text-slate-300">
+                  {generatedImages.length} image{generatedImages.length > 1 ? 's' : ''} générée{generatedImages.length > 1 ? 's' : ''} - Cliquez pour sélectionner
+                </span>
+              )}
+            </div>
+            {selectedImageUrl && !isGenerating && (
+              <Button
+                onClick={() => {
+                  if (onImageSelected) {
+                    onImageSelected(selectedImageUrl);
+                  } else {
+                    onShotsGenerated([{
+                      storyboard_image_url: selectedImageUrl,
+                      first_frame_url: selectedImageUrl,
+                    } as Shot]);
+                  }
+                }}
+                className="bg-green-600 hover:bg-green-700 text-white"
+              >
+                <Check className="w-4 h-4 mr-2" />
+                Utiliser cette image
+              </Button>
+            )}
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {placeholders.map((placeholder, index) => {
+              const generatedImg = generatedImages.find(g => g.jobId === placeholder.jobId);
+              const imageUrl = placeholder.imageUrl || generatedImg?.imageUrl;
+
+              if (imageUrl) {
+                // Show generated image with selection
+                const isSelected = selectedImageUrl === imageUrl;
+                // Find the index in generatedImages for lightbox
+                const lightboxIdx = generatedImages.findIndex(g => g.imageUrl === imageUrl);
+                return (
+                  <div
+                    key={index}
+                    className={cn(
+                      'relative aspect-[var(--aspect)] rounded-lg overflow-hidden border-2 transition-all group',
+                      isSelected
+                        ? 'border-green-500 ring-2 ring-green-500/30'
+                        : 'border-white/10 hover:border-white/30'
+                    )}
+                    style={{
+                      '--aspect': aspectRatio === '9:16' ? '9/16' :
+                                 aspectRatio === '16:9' ? '16/9' :
+                                 aspectRatio === '4:5' ? '4/5' :
+                                 aspectRatio === '2:3' ? '2/3' : '1/1'
+                    } as React.CSSProperties}
+                  >
+                    {/* Main clickable area for selection */}
+                    <button
+                      type="button"
+                      onClick={() => setSelectedImageUrl(isSelected ? null : imageUrl)}
+                      className="absolute inset-0 w-full h-full"
+                    >
+                      <StorageImg
+                        src={imageUrl}
+                        alt={`Generated ${index + 1}`}
+                        className="absolute inset-0 w-full h-full object-cover"
+                      />
+                      {/* Selection overlay */}
+                      <div className={cn(
+                        'absolute inset-0 transition-all',
+                        isSelected ? 'bg-green-500/20' : 'bg-black/0 group-hover:bg-black/20'
+                      )}>
+                        {isSelected && (
+                          <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-green-500 flex items-center justify-center">
+                            <Check className="w-4 h-4 text-white" />
+                          </div>
+                        )}
+                      </div>
+                    </button>
+                    {/* Expand button */}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLightboxIndex(lightboxIdx >= 0 ? lightboxIdx : 0);
+                        setLightboxOpen(true);
+                      }}
+                      className="absolute top-2 left-2 w-7 h-7 rounded-full bg-black/60 flex items-center justify-center opacity-0 group-hover:opacity-100 hover:bg-black/80 transition-all z-10"
+                      title="Voir en grand"
+                    >
+                      <Maximize2 className="w-3.5 h-3.5 text-white" />
+                    </button>
+                    {/* Image number */}
+                    <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded bg-black/60 text-xs text-white">
+                      #{index + 1}
+                    </div>
+                  </div>
+                );
+              }
+
+              // Show placeholder during generation
+              return (
+                <GeneratingPlaceholder
+                  key={index}
+                  aspectRatio={aspectRatio}
+                  status={placeholder.status}
+                  progress={placeholder.progress}
+                />
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Single mode: Generation Progress - Placeholder Cards */}
+      {mode === 'single' && showPlaceholders && isGenerating && placeholders.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center gap-2 text-sm text-slate-400">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -488,6 +788,20 @@ export function QuickShotGenerator({
             ))}
           </div>
         </div>
+      )}
+
+      {/* Lightbox for viewing images in fullscreen */}
+      {mode === 'multi' && (
+        <Lightbox
+          images={generatedImages.map((img, idx): LightboxImage => ({
+            id: img.jobId,
+            url: img.imageUrl,
+            description: `Image ${idx + 1}`,
+          }))}
+          initialIndex={lightboxIndex}
+          isOpen={lightboxOpen}
+          onClose={() => setLightboxOpen(false)}
+        />
       )}
     </div>
   );

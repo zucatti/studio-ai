@@ -104,12 +104,34 @@ export interface FFmpegJobData extends BaseJobData {
   volume?: number;
 }
 
+// Reference image with metadata for character/location consistency
+export interface ReferenceImageData {
+  url: string;           // Signed HTTPS URL
+  label: string;         // e.g., "@Morgana", "#Castle", "!MedievalDress"
+  type: 'character' | 'location' | 'prop' | 'look';
+  description?: string;  // Visual description for context
+}
+
+// Quick-shot generation job data (frame generation for shots)
+export interface QuickShotGenJobData extends BaseJobData {
+  type: 'quick-shot-gen';
+  projectId: string;
+  shotId?: string; // Optional - if updating an existing shot
+  // Generation parameters
+  prompt: string;
+  aspectRatio: AspectRatio;
+  resolution: '1K' | '2K' | '4K';
+  // Reference images with metadata for consistency
+  referenceImages: ReferenceImageData[];
+}
+
 // Union type for all job data
 export type JobData =
   | VideoGenJobData
   | ImageGenJobData
   | AudioGenJobData
-  | FFmpegJobData;
+  | FFmpegJobData
+  | QuickShotGenJobData;
 
 // Video models supported
 // Includes fal.ai short names and WaveSpeed full paths
@@ -146,6 +168,7 @@ export const QUEUE_NAMES = {
   IMAGE_GEN: 'image-gen',
   AUDIO_GEN: 'audio-gen',
   FFMPEG: 'ffmpeg',
+  QUICK_SHOT_GEN: 'quick-shot-gen',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -156,6 +179,7 @@ export const QUEUE_CONFIG: Record<QueueName, { concurrency: number; timeout: num
   [QUEUE_NAMES.IMAGE_GEN]: { concurrency: 5, timeout: 90000 }, // 90s
   [QUEUE_NAMES.AUDIO_GEN]: { concurrency: 5, timeout: 30000 }, // 30s
   [QUEUE_NAMES.FFMPEG]: { concurrency: 2, timeout: 120000 }, // 2 min
+  [QUEUE_NAMES.QUICK_SHOT_GEN]: { concurrency: 4, timeout: 120000 }, // 2 min
 };
 
 // Job result types
@@ -182,6 +206,12 @@ export interface AudioGenResult {
 export interface FFmpegResult {
   outputUrl: string;
   duration?: number;
+}
+
+export interface QuickShotGenResult {
+  imageUrl: string;
+  shotId?: string;
+  cost?: number;
 }
 
 // Job status in Supabase

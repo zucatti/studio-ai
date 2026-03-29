@@ -25,6 +25,9 @@ import {
   Images,
   Book,
   X,
+  FileText,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AspectRatio, Shot } from '@/types/database';
@@ -50,6 +53,11 @@ interface ShotData {
   first_frame_url?: string;
   last_frame_url?: string;
   animation_prompt?: string;
+  storyboard_prompt?: string;
+  first_frame_prompt?: string;
+  last_frame_prompt?: string;
+  video_prompt?: string;
+  generated_video_url?: string;
 }
 
 interface ShotEditorModalProps {
@@ -89,6 +97,10 @@ export function ShotEditorModal({
   // QuickShot generator state
   const [generatorOpen, setGeneratorOpen] = useState(false);
   const [generatorTarget, setGeneratorTarget] = useState<FrameTarget>('frameIn');
+
+  // Prompt display state
+  const [showPrompt, setShowPrompt] = useState<'frameIn' | 'frameOut' | 'video' | null>(null);
+  const [copiedPrompt, setCopiedPrompt] = useState(false);
 
   // Reset state when shot changes
   useMemo(() => {
@@ -180,17 +192,20 @@ export function ShotEditorModal({
     setGeneratorOpen(true);
   }, []);
 
-  // Handle generated shots
-  const handleShotsGenerated = useCallback((shots: Shot[]) => {
-    if (shots.length > 0 && shots[0].storyboard_image_url) {
-      const imageUrl = shots[0].storyboard_image_url;
-      if (generatorTarget === 'frameIn') {
-        setFrameInUrl(imageUrl);
-      } else {
-        setFrameOutUrl(imageUrl);
-      }
-      setGeneratorOpen(false);
+  // Handle generated shots (for batch callbacks)
+  const handleShotsGenerated = useCallback((_shots: Shot[]) => {
+    // In multi mode, we wait for onImageSelected instead
+    // This callback is just for backward compatibility
+  }, []);
+
+  // Handle image selection from multi-mode
+  const handleImageSelected = useCallback((imageUrl: string) => {
+    if (generatorTarget === 'frameIn') {
+      setFrameInUrl(imageUrl);
+    } else {
+      setFrameOutUrl(imageUrl);
     }
+    setGeneratorOpen(false);
   }, [generatorTarget]);
 
   // Clear frame
@@ -201,6 +216,28 @@ export function ShotEditorModal({
       setFrameOutUrl('');
     }
   }, []);
+
+  // Get prompt for a frame
+  const getPromptForTarget = useCallback((target: 'frameIn' | 'frameOut' | 'video'): string | null => {
+    if (!shot) return null;
+    if (target === 'frameIn') {
+      return shot.first_frame_prompt || shot.storyboard_prompt || null;
+    } else if (target === 'frameOut') {
+      return shot.last_frame_prompt || null;
+    } else {
+      return shot.video_prompt || null;
+    }
+  }, [shot]);
+
+  // Copy prompt to clipboard
+  const copyPrompt = useCallback(async (target: 'frameIn' | 'frameOut' | 'video') => {
+    const prompt = getPromptForTarget(target);
+    if (prompt) {
+      await navigator.clipboard.writeText(prompt);
+      setCopiedPrompt(true);
+      setTimeout(() => setCopiedPrompt(false), 2000);
+    }
+  }, [getPromptForTarget]);
 
   if (!shot) return null;
 
@@ -279,6 +316,24 @@ export function ShotEditorModal({
                           alt="Frame In"
                           className="w-full h-full object-cover"
                         />
+                        {/* Prompt button - show if prompt exists */}
+                        {getPromptForTarget('frameIn') && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowPrompt(showPrompt === 'frameIn' ? null : 'frameIn');
+                            }}
+                            className={cn(
+                              "absolute top-2 left-2 p-1.5 rounded-full transition-opacity",
+                              showPrompt === 'frameIn'
+                                ? "bg-purple-500 opacity-100"
+                                : "bg-black/60 opacity-0 group-hover:opacity-100 hover:bg-purple-500/80"
+                            )}
+                            title="Voir le prompt"
+                          >
+                            <FileText className="w-3 h-3 text-white" />
+                          </button>
+                        )}
                         {/* Clear button */}
                         <button
                           onClick={() => clearFrame('frameIn')}
@@ -331,7 +386,24 @@ export function ShotEditorModal({
 
                 {/* Arrow / Connection */}
                 <div className="flex flex-col items-center gap-1 text-slate-500">
-                  <Video className="w-6 h-6" />
+                  <div className="relative">
+                    <Video className="w-6 h-6" />
+                    {/* Video prompt indicator */}
+                    {shot.video_prompt && (
+                      <button
+                        onClick={() => setShowPrompt(showPrompt === 'video' ? null : 'video')}
+                        className={cn(
+                          "absolute -top-1 -right-1 p-0.5 rounded-full transition-colors",
+                          showPrompt === 'video'
+                            ? "bg-purple-500"
+                            : "bg-slate-600 hover:bg-purple-500"
+                        )}
+                        title="Voir le prompt vidéo"
+                      >
+                        <FileText className="w-2 h-2 text-white" />
+                      </button>
+                    )}
+                  </div>
                   <span className="text-xs">{shot.duration.toFixed(1)}s</span>
                 </div>
 
@@ -357,6 +429,24 @@ export function ShotEditorModal({
                           alt="Frame Out"
                           className="w-full h-full object-cover"
                         />
+                        {/* Prompt button - show if prompt exists */}
+                        {getPromptForTarget('frameOut') && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setShowPrompt(showPrompt === 'frameOut' ? null : 'frameOut');
+                            }}
+                            className={cn(
+                              "absolute top-2 left-2 p-1.5 rounded-full transition-opacity",
+                              showPrompt === 'frameOut'
+                                ? "bg-purple-500 opacity-100"
+                                : "bg-black/60 opacity-0 group-hover:opacity-100 hover:bg-purple-500/80"
+                            )}
+                            title="Voir le prompt"
+                          >
+                            <FileText className="w-3 h-3 text-white" />
+                          </button>
+                        )}
                         {/* Clear button */}
                         <button
                           onClick={() => clearFrame('frameOut')}
@@ -407,6 +497,47 @@ export function ShotEditorModal({
                   </div>
                 </div>
               </div>
+
+              {/* Prompt Display Panel */}
+              {showPrompt && getPromptForTarget(showPrompt) && (
+                <div className="mt-4 mx-auto w-full max-w-2xl">
+                  <div className="bg-slate-800/80 rounded-lg border border-purple-500/30 p-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <FileText className="w-3.5 h-3.5 text-purple-400 flex-shrink-0" />
+                          <span className="text-xs font-medium text-purple-300">
+                            Prompt {showPrompt === 'frameIn' ? 'Frame In' : showPrompt === 'frameOut' ? 'Frame Out' : 'Vidéo'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap break-words">
+                          {getPromptForTarget(showPrompt)}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          onClick={() => copyPrompt(showPrompt)}
+                          className="p-1.5 rounded bg-white/5 hover:bg-white/10 transition-colors"
+                          title="Copier le prompt"
+                        >
+                          {copiedPrompt ? (
+                            <Check className="w-3.5 h-3.5 text-green-400" />
+                          ) : (
+                            <Copy className="w-3.5 h-3.5 text-slate-400" />
+                          )}
+                        </button>
+                        <button
+                          onClick={() => setShowPrompt(null)}
+                          className="p-1.5 rounded bg-white/5 hover:bg-white/10 transition-colors"
+                          title="Fermer"
+                        >
+                          <X className="w-3.5 h-3.5 text-slate-400" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Bottom Section: Prompt + Settings */}
@@ -529,10 +660,12 @@ export function ShotEditorModal({
               projectId={projectId}
               defaultAspectRatio={aspectRatio}
               onShotsGenerated={handleShotsGenerated}
+              onImageSelected={handleImageSelected}
               lockAspectRatio={true}
               showPlaceholders={true}
               title=""
               description=""
+              mode="multi"
             />
           </div>
         </DialogContent>

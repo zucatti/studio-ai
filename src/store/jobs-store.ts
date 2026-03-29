@@ -53,6 +53,7 @@ interface JobsStore {
   fetchJobs: () => Promise<void>;
   createJob: (input: CreateJobInput) => Promise<GenerationJob | null>;
   cancelJob: (jobId: string) => Promise<boolean>;
+  deleteJob: (jobId: string) => Promise<boolean>;
   refreshJob: (jobId: string) => Promise<void>;
 
   // Polling
@@ -206,6 +207,28 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
       return false;
     } catch (error) {
       console.error('[JobsStore] Error cancelling job:', error);
+      return false;
+    }
+  },
+
+  deleteJob: async (jobId) => {
+    try {
+      const res = await fetch(`/api/jobs/${jobId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ forceDelete: true }),
+      });
+
+      if (res.ok) {
+        // Remove from local state
+        set((state) => ({
+          jobs: state.jobs.filter((job) => job.id !== jobId),
+        }));
+        return true;
+      }
+      return false;
+    } catch (error) {
+      console.error('[JobsStore] Error deleting job:', error);
       return false;
     }
   },
