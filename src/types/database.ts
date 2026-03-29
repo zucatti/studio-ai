@@ -20,6 +20,7 @@ export type ScriptElementType = 'action' | 'dialogue' | 'transition' | 'note';
 export type DialogueExtension = 'V.O.' | 'O.S.' | "CONT'D" | 'FILTERED' | 'PRE-LAP';
 export type GlobalAssetType = 'character' | 'location' | 'prop' | 'audio';
 export type MusicSectionType = 'intro' | 'verse' | 'chorus' | 'bridge' | 'outro' | 'instrumental' | 'custom';
+export type TransitionType = 'cut' | 'fadeblack' | 'fadewhite' | 'dissolve';
 // Note: ReferenceType kept for database compatibility (tables still exist)
 export type ReferenceType = 'pose' | 'composition' | 'style';
 export type SceneIntExt = 'INT' | 'EXT' | 'INT/EXT';
@@ -186,6 +187,8 @@ export interface Database {
           color: string;
           mood: string | null;
           notes: string | null;
+          assembled_video_url: string | null;
+          assembled_video_duration: number | null;
           sort_order: number;
           created_at: string;
           updated_at: string;
@@ -200,6 +203,8 @@ export interface Database {
           color?: string;
           mood?: string | null;
           notes?: string | null;
+          assembled_video_url?: string | null;
+          assembled_video_duration?: number | null;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -214,6 +219,8 @@ export interface Database {
           color?: string;
           mood?: string | null;
           notes?: string | null;
+          assembled_video_url?: string | null;
+          assembled_video_duration?: number | null;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -293,6 +300,8 @@ export interface Database {
           dialogue_text: string | null;
           dialogue_character_id: string | null;
           dialogue_audio_url: string | null;
+          transition_type: TransitionType;
+          transition_duration: number;
           sort_order: number;
           created_at: string;
           updated_at: string;
@@ -329,6 +338,8 @@ export interface Database {
           dialogue_text?: string | null;
           dialogue_character_id?: string | null;
           dialogue_audio_url?: string | null;
+          transition_type?: TransitionType;
+          transition_duration?: number;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;
@@ -363,6 +374,8 @@ export interface Database {
           dialogue_text?: string | null;
           dialogue_character_id?: string | null;
           dialogue_audio_url?: string | null;
+          transition_type?: TransitionType;
+          transition_duration?: number;
           sort_order?: number;
           created_at?: string;
           updated_at?: string;

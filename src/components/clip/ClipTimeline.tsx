@@ -25,9 +25,14 @@ import {
   Film,
   ChevronDown,
   ChevronRight,
+  ChevronLeft,
+  Clapperboard,
+  X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { MusicSection, MusicSectionType, AspectRatio } from '@/types/database';
+import type { MusicSection, MusicSectionType, AspectRatio, TransitionType } from '@/types/database';
+import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { toast } from 'sonner';
 import { StorageImg, StorageMedia } from '@/components/ui/storage-image';
 import WaveSurfer from 'wavesurfer.js';
@@ -67,6 +72,9 @@ interface Shot {
   audio_asset_id?: string;
   audio_start?: number;
   audio_end?: number;
+  // Transition fields
+  transition_type?: TransitionType;
+  transition_duration?: number;
 }
 
 // Shot duration constraints (matching AI video generators like Kling, Runway, etc.)
@@ -120,9 +128,26 @@ export function ClipTimeline({
 
   // New section dialog
   const [isAddingSection, setIsAddingSection] = useState(false);
+  const [isSelectionComplete, setIsSelectionComplete] = useState(false);
   const [newSectionName, setNewSectionName] = useState('');
   const [newSectionType, setNewSectionType] = useState<MusicSectionType>('verse');
   const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
+
+  // Section resize state
+  const [resizingSection, setResizingSection] = useState<{
+    sectionId: string;
+    edge: 'left' | 'right';
+    initialX: number;
+    initialStart: number;
+    initialEnd: number;
+  } | null>(null);
+
+  // Calculate minimum start time for new section (end of last section)
+  const minNewSectionStart = useMemo(() => {
+    if (sections.length === 0) return 0;
+    const sortedSections = [...sections].sort((a, b) => a.end_time - b.end_time);
+    return sortedSections[sortedSections.length - 1].end_time;
+  }, [sections]);
 
   // Shots per section
   const [sectionShots, setSectionShots] = useState<Record<string, Shot[]>>({});
@@ -150,6 +175,29 @@ export function ClipTimeline({
   // Video generation state
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [generationProgress, setGenerationProgress] = useState<Map<string, VideoGenerationProgress>>(new Map());
+
+  // Assembly state
+  const [assemblingSection, setAssemblingSection] = useState<string | null>(null);
+  const [assembledVideos, setAssembledVideos] = useState<Record<string, { url: string; signedUrl: string; duration: number }>>({});
+  const [playingAssembledVideo, setPlayingAssembledVideo] = useState<{ sectionId: string; signedUrl: string } | null>(null);
+
+  // Transition editing state
+  const [editingTransition, setEditingTransition] = useState<{
+    sectionId: string;
+    shotId: string;  // The shot BEFORE the transition
+    shotIndex: number;
+  } | null>(null);
+
+  // Transition drag state
+  const [draggingTransition, setDraggingTransition] = useState<{
+    sectionId: string;
+    shotId: string;
+    handle: 'left' | 'right';
+    initialX: number;
+    initialDuration: number;
+    sectionDuration: number;
+    trackWidth: number;
+  } | null>(null);
 
   // Format time helper
   const formatTime = useCallback((seconds: number) => {
@@ -511,6 +559,218 @@ export function ClipTimeline({
       toast.error('Erreur lors de la suppression');
     }
   }, [projectId, sectionShots]);
+
+  // Update shot transition
+  const updateShotTransition = useCallback(async (
+    sectionId: string,
+    shotId: string,
+    transitionType: TransitionType,
+    transitionDuration: number
+  ) => {
+    // Update local state immediately
+    setSectionShots(prev => ({
+      ...prev,
+      [sectionId]: (prev[sectionId] || []).map(s =>
+        s.id === shotId
+          ? { ...s, transition_type: transitionType, transition_duration: transitionDuration }
+          : s
+      ),
+    }));
+
+    // Save to server
+    try {
+      const res = await fetch(`/api/projects/${projectId}/sections/${sectionId}/shots/${shotId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          transition_type: transitionType,
+          transition_duration: transitionDuration,
+        }),
+      });
+      if (!res.ok) {
+        const error = await res.json();
+        console.error('Error updating transition:', error);
+        toast.error('Erreur lors de la mise à jour de la transition');
+      } else {
+        console.log('[Transition] Saved:', { transitionType, transitionDuration });
+      }
+    } catch (error) {
+      console.error('Error updating transition:', error);
+      toast.error('Erreur lors de la mise à jour de la transition');
+    }
+  }, [projectId]);
+
+  // Assemble section video
+  const assembleSection = useCallback(async (sectionId: string) => {
+    setAssemblingSection(sectionId);
+
+    try {
+      // Extract original B2 URL from proxy URL if needed
+      let originalAudioUrl = audioUrl;
+      if (audioUrl.startsWith('/api/storage/proxy?url=')) {
+        const urlParam = new URLSearchParams(audioUrl.split('?')[1]).get('url');
+        if (urlParam) {
+          originalAudioUrl = urlParam;
+        }
+      }
+
+      const res = await fetch(`/api/projects/${projectId}/sections/${sectionId}/assemble`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audioUrl: originalAudioUrl }),
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Erreur lors du montage');
+      }
+
+      const data = await res.json();
+      setAssembledVideos(prev => ({
+        ...prev,
+        [sectionId]: {
+          url: data.assembledVideoUrl,
+          signedUrl: data.signedUrl,
+          duration: data.duration,
+        },
+      }));
+
+      toast.success('Montage terminé !', {
+        description: `Durée: ${data.duration.toFixed(1)}s`,
+      });
+    } catch (error) {
+      console.error('Error assembling section:', error);
+      toast.error(error instanceof Error ? error.message : 'Erreur lors du montage');
+    } finally {
+      setAssemblingSection(null);
+    }
+  }, [projectId, audioUrl]);
+
+  // Check if section can be assembled (all shots have videos)
+  const canAssembleSection = useCallback((sectionId: string) => {
+    const shots = sectionShots[sectionId] || [];
+    if (shots.length === 0) return false;
+    return shots.every(s => s.generated_video_url);
+  }, [sectionShots]);
+
+  // Start dragging a transition handle
+  const startTransitionDrag = useCallback((
+    e: React.PointerEvent,
+    sectionId: string,
+    shotId: string,
+    handle: 'left' | 'right',
+    currentDuration: number,
+    sectionDuration: number,
+    trackElement: HTMLElement
+  ) => {
+    e.stopPropagation();
+    e.preventDefault();
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+
+    setDraggingTransition({
+      sectionId,
+      shotId,
+      handle,
+      initialX: e.clientX,
+      initialDuration: currentDuration,
+      sectionDuration,
+      trackWidth: trackElement.getBoundingClientRect().width,
+    });
+  }, []);
+
+  // Handle transition drag move
+  useEffect(() => {
+    if (!draggingTransition) return;
+
+    const handleMove = (e: PointerEvent) => {
+      const deltaX = e.clientX - draggingTransition.initialX;
+      // Convert pixel delta to duration delta
+      const durationDelta = (Math.abs(deltaX) / draggingTransition.trackWidth) * draggingTransition.sectionDuration;
+
+      // Calculate new duration based on drag direction
+      let newDuration: number;
+      if (draggingTransition.handle === 'left') {
+        // Dragging left handle: left = expand, right = contract
+        newDuration = draggingTransition.initialDuration + (deltaX < 0 ? durationDelta : -durationDelta);
+      } else {
+        // Dragging right handle: right = expand, left = contract
+        newDuration = draggingTransition.initialDuration + (deltaX > 0 ? durationDelta : -durationDelta);
+      }
+
+      // Best practice: transitions should be 0.3s to 2s max
+      // Below 0.2s threshold = delete transition (back to cut)
+      const DELETE_THRESHOLD = 0.2;
+      const MIN_TRANSITION = 0.3;
+      const MAX_TRANSITION = 2.0;
+
+      // Check if user is collapsing the transition completely
+      const shouldDelete = newDuration < DELETE_THRESHOLD;
+
+      if (shouldDelete) {
+        // Reset to cut (no transition)
+        setSectionShots(prev => ({
+          ...prev,
+          [draggingTransition.sectionId]: (prev[draggingTransition.sectionId] || []).map(s =>
+            s.id === draggingTransition.shotId
+              ? { ...s, transition_duration: 0, transition_type: 'cut' as TransitionType }
+              : s
+          ),
+        }));
+      } else {
+        // Clamp and round
+        newDuration = Math.max(MIN_TRANSITION, Math.min(MAX_TRANSITION, newDuration));
+        newDuration = Math.round(newDuration * 10) / 10;
+
+        // Update local state immediately
+        setSectionShots(prev => ({
+          ...prev,
+          [draggingTransition.sectionId]: (prev[draggingTransition.sectionId] || []).map(s =>
+            s.id === draggingTransition.shotId
+              ? {
+                  ...s,
+                  transition_duration: newDuration,
+                  // Set a default transition type if none exists
+                  transition_type: s.transition_type === 'cut' || !s.transition_type ? 'dissolve' : s.transition_type,
+                }
+              : s
+          ),
+        }));
+      }
+    };
+
+    const handleUp = async () => {
+      if (!draggingTransition) return;
+
+      // Get the final state from local state
+      const shots = sectionShots[draggingTransition.sectionId] || [];
+      const shot = shots.find(s => s.id === draggingTransition.shotId);
+      if (shot) {
+        // Save to server
+        try {
+          await fetch(`/api/projects/${projectId}/sections/${draggingTransition.sectionId}/shots/${draggingTransition.shotId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              transition_type: shot.transition_type || 'cut',
+              transition_duration: shot.transition_duration || 0,
+            }),
+          });
+        } catch (error) {
+          console.error('Error saving transition:', error);
+        }
+      }
+
+      setDraggingTransition(null);
+    };
+
+    window.addEventListener('pointermove', handleMove);
+    window.addEventListener('pointerup', handleUp);
+
+    return () => {
+      window.removeEventListener('pointermove', handleMove);
+      window.removeEventListener('pointerup', handleUp);
+    };
+  }, [draggingTransition, projectId, sectionShots]);
 
   // Start resizing a shot
   const startResize = useCallback((
@@ -888,16 +1148,41 @@ export function ClipTimeline({
 
     // Add selection region if active
     if (selectionRange && isAddingSection) {
-      regionsRef.current.addRegion({
+      const selectionRegion = regionsRef.current.addRegion({
         id: 'selection',
         start: selectionRange.start,
         end: selectionRange.end,
         color: 'rgba(34, 197, 94, 0.3)',
         drag: true,
         resize: true,
+        minLength: 5, // Minimum 5 seconds
+      });
+
+      // Handle region updates with constraints
+      selectionRegion.on('update-end', () => {
+        let newStart = selectionRegion.start;
+        let newEnd = selectionRegion.end;
+
+        // Constrain start to not go before minNewSectionStart
+        if (newStart < minNewSectionStart) {
+          newStart = minNewSectionStart;
+        }
+
+        // Constrain end to not exceed duration
+        if (newEnd > duration) {
+          newEnd = duration;
+        }
+
+        // Ensure minimum duration
+        if (newEnd - newStart < 5) {
+          newEnd = Math.min(newStart + 5, duration);
+        }
+
+        setSelectionRange({ start: newStart, end: newEnd });
+        setIsSelectionComplete(true);
       });
     }
-  }, [sections, isLoading, selectionRange, isAddingSection, duration, formatTime]);
+  }, [sections, isLoading, selectionRange, isAddingSection, duration, formatTime, minNewSectionStart]);
 
   // Update section on server
   const updateSectionOnServer = async (sectionId: string, data: Partial<MusicSection>) => {
@@ -947,6 +1232,7 @@ export function ClipTimeline({
         const { section } = await res.json();
         onSectionsChange([...sections, section]);
         setIsAddingSection(false);
+        setIsSelectionComplete(false);
         setNewSectionName('');
         setSelectionRange(null);
         toast.success('Section créée');
@@ -982,7 +1268,19 @@ export function ClipTimeline({
 
   // Playback controls
   const togglePlayPause = useCallback(() => {
-    wavesurferRef.current?.playPause();
+    const ws = wavesurferRef.current;
+    if (!ws) return;
+
+    if (ws.isPlaying()) {
+      ws.pause();
+    } else {
+      // Wrap in try-catch to handle AbortError when play is interrupted
+      ws.play().catch((err: Error) => {
+        if (err.name !== 'AbortError') {
+          console.error('Playback error:', err);
+        }
+      });
+    }
   }, []);
 
   const skipBackward = useCallback(() => {
@@ -1141,8 +1439,17 @@ export function ClipTimeline({
             size="sm"
             variant="outline"
             onClick={() => {
+              // Start from end of last section (or 0 if no sections)
+              const startTime = minNewSectionStart;
+              const defaultDuration = Math.min(15, duration - startTime);
+              if (defaultDuration <= 0) {
+                toast.error('Pas assez de place pour une nouvelle section');
+                return;
+              }
               setIsAddingSection(true);
-              setSelectionRange({ start: currentTime, end: Math.min(currentTime + 15, duration) });
+              setIsSelectionComplete(false);
+              setSelectionRange({ start: startTime, end: startTime + defaultDuration });
+              setNewSectionName(`Section ${sections.length + 1}`);
             }}
             className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10"
           >
@@ -1213,53 +1520,103 @@ export function ClipTimeline({
       {/* Add section dialog */}
       {isAddingSection && (
         <div className="px-4 py-4 border-t border-white/10 bg-slate-800/50">
-          <div className="flex items-center gap-3">
-            <div className="flex-1">
-              <Input
-                value={newSectionName}
-                onChange={(e) => setNewSectionName(e.target.value)}
-                placeholder="Nom de la section (ex: Couplet 1)"
-                className="bg-white/5 border-white/10"
-              />
+          {!isSelectionComplete ? (
+            // Step 1: Drag to select zone or validate default
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 text-green-400">
+                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                  <span className="text-sm font-medium">
+                    Ajustez la zone ou validez
+                  </span>
+                </div>
+                {selectionRange && (
+                  <span className="text-sm text-slate-400">
+                    {formatTime(selectionRange.start)} - {formatTime(selectionRange.end)} ({(selectionRange.end - selectionRange.start).toFixed(1)}s)
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  onClick={() => setIsSelectionComplete(true)}
+                  className="bg-green-600 hover:bg-green-700 text-white"
+                >
+                  Valider zone
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setIsAddingSection(false);
+                    setSelectionRange(null);
+                    setIsSelectionComplete(false);
+                  }}
+                >
+                  Annuler
+                </Button>
+              </div>
             </div>
-            <Select
-              value={newSectionType}
-              onValueChange={(v) => setNewSectionType(v as MusicSectionType)}
-            >
-              <SelectTrigger className="w-40 bg-white/5 border-white/10">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {SECTION_TYPES.map((type) => (
-                  <SelectItem key={type.value} value={type.value}>
-                    <div className="flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded"
-                        style={{ backgroundColor: type.color }}
-                      />
-                      {type.label}
-                    </div>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <span className="text-sm text-slate-400">
-              {selectionRange && `${formatTime(selectionRange.start)} - ${formatTime(selectionRange.end)}`}
-            </span>
-            <Button size="sm" onClick={createSection} className="bg-purple-500 hover:bg-purple-600">
-              Créer
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                setIsAddingSection(false);
-                setSelectionRange(null);
-              }}
-            >
-              Annuler
-            </Button>
-          </div>
+          ) : (
+            // Step 2: Enter section details
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <Input
+                  value={newSectionName}
+                  onChange={(e) => setNewSectionName(e.target.value)}
+                  placeholder="Nom de la section (ex: Couplet 1)"
+                  className="bg-white/5 border-white/10"
+                  autoFocus
+                />
+              </div>
+              <Select
+                value={newSectionType}
+                onValueChange={(v) => setNewSectionType(v as MusicSectionType)}
+              >
+                <SelectTrigger className="w-40 bg-white/5 border-white/10">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SECTION_TYPES.map((type) => (
+                    <SelectItem key={type.value} value={type.value}>
+                      <div className="flex items-center gap-2">
+                        <div
+                          className="w-3 h-3 rounded"
+                          style={{ backgroundColor: type.color }}
+                        />
+                        {type.label}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <span className="text-sm text-slate-400">
+                {selectionRange && `${formatTime(selectionRange.start)} - ${formatTime(selectionRange.end)}`}
+              </span>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setIsSelectionComplete(false)}
+                className="border-white/10"
+              >
+                Modifier zone
+              </Button>
+              <Button size="sm" onClick={createSection} className="bg-purple-500 hover:bg-purple-600">
+                Créer
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  setIsAddingSection(false);
+                  setSelectionRange(null);
+                  setIsSelectionComplete(false);
+                }}
+              >
+                Annuler
+              </Button>
+            </div>
+          )}
         </div>
       )}
 
@@ -1349,8 +1706,59 @@ export function ClipTimeline({
 
                       {/* Actions */}
                       <div className="flex items-center gap-1 flex-shrink-0">
+                        {/* Play button: plays assembled video if exists, otherwise plays audio */}
                         {(() => {
+                          const localAssembly = assembledVideos[section.id];
+                          const dbAssemblyUrl = (section as MusicSection & { assembled_video_url?: string }).assembled_video_url;
+                          const hasAssembly = !!(localAssembly || dbAssemblyUrl);
                           const isSectionPlaying = isPlaying && currentTime >= section.start_time && currentTime < section.end_time;
+
+                          if (hasAssembly) {
+                            // Play assembled video
+                            return (
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-8 w-8 text-green-400 hover:text-green-300 hover:bg-green-500/10"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+
+                                  if (localAssembly) {
+                                    setPlayingAssembledVideo({
+                                      sectionId: section.id,
+                                      signedUrl: localAssembly.signedUrl,
+                                    });
+                                  } else if (dbAssemblyUrl) {
+                                    try {
+                                      const res = await fetch('/api/storage/sign', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ urls: [dbAssemblyUrl] }),
+                                      });
+                                      if (res.ok) {
+                                        const { signedUrls } = await res.json();
+                                        const signedUrl = signedUrls[dbAssemblyUrl];
+                                        setPlayingAssembledVideo({
+                                          sectionId: section.id,
+                                          signedUrl,
+                                        });
+                                      } else {
+                                        toast.error('Erreur lors du chargement du montage');
+                                      }
+                                    } catch (error) {
+                                      console.error('Error getting signed URL:', error);
+                                      toast.error('Erreur lors du chargement du montage');
+                                    }
+                                  }
+                                }}
+                                title="Voir le montage"
+                              >
+                                <Play className="h-3.5 w-3.5" />
+                              </Button>
+                            );
+                          }
+
+                          // Play audio section
                           return (
                             <Button
                               variant="ghost"
@@ -1364,12 +1772,60 @@ export function ClipTimeline({
                                 if (isSectionPlaying) {
                                   ws.pause();
                                 } else {
-                                  ws.play(section.start_time, section.end_time);
+                                  ws.play(section.start_time, section.end_time).catch((err: Error) => {
+                                    if (err.name !== 'AbortError') {
+                                      console.error('Playback error:', err);
+                                    }
+                                  });
                                 }
                               }}
-                              title={isSectionPlaying ? "Pause" : "Jouer cette section"}
+                              title={isSectionPlaying ? "Pause" : "Écouter la section"}
                             >
                               {isSectionPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                            </Button>
+                          );
+                        })()}
+                        {/* Assembly button - create/re-create montage */}
+                        {(() => {
+                          const localAssembly = assembledVideos[section.id];
+                          const dbAssemblyUrl = (section as MusicSection & { assembled_video_url?: string }).assembled_video_url;
+                          const hasAssembly = !!(localAssembly || dbAssemblyUrl);
+                          const isAssembling = assemblingSection === section.id;
+
+                          return (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className={cn(
+                                "h-8 w-8",
+                                isAssembling
+                                  ? "text-orange-400"
+                                  : hasAssembly
+                                  ? "text-green-400 hover:text-green-300 hover:bg-green-500/10"
+                                  : canAssembleSection(section.id)
+                                  ? "text-purple-400 hover:text-purple-300 hover:bg-purple-500/10"
+                                  : "text-slate-500 cursor-not-allowed"
+                              )}
+                              disabled={!canAssembleSection(section.id) || isAssembling}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                assembleSection(section.id);
+                              }}
+                              title={
+                                isAssembling
+                                  ? "Montage en cours..."
+                                  : !canAssembleSection(section.id)
+                                  ? "Générez d'abord les vidéos de tous les plans"
+                                  : hasAssembly
+                                  ? "Ré-assembler le montage"
+                                  : "Assembler le montage"
+                              }
+                            >
+                              {isAssembling ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Clapperboard className="h-3.5 w-3.5" />
+                              )}
                             </Button>
                           );
                         })()}
@@ -1437,6 +1893,194 @@ export function ClipTimeline({
                             </Button>
                           </div>
 
+                          {/* Transition track - above filmstrip */}
+                          {shots.length > 1 && (
+                            <div
+                              className="relative h-8 mb-1"
+                              data-transition-track={section.id}
+                            >
+                              {/* Transition zones between shots */}
+                              {shots.slice(0, -1).map((shot, idx) => {
+                                // Position = end of current shot = junction point
+                                const transitionPos = ((shot.relative_start + shot.duration) / sectionDuration) * 100;
+
+                                // When type is 'cut' or missing, treat duration as 0 (no transition)
+                                const isCut = !shot.transition_type || shot.transition_type === 'cut';
+                                const transitionDuration = isCut ? 0 : (shot.transition_duration ?? 0);
+
+                                // A transition exists only if type is NOT cut AND duration > 0
+                                const hasTransition = !isCut && transitionDuration > 0;
+
+                                const isEditing = editingTransition?.shotId === shot.id && editingTransition?.sectionId === section.id;
+                                const isDragging = draggingTransition?.shotId === shot.id && draggingTransition?.sectionId === section.id;
+
+                                // Calculate zone width as percentage of section duration
+                                const zoneWidthPercent = (transitionDuration / sectionDuration) * 100;
+
+                                // Show expanded zone ONLY if has real transition OR currently dragging
+                                const showExpandedZone = hasTransition || isDragging;
+
+                                return (
+                                  <div key={`trans-${shot.id}`}>
+                                    {/* Collapsed state: just <> marker */}
+                                    {!showExpandedZone && (
+                                      <div
+                                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 flex items-center z-10"
+                                        style={{ left: `${transitionPos}%` }}
+                                      >
+                                        {/* Left handle < */}
+                                        <button
+                                          className="w-4 h-6 flex items-center justify-center bg-slate-700/80 hover:bg-slate-600 rounded-l text-slate-400 hover:text-white cursor-ew-resize transition-colors"
+                                          onPointerDown={(e) => {
+                                            const track = e.currentTarget.closest('[data-transition-track]') as HTMLElement;
+                                            if (track) {
+                                              // Start from 0 so first drag creates 0.3s minimum
+                                              startTransitionDrag(e, section.id, shot.id, 'left', 0, sectionDuration, track);
+                                            }
+                                          }}
+                                          title="Glisser pour créer une transition"
+                                        >
+                                          <ChevronLeft className="w-3 h-3" />
+                                        </button>
+                                        {/* Right handle > */}
+                                        <button
+                                          className="w-4 h-6 flex items-center justify-center bg-slate-700/80 hover:bg-slate-600 rounded-r text-slate-400 hover:text-white cursor-ew-resize transition-colors"
+                                          onPointerDown={(e) => {
+                                            const track = e.currentTarget.closest('[data-transition-track]') as HTMLElement;
+                                            if (track) {
+                                              // Start from 0 so first drag creates 0.3s minimum
+                                              startTransitionDrag(e, section.id, shot.id, 'right', 0, sectionDuration, track);
+                                            }
+                                          }}
+                                          title="Glisser pour créer une transition"
+                                        >
+                                          <ChevronRight className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {/* Expanded state: zone that extends across both shots */}
+                                    {showExpandedZone && (
+                                      <div
+                                        className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-6 flex items-stretch z-10"
+                                        style={{
+                                          // Center on the junction point
+                                          left: `${transitionPos}%`,
+                                          // Width based on duration, with min width for usability
+                                          width: `max(${zoneWidthPercent}%, 48px)`,
+                                        }}
+                                      >
+                                        {/* Left handle < */}
+                                        <button
+                                          className={cn(
+                                            "w-4 flex-shrink-0 flex items-center justify-center rounded-l cursor-ew-resize transition-colors",
+                                            isDragging && draggingTransition.handle === 'left'
+                                              ? "bg-orange-500 text-white"
+                                              : "bg-purple-600/90 hover:bg-purple-500 text-white"
+                                          )}
+                                          onPointerDown={(e) => {
+                                            const track = e.currentTarget.closest('[data-transition-track]') as HTMLElement;
+                                            if (track) {
+                                              startTransitionDrag(e, section.id, shot.id, 'left', transitionDuration, sectionDuration, track);
+                                            }
+                                          }}
+                                          title="Glisser pour ajuster la durée"
+                                        >
+                                          <ChevronLeft className="w-3 h-3" />
+                                        </button>
+
+                                        {/* Transition zone (clickable to select type) - gradient showing overlap */}
+                                        <button
+                                          className={cn(
+                                            "flex-1 flex items-center justify-center transition-all min-w-[32px]",
+                                            isEditing
+                                              ? "bg-gradient-to-r from-orange-500/90 via-orange-400/80 to-orange-500/90"
+                                              : "bg-gradient-to-r from-purple-500/90 via-purple-400/70 to-blue-500/90 hover:from-purple-400 hover:to-blue-400",
+                                            "text-white text-[10px] font-medium"
+                                          )}
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            if (isEditing) {
+                                              setEditingTransition(null);
+                                            } else {
+                                              setEditingTransition({
+                                                sectionId: section.id,
+                                                shotId: shot.id,
+                                                shotIndex: idx,
+                                              });
+                                            }
+                                          }}
+                                          title="Cliquer pour choisir la transition"
+                                        >
+                                          {transitionDuration.toFixed(1)}s
+                                        </button>
+
+                                        {/* Right handle > */}
+                                        <button
+                                          className={cn(
+                                            "w-4 flex-shrink-0 flex items-center justify-center rounded-r cursor-ew-resize transition-colors",
+                                            isDragging && draggingTransition.handle === 'right'
+                                              ? "bg-orange-500 text-white"
+                                              : "bg-blue-600/90 hover:bg-blue-500 text-white"
+                                          )}
+                                          onPointerDown={(e) => {
+                                            const track = e.currentTarget.closest('[data-transition-track]') as HTMLElement;
+                                            if (track) {
+                                              startTransitionDrag(e, section.id, shot.id, 'right', transitionDuration, sectionDuration, track);
+                                            }
+                                          }}
+                                          title="Glisser pour ajuster la durée"
+                                        >
+                                          <ChevronRight className="w-3 h-3" />
+                                        </button>
+                                      </div>
+                                    )}
+
+                                    {/* Transition type picker dropdown */}
+                                    {isEditing && (
+                                      <div
+                                        className="absolute top-10 -translate-x-1/2 z-30 bg-slate-900 border border-white/10 rounded-lg p-2 shadow-xl"
+                                        style={{ left: `${transitionPos}%` }}
+                                        onClick={(e) => e.stopPropagation()}
+                                      >
+                                        <div className="grid grid-cols-2 gap-1 min-w-[160px]">
+                                          {[
+                                            { type: 'dissolve' as TransitionType, label: 'Dissolve' },
+                                            { type: 'fadeblack' as TransitionType, label: 'Fondu noir' },
+                                            { type: 'fadewhite' as TransitionType, label: 'Fondu blanc' },
+                                            { type: 'cut' as TransitionType, label: 'Supprimer' },
+                                          ].map((t) => (
+                                            <button
+                                              key={t.type}
+                                              onClick={() => {
+                                                if (t.type === 'cut') {
+                                                  updateShotTransition(section.id, shot.id, 'cut', 0);
+                                                } else {
+                                                  updateShotTransition(section.id, shot.id, t.type, shot.transition_duration || 0.5);
+                                                }
+                                                setEditingTransition(null);
+                                              }}
+                                              className={cn(
+                                                "px-2 py-1.5 rounded text-xs font-medium transition-colors text-left",
+                                                shot.transition_type === t.type
+                                                  ? "bg-purple-500/40 text-purple-200"
+                                                  : t.type === 'cut'
+                                                  ? "bg-red-500/20 text-red-300 hover:bg-red-500/30"
+                                                  : "bg-white/5 text-slate-300 hover:bg-white/10"
+                                              )}
+                                            >
+                                              {t.label}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+
                           {/* Filmstrip visual */}
                           <div
                             data-filmstrip={section.id}
@@ -1446,6 +2090,11 @@ export function ClipTimeline({
                             )}
                             onClick={(e) => {
                               if (resizingShot) return;
+                              // Close any open transition editor
+                              if (editingTransition) {
+                                setEditingTransition(null);
+                                return;
+                              }
                               // Calculate click position as relative_start
                               const rect = e.currentTarget.getBoundingClientRect();
                               const relativeX = (e.clientX - rect.left) / rect.width;
@@ -1529,6 +2178,7 @@ export function ClipTimeline({
                                       <div className="w-0.5 h-0.5 rounded-full bg-white/80" />
                                     </div>
                                   </div>
+
                                 </div>
                               );
                             })}
@@ -1757,6 +2407,65 @@ export function ClipTimeline({
           videoGenerationProgress={editingShot?.shot.id ? generationProgress.get(editingShot.shot.id) : undefined}
         />
       )}
+
+      {/* Assembled video player dialog */}
+      <Dialog
+        open={!!playingAssembledVideo}
+        onOpenChange={(open) => !open && setPlayingAssembledVideo(null)}
+      >
+        <DialogContent className="max-w-4xl p-0 bg-black border-white/10 overflow-hidden">
+          <VisuallyHidden>
+            <DialogTitle>Lecteur vidéo du montage</DialogTitle>
+            <DialogDescription>Lecture du montage de la section</DialogDescription>
+          </VisuallyHidden>
+          <div className="relative">
+            {/* Close button */}
+            <button
+              onClick={() => setPlayingAssembledVideo(null)}
+              className="absolute top-4 right-4 z-10 p-2 rounded-full bg-black/50 text-white hover:bg-black/70 transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            {/* Video player */}
+            {playingAssembledVideo && (
+              <video
+                src={playingAssembledVideo.signedUrl}
+                controls
+                autoPlay
+                className="w-full aspect-video"
+              />
+            )}
+
+            {/* Video info */}
+            {playingAssembledVideo && assembledVideos[playingAssembledVideo.sectionId] && (
+              <div className="absolute bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-black/80 to-transparent">
+                <div className="flex items-center justify-between">
+                  <div className="text-white text-sm">
+                    <span className="font-medium">Montage de section</span>
+                    <span className="text-white/60 ml-2">
+                      {assembledVideos[playingAssembledVideo.sectionId].duration.toFixed(1)}s
+                    </span>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-white/30 text-white hover:bg-white/10"
+                    onClick={() => {
+                      // Re-assemble to regenerate
+                      setPlayingAssembledVideo(null);
+                      assembleSection(playingAssembledVideo.sectionId);
+                    }}
+                  >
+                    <Clapperboard className="w-4 h-4 mr-2" />
+                    Ré-assembler
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -403,7 +403,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: `Mode '${mode}' is only supported for characters. Use 'generate_single' for locations/props.` }, { status: 400 });
     }
 
-    if (!visualDescription && mode !== 'generate_variations' && !(mode === 'generate_single' && hasFrontImage)) {
+    // For look generation, we need lookDescription (not visualDescription)
+    if (mode === 'generate_look') {
+      if (!lookDescription) {
+        return NextResponse.json({ error: 'La description du look est requise' }, { status: 400 });
+      }
+    } else if (!visualDescription && mode !== 'generate_variations' && !(mode === 'generate_single' && hasFrontImage)) {
       return NextResponse.json({ error: 'No visual description provided for this asset' }, { status: 400 });
     }
 

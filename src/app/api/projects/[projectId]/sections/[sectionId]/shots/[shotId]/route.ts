@@ -56,6 +56,8 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       'shot_type',
       'camera_angle',
       'camera_movement',
+      'transition_type',
+      'transition_duration',
     ];
 
     const updateData: Record<string, unknown> = {};
@@ -80,7 +82,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       .update(updateData)
       .eq('id', shotId)
       .eq('section_id', sectionId)
-      .select('id, description, relative_start, sort_order, animation_prompt, storyboard_image_url, first_frame_url, last_frame_url, generated_video_url, shot_type, camera_angle, camera_movement, storyboard_prompt, first_frame_prompt, last_frame_prompt')
+      .select('id, description, relative_start, sort_order, animation_prompt, storyboard_image_url, first_frame_url, last_frame_url, generated_video_url, shot_type, camera_angle, camera_movement, storyboard_prompt, first_frame_prompt, last_frame_prompt, transition_type, transition_duration')
       .single();
 
     if (updateError) {

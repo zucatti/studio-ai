@@ -787,6 +787,253 @@ export async function overlayMusicOnVideo(options: {
  * Detect stretch ratio between reference and generated frames
  * Uses edge detection and correlation to find the optimal scale
  */
+// ============================================================================
+// Section Assembly with Transitions
+// ============================================================================
+
+export interface ShotWithTransition {
+  id: string;
+  videoUrl: string;
+  duration: number;
+  transitionType: 'cut' | 'fadeblack' | 'fadewhite' | 'dissolve';
+  transitionDuration: number;
+}
+
+export interface AssembleSectionOptions {
+  shots: ShotWithTransition[];
+  audioUrl?: string;
+  audioStart?: number;  // Start time in the audio file
+  audioEnd?: number;    // End time in the audio file
+  userId: string;
+  projectId: string;
+  sectionId: string;
+  audioVolume?: number;
+}
+
+export interface AssembleSectionResult {
+  outputUrl: string;
+  signedUrl: string;
+  duration: number;
+}
+
+/**
+ * Map our transition types to FFmpeg xfade transition names
+ */
+function getXfadeTransition(type: ShotWithTransition['transitionType']): string {
+  switch (type) {
+    case 'fadeblack':
+      return 'fadeblack';
+    case 'fadewhite':
+      return 'fadewhite';
+    case 'dissolve':
+      return 'fade';  // xfade uses 'fade' for dissolve
+    case 'cut':
+    default:
+      return '';  // No transition needed
+  }
+}
+
+/**
+ * Assemble a section with shots, transitions, and optional music overlay
+ *
+ * Uses FFmpeg xfade filter for smooth transitions between clips:
+ * - fadeblack: fades to black then to next clip
+ * - fadewhite: fades to white then to next clip
+ * - fade (dissolve): cross-dissolve between clips
+ */
+export async function assembleSectionWithTransitions(
+  options: AssembleSectionOptions
+): Promise<AssembleSectionResult> {
+  await ensureTempDir();
+
+  const {
+    shots,
+    audioUrl,
+    audioStart = 0,
+    audioEnd,
+    userId,
+    projectId,
+    sectionId,
+    audioVolume = 0.8,
+  } = options;
+
+  if (shots.length === 0) {
+    throw new Error('No shots to assemble');
+  }
+
+  const allTempFiles: string[] = [];
+
+  try {
+    console.log(`[FFmpeg] Assembling section with ${shots.length} shots...`);
+
+    // Download all video files
+    const videoFiles: string[] = [];
+    for (let i = 0; i < shots.length; i++) {
+      console.log(`[FFmpeg] Downloading shot ${i + 1}/${shots.length}...`);
+      const tempPath = await downloadToTemp(shots[i].videoUrl, 'mp4');
+      videoFiles.push(tempPath);
+      allTempFiles.push(tempPath);
+    }
+
+    // Get reference resolution from first video
+    const refResolution = await getVideoResolution(videoFiles[0]);
+    console.log(`[FFmpeg] Reference resolution: ${refResolution.width}x${refResolution.height}`);
+
+    // Normalize all videos to same resolution
+    const normalizedFiles: string[] = [];
+    for (let i = 0; i < videoFiles.length; i++) {
+      const normalizedPath = generateTempPath('mp4');
+      allTempFiles.push(normalizedPath);
+
+      await execAsync(
+        `ffmpeg -y -i "${videoFiles[i]}" -vf "scale=${refResolution.width}:${refResolution.height}:flags=lanczos,setsar=1:1,fps=30" -c:v libx264 -preset fast -crf 18 -an "${normalizedPath}"`,
+        { timeout: 180000 }
+      );
+      normalizedFiles.push(normalizedPath);
+    }
+
+    let assembledVideoPath: string;
+
+    if (shots.length === 1) {
+      // Single shot - no transitions needed
+      assembledVideoPath = normalizedFiles[0];
+    } else {
+      // Multiple shots - build xfade filter chain
+      assembledVideoPath = generateTempPath('mp4');
+      allTempFiles.push(assembledVideoPath);
+
+      // Get actual durations from files
+      const durations: number[] = [];
+      for (const file of normalizedFiles) {
+        const dur = await getVideoDurationLocal(file);
+        durations.push(dur);
+        console.log(`[FFmpeg] Shot duration: ${dur.toFixed(3)}s`);
+      }
+
+      // Check if any transitions are non-cut
+      const hasTransitions = shots.slice(0, -1).some(
+        s => s.transitionType !== 'cut' && s.transitionDuration > 0
+      );
+
+      if (!hasTransitions) {
+        // All cuts - use simple concat (faster)
+        console.log(`[FFmpeg] All cuts - using simple concat`);
+        const listPath = generateTempPath('txt');
+        allTempFiles.push(listPath);
+        await writeFile(listPath, normalizedFiles.map(f => `file '${f}'`).join('\n'));
+
+        await execAsync(
+          `ffmpeg -y -f concat -safe 0 -i "${listPath}" -c:v libx264 -preset fast -crf 18 -movflags +faststart "${assembledVideoPath}"`,
+          { timeout: 300000 }
+        );
+      } else {
+        // Has transitions - build xfade filter chain
+        const inputArgs = normalizedFiles.map((f) => `-i "${f}"`).join(' ');
+
+        // Build filter graph
+        // xfade offset = time in OUTPUT stream when transition starts
+        // Each xfade reduces total duration by transitionDuration
+        let filterParts: string[] = [];
+        let currentOffset = 0;
+
+        for (let i = 0; i < shots.length - 1; i++) {
+          const shot = shots[i];
+          const transitionType = getXfadeTransition(shot.transitionType);
+          const transitionDur = (shot.transitionType === 'cut' || !transitionType) ? 0 : Math.min(shot.transitionDuration, durations[i] * 0.5, durations[i + 1] * 0.5);
+
+          const inputA = i === 0 ? '[0:v]' : `[v${i - 1}]`;
+          const inputB = `[${i + 1}:v]`;
+          const output = i === shots.length - 2 ? '[vout]' : `[v${i}]`;
+
+          if (transitionType && transitionDur > 0) {
+            // xfade transition
+            // offset = cumulative duration up to this point - overlap from previous transitions
+            const offset = currentOffset + durations[i] - transitionDur;
+
+            filterParts.push(
+              `${inputA}${inputB}xfade=transition=${transitionType}:duration=${transitionDur.toFixed(3)}:offset=${offset.toFixed(3)}${output}`
+            );
+
+            console.log(`[FFmpeg] Transition ${i}: ${shot.transitionType} @ offset=${offset.toFixed(3)}s, duration=${transitionDur.toFixed(3)}s`);
+
+            // Update offset: after xfade, total time is reduced by transitionDur
+            currentOffset = offset;
+          } else {
+            // Cut - use xfade with wipeleft at 0 duration (instant cut)
+            const offset = currentOffset + durations[i];
+
+            filterParts.push(
+              `${inputA}${inputB}xfade=transition=fade:duration=0.001:offset=${offset.toFixed(3)}${output}`
+            );
+
+            console.log(`[FFmpeg] Cut ${i}: @ offset=${offset.toFixed(3)}s`);
+            currentOffset = offset;
+          }
+        }
+
+        const filterComplex = filterParts.join(';');
+        console.log(`[FFmpeg] Filter complex:\n${filterComplex}`);
+
+        const ffmpegCmd = `ffmpeg -y ${inputArgs} -filter_complex "${filterComplex}" -map "[vout]" -c:v libx264 -preset fast -crf 18 -movflags +faststart "${assembledVideoPath}"`;
+
+        console.log(`[FFmpeg] Running assembly with transitions...`);
+        await execAsync(ffmpegCmd, { timeout: 300000 });
+      }
+    }
+
+    // Get assembled video duration
+    let finalDuration = await getVideoDurationLocal(assembledVideoPath);
+    console.log(`[FFmpeg] Assembled video duration: ${finalDuration}s`);
+
+    // Overlay music if provided
+    let finalVideoPath = assembledVideoPath;
+    if (audioUrl) {
+      console.log(`[FFmpeg] Adding music overlay...`);
+      const audioPath = await downloadToTemp(audioUrl, 'mp3');
+      allTempFiles.push(audioPath);
+
+      finalVideoPath = generateTempPath('mp4');
+      allTempFiles.push(finalVideoPath);
+
+      const audioDuration = (audioEnd || finalDuration) - audioStart;
+
+      // Mix music with video
+      const audioCmd = `ffmpeg -y -i "${assembledVideoPath}" -ss ${audioStart} -t ${audioDuration} -i "${audioPath}" -filter_complex "[1:a]volume=${audioVolume}[music];[music]apad[padded];[padded]atrim=0:${finalDuration}[trimmed]" -map 0:v:0 -map "[trimmed]" -c:v copy -c:a aac -b:a 192k -shortest -movflags +faststart "${finalVideoPath}"`;
+
+      await execAsync(audioCmd, { timeout: 180000 });
+      finalDuration = await getVideoDurationLocal(finalVideoPath);
+    }
+
+    // Upload to B2
+    const outputBuffer = await readFile(finalVideoPath);
+    console.log(`[FFmpeg] Final video size: ${outputBuffer.length} bytes`);
+
+    const sanitizedUserId = userId.replace(/[|]/g, '_');
+    const timestamp = Date.now();
+    const storageKey = `shorts/${sanitizedUserId}/${projectId}/section_${sectionId}_${timestamp}.mp4`;
+
+    const { url } = await uploadFile(storageKey, outputBuffer, 'video/mp4');
+    console.log(`[FFmpeg] Uploaded to: ${url}`);
+
+    const signedUrl = await getSignedFileUrl(storageKey, 3600);
+
+    return {
+      outputUrl: url,
+      signedUrl,
+      duration: finalDuration,
+    };
+  } finally {
+    // Cleanup all temp files
+    for (const file of allTempFiles) {
+      await cleanup(file);
+    }
+  }
+}
+
+/**
+ * Detect stretch ratio between reference and generated frames
+ * Uses edge detection and correlation to find the optimal scale
+ */
 async function detectStretchRatio(
   refFramePath: string,
   genFramePath: string

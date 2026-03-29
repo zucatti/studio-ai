@@ -52,7 +52,8 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
         animation_prompt, generated_video_url, generation_status,
         storyboard_prompt, first_frame_prompt, last_frame_prompt,
         has_dialogue, dialogue_text, dialogue_character_id, dialogue_audio_url,
-        audio_mode, audio_asset_id, audio_start, audio_end
+        audio_mode, audio_asset_id, audio_start, audio_end,
+        transition_type, transition_duration
       `)
       .eq('section_id', sectionId)
       .order('relative_start', { ascending: true });

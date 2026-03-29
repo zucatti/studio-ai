@@ -56,6 +56,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
+import { MultiImageGenerator } from '@/components/ui/multi-image-generator';
 import { generateReferenceName, generateLookReferenceName } from '@/lib/reference-name';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -1720,21 +1721,78 @@ export function CharacterFormDialog({
                           )}
                           Uploader
                         </Button>
-                        {isEditing && (
-                          <Button
-                            onClick={handleGenerateLook}
-                            disabled={!newLookDescription.trim() || uploadingLook || generatingLook}
-                            className="flex-1 min-w-[140px] bg-purple-600 hover:bg-purple-700 text-white"
-                          >
-                            {generatingLook ? (
-                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            ) : (
-                              <Wand2 className="w-4 h-4 mr-2" />
-                            )}
-                            Générer
-                          </Button>
-                        )}
                       </div>
+
+                      {/* Multi-image generation */}
+                      {isEditing && (
+                        <MultiImageGenerator
+                          aspectRatio={aspectRatio}
+                          initialCount={4}
+                          compact
+                          disabled={!newLookDescription.trim() || uploadingLook}
+                          generateButtonText="Générer"
+                          confirmButtonText="Garder"
+                          multiSelect
+                          onGenerate={async (count) => {
+                            // Generate multiple images and return job IDs
+                            const jobIds: string[] = [];
+                            for (let i = 0; i < count; i++) {
+                              const res = await fetch(`/api/global-assets/${character!.id}/generate-images`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                  mode: 'generate_look',
+                                  lookName: newLookName.trim() || `Look ${i + 1}`,
+                                  lookDescription: newLookDescription.trim(),
+                                  style,
+                                  model: selectedModel,
+                                  resolution,
+                                  aspectRatio,
+                                }),
+                              });
+                              if (res.ok) {
+                                const data = await res.json();
+                                if (data.jobId) {
+                                  jobIds.push(data.jobId);
+                                }
+                              }
+                            }
+                            return jobIds;
+                          }}
+                          onPollJob={async (jobId) => {
+                            const res = await fetch(`/api/jobs/${jobId}`);
+                            if (!res.ok) throw new Error('Failed to fetch job');
+                            const data = await res.json();
+                            const job = data.job || data;
+                            // Extract imageUrl from various possible locations
+                            const resultData = job.result_data || job.output_data || {};
+                            let imageUrl = resultData.imageUrl;
+                            // fal.ai format: images[0].url
+                            if (!imageUrl && resultData.images && Array.isArray(resultData.images) && resultData.images[0]) {
+                              imageUrl = resultData.images[0].url;
+                            }
+                            return {
+                              status: job.status,
+                              progress: job.progress,
+                              imageUrl,
+                            };
+                          }}
+                          onSelect={(imageUrls) => {
+                            // Add selected images as looks
+                            const baseName = newLookName.trim() || 'Look généré';
+                            const newLooks = imageUrls.map((url, i) => ({
+                              id: crypto.randomUUID(),
+                              name: imageUrls.length > 1 ? `${baseName} ${i + 1}` : baseName,
+                              description: newLookDescription.trim(),
+                              imageUrl: url,
+                            }));
+                            setLooks((prev) => [...prev, ...newLooks]);
+                            setNewLookName('');
+                            setNewLookDescription('');
+                            toast.success(`${newLooks.length} look${newLooks.length > 1 ? 's' : ''} ajouté${newLooks.length > 1 ? 's' : ''}`);
+                          }}
+                        />
+                      )}
                     </div>
                   </div>
 
