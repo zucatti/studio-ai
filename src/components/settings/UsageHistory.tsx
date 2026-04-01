@@ -42,11 +42,8 @@ interface UsageHistoryData {
 const PROVIDER_LABELS: Record<ApiProvider, string> = {
   claude: 'Claude',
   fal: 'fal.ai',
-  wavespeed: 'WaveSpeed',
   runway: 'Runway',
-  modelslab: 'ModelsLab',
   elevenlabs: 'ElevenLabs',
-  creatomate: 'Creatomate',
   global: 'Global',
 };
 
@@ -114,11 +111,8 @@ export function UsageHistory() {
                 <SelectItem value="all">Tous</SelectItem>
                 <SelectItem value="claude">Claude</SelectItem>
                 <SelectItem value="fal">fal.ai</SelectItem>
-                <SelectItem value="wavespeed">WaveSpeed</SelectItem>
                 <SelectItem value="runway">Runway</SelectItem>
-                <SelectItem value="modelslab">ModelsLab</SelectItem>
                 <SelectItem value="elevenlabs">ElevenLabs</SelectItem>
-                <SelectItem value="creatomate">Creatomate</SelectItem>
               </SelectContent>
             </Select>
             <Select value={statusFilter} onValueChange={(v) => { setStatusFilter(v); setPage(1); }}>

@@ -49,16 +49,10 @@ interface UsageData {
     usage?: FalUsageData;
     error?: string;
   };
-  wavespeed: ProviderUsageData;
   runway: ProviderUsageData;
-  modelslab: ProviderUsageData;
   elevenlabs: {
     status: 'connected' | 'error' | 'not_configured';
     usage?: ElevenLabsUsageData;
-    error?: string;
-  };
-  creatomate: {
-    status: 'connected' | 'error' | 'not_configured';
     error?: string;
   };
 }
@@ -106,11 +100,8 @@ export async function GET(request: Request) {
     const usage: UsageData = {
       claude: { status: 'not_configured', hasAdminKey: false },
       fal: { status: 'not_configured' },
-      wavespeed: { status: 'not_configured' },
       runway: { status: 'not_configured' },
-      modelslab: { status: 'not_configured' },
       elevenlabs: { status: 'not_configured' },
-      creatomate: { status: 'not_configured' },
     };
 
     // ========== CLAUDE ==========
@@ -333,49 +324,6 @@ export async function GET(request: Request) {
       }
     }
 
-    // ========== WAVESPEED ==========
-    if (process.env.AI_WAVESPEED) {
-      try {
-        // WaveSpeed balance endpoint: GET /api/v3/balance
-        // Docs: https://wavespeed.ai/docs/docs-common-api/balance
-        const balanceRes = await fetch('https://api.wavespeed.ai/api/v3/balance', {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${process.env.AI_WAVESPEED}`,
-            'Content-Type': 'application/json',
-          },
-        });
-
-        if (balanceRes.ok) {
-          const data = await balanceRes.json();
-          console.log('[WaveSpeed] Balance response:', JSON.stringify(data));
-          // Response format: { data: { balance: number } } or { balance: number }
-          const balance = data.data?.balance ?? data.balance;
-          usage.wavespeed = {
-            status: 'connected',
-            usage: balance !== undefined ? {
-              currentBalance: typeof balance === 'number' ? balance : parseFloat(balance),
-            } : undefined,
-          };
-        } else if (balanceRes.status === 401) {
-          usage.wavespeed = {
-            status: 'error',
-            error: 'Clé API invalide',
-          };
-        } else {
-          const errorText = await balanceRes.text();
-          console.log('[WaveSpeed] Error response:', balanceRes.status, errorText);
-          usage.wavespeed = { status: 'connected' };
-        }
-      } catch (e) {
-        console.error('[WaveSpeed] Exception:', e);
-        usage.wavespeed = {
-          status: 'error',
-          error: String(e),
-        };
-      }
-    }
-
     // ========== RUNWAY ==========
     if (process.env.AI_RUNWAY_ML) {
       try {
@@ -412,45 +360,6 @@ export async function GET(request: Request) {
       } catch (e) {
         console.error('[Runway] Exception:', e);
         usage.runway = {
-          status: 'error',
-          error: String(e),
-        };
-      }
-    }
-
-    // ========== MODELSLAB ==========
-    if (process.env.AI_MODELS_LAB) {
-      try {
-        // ModelsLab v6 API doesn't have a balance endpoint for regular API keys
-        // The wallet endpoint (/api/agents/v1/wallet/balance) requires a separate agent token
-        // We verify the key by making a test fetch request
-        const testRes = await fetch('https://modelslab.com/api/v6/images/fetch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            key: process.env.AI_MODELS_LAB,
-            request_id: 'test-connection-check',
-          }),
-        });
-
-        const testData = await testRes.json();
-        console.log('[ModelsLab] Test response:', JSON.stringify(testData));
-
-        // If key is invalid, we get a specific error message
-        if (testData.status === 'error' &&
-            (testData.message?.toLowerCase().includes('invalid') ||
-             testData.message?.toLowerCase().includes('api key'))) {
-          usage.modelslab = {
-            status: 'error',
-            error: 'Clé API invalide',
-          };
-        } else {
-          // Key is valid - no balance API available for v6 keys
-          usage.modelslab = { status: 'connected' };
-        }
-      } catch (e) {
-        console.error('[ModelsLab] Exception:', e);
-        usage.modelslab = {
           status: 'error',
           error: String(e),
         };
@@ -511,42 +420,9 @@ export async function GET(request: Request) {
       }
     }
 
-    // ========== CREATOMATE ==========
-    if (process.env.AI_CREATOMATE_API) {
-      try {
-        // Test the key by listing templates
-        const testRes = await fetch('https://api.creatomate.com/v1/templates?page_size=1', {
-          headers: {
-            'Authorization': `Bearer ${process.env.AI_CREATOMATE_API}`,
-          },
-        });
-
-        if (testRes.ok) {
-          usage.creatomate = {
-            status: 'connected',
-          };
-        } else if (testRes.status === 401 || testRes.status === 403) {
-          usage.creatomate = {
-            status: 'error',
-            error: 'Invalid API key',
-          };
-        } else {
-          usage.creatomate = {
-            status: 'connected', // Assume connected if we get other errors
-          };
-        }
-      } catch (e) {
-        usage.creatomate = {
-          status: 'error',
-          error: String(e),
-        };
-      }
-    }
-
     return NextResponse.json(usage);
   } catch (error) {
     console.error('Error fetching usage:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }
-

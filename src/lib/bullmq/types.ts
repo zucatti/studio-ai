@@ -134,27 +134,20 @@ export type JobData =
   | QuickShotGenJobData;
 
 // Video models supported
-// Includes fal.ai short names and WaveSpeed full paths
 export type VideoModel =
-  // fal.ai models (short names)
+  // fal.ai models
   | 'kling-omni'
   | 'sora-2'
   | 'veo-3'
   | 'omnihuman'
-  | 'wan-2.1'
-  | 'wan-2.6'
-  // WaveSpeed models (full paths)
-  | 'kwaivgi/kling-video-o3-pro/image-to-video'
-  | 'kwaivgi/kling-v3.0-pro/image-to-video'
-  | 'google/veo3.1/image-to-video'
-  | 'bytedance/seedance-v1.5-pro/image-to-video'
-  | 'alibaba/wan-2.6/image-to-video'
-  | 'bytedance/avatar-omni-human-1.5'
+  // Runway models
+  | 'gen4'
+  | 'gen4.5'
   // Allow any string for flexibility
   | (string & {});
 
 // Video providers
-export type VideoProvider = 'fal' | 'wavespeed' | 'modelslab';
+export type VideoProvider = 'fal' | 'runway';
 
 // Aspect ratios
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5' | '2:3' | '21:9';
@@ -175,7 +168,7 @@ export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
 
 // Queue configuration
 export const QUEUE_CONFIG: Record<QueueName, { concurrency: number; timeout: number }> = {
-  [QUEUE_NAMES.VIDEO_GEN]: { concurrency: 3, timeout: 420000 }, // 7 min (WaveSpeed can take up to 6 min)
+  [QUEUE_NAMES.VIDEO_GEN]: { concurrency: 3, timeout: 420000 }, // 7 min
   [QUEUE_NAMES.IMAGE_GEN]: { concurrency: 5, timeout: 90000 }, // 90s
   [QUEUE_NAMES.AUDIO_GEN]: { concurrency: 5, timeout: 30000 }, // 30s
   [QUEUE_NAMES.FFMPEG]: { concurrency: 2, timeout: 120000 }, // 2 min

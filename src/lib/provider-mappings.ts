@@ -2,7 +2,7 @@
  * Provider-specific result mappings for extracting data from different AI providers
  */
 
-export type ProviderType = 'fal' | 'creatomate' | 'elevenlabs' | 'wavespeed' | 'runway' | 'modelslab';
+export type ProviderType = 'fal' | 'elevenlabs' | 'runway';
 
 interface ExtractedResult {
   imageUrl?: string;
@@ -55,35 +55,6 @@ const falExtractor: ResultExtractor = (payload) => {
 };
 
 /**
- * WaveSpeedAI result extractor
- * Structure: { code, message, data: { id, status, outputs: ["url"] } }
- */
-const wavespeedExtractor: ResultExtractor = (payload) => {
-  const data = (payload.data as Record<string, unknown>) || payload;
-
-  let imageUrl: string | undefined;
-  let videoUrl: string | undefined;
-
-  // Outputs array
-  if (data.outputs && Array.isArray(data.outputs) && data.outputs.length > 0) {
-    const url = data.outputs[0] as string;
-    if (url.includes('.mp4') || url.includes('video')) {
-      videoUrl = url;
-    } else {
-      imageUrl = url;
-    }
-  }
-  // Output object with url
-  else if (data.output && typeof data.output === 'object') {
-    const output = data.output as { url?: string; video_url?: string };
-    imageUrl = output.url;
-    videoUrl = output.video_url;
-  }
-
-  return { imageUrl, videoUrl };
-};
-
-/**
  * Runway ML result extractor
  * Structure: task.output[0] contains video URL
  */
@@ -113,43 +84,6 @@ const runwayExtractor: ResultExtractor = (payload) => {
 };
 
 /**
- * ModelsLab result extractor
- * Structure: { status, output: ["url"], ... }
- */
-const modelslabExtractor: ResultExtractor = (payload) => {
-  let imageUrl: string | undefined;
-  let videoUrl: string | undefined;
-
-  // Output array
-  if (payload.output && Array.isArray(payload.output) && payload.output.length > 0) {
-    const url = payload.output[0] as string;
-    if (url.includes('.mp4') || url.includes('video')) {
-      videoUrl = url;
-    } else {
-      imageUrl = url;
-    }
-  }
-  // Future result URL
-  else if (payload.future_links && Array.isArray(payload.future_links) && payload.future_links.length > 0) {
-    imageUrl = payload.future_links[0] as string;
-  }
-
-  return { imageUrl, videoUrl };
-};
-
-/**
- * Creatomate result extractor
- * Structure: { url, snapshot_url, ... }
- */
-const creatomateExtractor: ResultExtractor = (payload) => {
-  return {
-    videoUrl: payload.url as string | undefined,
-    thumbnailUrl: payload.snapshot_url as string | undefined,
-    duration: payload.duration as number | undefined,
-  };
-};
-
-/**
  * ElevenLabs result extractor
  * Structure: { audio_url } or binary audio data
  */
@@ -164,11 +98,8 @@ const elevenlabsExtractor: ResultExtractor = (payload) => {
  */
 const extractors: Record<ProviderType, ResultExtractor> = {
   fal: falExtractor,
-  creatomate: creatomateExtractor,
   elevenlabs: elevenlabsExtractor,
-  wavespeed: wavespeedExtractor,
   runway: runwayExtractor,
-  modelslab: modelslabExtractor,
 };
 
 /**
@@ -178,17 +109,8 @@ export function detectProvider(endpoint: string): ProviderType {
   if (endpoint.includes('fal-ai') || endpoint.includes('fal.ai')) {
     return 'fal';
   }
-  if (endpoint.includes('wavespeed')) {
-    return 'wavespeed';
-  }
   if (endpoint.includes('runway') || endpoint.includes('runwayml')) {
     return 'runway';
-  }
-  if (endpoint.includes('modelslab')) {
-    return 'modelslab';
-  }
-  if (endpoint.includes('creatomate')) {
-    return 'creatomate';
   }
   if (endpoint.includes('elevenlabs')) {
     return 'elevenlabs';

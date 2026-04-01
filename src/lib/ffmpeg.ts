@@ -1,6 +1,6 @@
 /**
  * FFmpeg utilities for video processing
- * Replaces Creatomate for concat and merge operations
+ * Handles concat and merge operations locally
  */
 
 import { exec } from 'child_process';

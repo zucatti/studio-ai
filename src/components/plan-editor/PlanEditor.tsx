@@ -139,10 +139,10 @@ export function PlanEditor({
   const [generatingFrame, setGeneratingFrame] = useState<'in' | 'out' | null>(null);
 
   // Video generation - auto-select based on dialogue
-  // With dialogue → fal.ai + OmniHuman 1.5 (real quality)
-  // Without dialogue → WaveSpeed + Kling O3 Pro (best video quality)
-  const videoProvider = hasDialogue ? 'fal' : 'wavespeed';
-  const videoModel = hasDialogue ? 'omnihuman' : 'kwaivgi/kling-video-o3-pro/image-to-video';
+  // With dialogue → fal.ai + OmniHuman 1.5 (lip-sync)
+  // Without dialogue → fal.ai + Kling 3.0 Omni (best video quality)
+  const videoProvider = 'fal';
+  const videoModel = hasDialogue ? 'omnihuman' : 'kling-omni';
 
   // Video preview
   const [showVideoPreview, setShowVideoPreview] = useState(false);

@@ -17,6 +17,7 @@ import {
   ensureCredit,
 } from '@/lib/credits';
 import { isCreditError, formatCreditError } from './credit-error';
+import { captureSnapshot, calculateConsumption } from './billing-snapshot';
 
 // Configure fal.ai client
 fal.config({
@@ -63,13 +64,14 @@ export class FalWrapper {
 
   /**
    * Subscribe to a fal.ai endpoint with automatic credit management
+   * Uses billing snapshots to calculate real consumption
    */
   async subscribe<TInput extends Record<string, unknown>, TOutput>(
     options: FalSubscribeOptions<TInput>
   ): Promise<FalWrapperResult<TOutput>> {
     const { endpoint, input, logs, onQueueUpdate } = options;
 
-    // Step 1: Estimate cost before the call
+    // Step 1: Estimate cost before the call (for budget check)
     const estimatedCost = calculateFalCost(endpoint, 1);
 
     // Step 2: Check budget
@@ -96,7 +98,10 @@ export class FalWrapper {
       throw error;
     }
 
-    // Step 3: Make the API call
+    // Step 3: Capture billing snapshot BEFORE the call
+    const snapshotBefore = await captureSnapshot('fal');
+
+    // Step 4: Make the API call
     let result: { data: TOutput; requestId: string };
     try {
       result = await fal.subscribe(endpoint, {
@@ -118,10 +123,19 @@ export class FalWrapper {
       throw error;
     }
 
-    // Step 4: Log successful usage
-    // Note: fal.ai doesn't return exact cost, so we use estimated
-    const actualCost = estimatedCost;
+    // Step 5: Small delay then capture billing snapshot AFTER the call
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const snapshotAfter = await captureSnapshot('fal');
 
+    // Step 6: Calculate actual cost from delta
+    const consumption = calculateConsumption(snapshotBefore, snapshotAfter);
+    const actualCost = (consumption?.reliable && consumption.cost > 0)
+      ? consumption.cost
+      : estimatedCost;
+
+    console.log(`[fal.ai] Billing delta: $${consumption?.cost?.toFixed(4) || 'N/A'} (reliable: ${consumption?.reliable}), using: $${actualCost.toFixed(4)}`);
+
+    // Step 7: Log successful usage with actual cost
     await this.creditService.logUsage(this.userId, {
       provider: 'fal',
       endpoint,
@@ -131,6 +145,8 @@ export class FalWrapper {
       status: 'success',
       metadata: {
         requestId: result.requestId,
+        billingDelta: consumption?.cost,
+        billingReliable: consumption?.reliable,
       },
     });
 
@@ -143,6 +159,7 @@ export class FalWrapper {
 
   /**
    * Run a fal.ai endpoint directly (non-queued) with credit management
+   * Uses billing snapshots to calculate real consumption
    */
   async run<TInput extends Record<string, unknown>, TOutput>(
     endpoint: string,
@@ -174,7 +191,10 @@ export class FalWrapper {
       throw error;
     }
 
-    // Step 3: Make the API call
+    // Step 3: Capture billing snapshot BEFORE the call
+    const snapshotBefore = await captureSnapshot('fal');
+
+    // Step 4: Make the API call
     let result: TOutput;
     try {
       const response = await fal.run(endpoint, { input });
@@ -192,19 +212,35 @@ export class FalWrapper {
       throw error;
     }
 
-    // Step 4: Log success
+    // Step 5: Small delay then capture billing snapshot AFTER the call
+    await new Promise(resolve => setTimeout(resolve, 500));
+    const snapshotAfter = await captureSnapshot('fal');
+
+    // Step 6: Calculate actual cost from delta
+    const consumption = calculateConsumption(snapshotBefore, snapshotAfter);
+    const actualCost = (consumption?.reliable && consumption.cost > 0)
+      ? consumption.cost
+      : estimatedCost;
+
+    console.log(`[fal.ai] Billing delta: $${consumption?.cost?.toFixed(4) || 'N/A'} (reliable: ${consumption?.reliable}), using: $${actualCost.toFixed(4)}`);
+
+    // Step 7: Log success with actual cost
     await this.creditService.logUsage(this.userId, {
       provider: 'fal',
       endpoint,
       operation: this.operation,
       project_id: this.projectId,
-      estimated_cost: estimatedCost,
+      estimated_cost: actualCost,
       status: 'success',
+      metadata: {
+        billingDelta: consumption?.cost,
+        billingReliable: consumption?.reliable,
+      },
     });
 
     return {
       result,
-      cost: estimatedCost,
+      cost: actualCost,
     };
   }
 

@@ -12,6 +12,7 @@ import {
   ensureCredit,
 } from '@/lib/credits';
 import { isCreditError, formatCreditError } from './credit-error';
+import { captureSnapshot, calculateConsumption } from './billing-snapshot';
 
 export interface RunwayWrapperOptions {
   userId: string;
@@ -103,6 +104,9 @@ export class RunwayWrapper {
       throw error;
     }
 
+    // Capture billing snapshot before API call
+    const snapshotBefore = await captureSnapshot('runway');
+
     let result: RunwayTaskResult;
     try {
       // Determine endpoint based on model
@@ -169,18 +173,37 @@ export class RunwayWrapper {
       throw error;
     }
 
+    // Allow billing to update
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Capture billing snapshot after API call
+    const snapshotAfter = await captureSnapshot('runway');
+    const consumption = calculateConsumption(snapshotBefore, snapshotAfter);
+
+    // Use actual cost if available, otherwise fall back to estimate
+    const actualCost = (consumption?.reliable && consumption.cost > 0)
+      ? consumption.cost
+      : estimatedCost;
+
+    console.log(`[Runway] Billing: estimated=${estimatedCost}, actual=${actualCost}, reliable=${consumption?.reliable}`);
+
     await this.creditService.logUsage(this.userId, {
       provider: 'runway',
       model: input.model,
       operation: this.operation,
       project_id: this.projectId,
       video_duration: input.duration || 5,
-      estimated_cost: estimatedCost,
+      estimated_cost: actualCost,
       status: 'success',
-      metadata: { taskId: result.task_id },
+      metadata: {
+        taskId: result.task_id,
+        billingReliable: consumption?.reliable,
+        estimatedCost,
+        actualCost,
+      },
     });
 
-    return { result, cost: estimatedCost, taskId: result.task_id };
+    return { result, cost: actualCost, taskId: result.task_id };
   }
 
   /**
@@ -206,6 +229,9 @@ export class RunwayWrapper {
       }
       throw error;
     }
+
+    // Capture billing snapshot before API call
+    const snapshotBefore = await captureSnapshot('runway');
 
     let result: RunwayTaskResult;
     try {
@@ -248,18 +274,37 @@ export class RunwayWrapper {
       throw error;
     }
 
+    // Allow billing to update
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // Capture billing snapshot after API call
+    const snapshotAfter = await captureSnapshot('runway');
+    const consumption = calculateConsumption(snapshotBefore, snapshotAfter);
+
+    // Use actual cost if available, otherwise fall back to estimate
+    const actualCost = (consumption?.reliable && consumption.cost > 0)
+      ? consumption.cost
+      : estimatedCost;
+
+    console.log(`[Runway] Image billing: estimated=${estimatedCost}, actual=${actualCost}, reliable=${consumption?.reliable}`);
+
     await this.creditService.logUsage(this.userId, {
       provider: 'runway',
       model: input.model,
       operation: this.operation,
       project_id: this.projectId,
       images_count: 1,
-      estimated_cost: estimatedCost,
+      estimated_cost: actualCost,
       status: 'success',
-      metadata: { taskId: result.task_id },
+      metadata: {
+        taskId: result.task_id,
+        billingReliable: consumption?.reliable,
+        estimatedCost,
+        actualCost,
+      },
     });
 
-    return { result, cost: estimatedCost, taskId: result.task_id };
+    return { result, cost: actualCost, taskId: result.task_id };
   }
 
   /**

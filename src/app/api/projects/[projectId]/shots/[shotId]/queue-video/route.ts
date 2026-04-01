@@ -147,10 +147,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Determine provider and model
-    const videoProvider = (requestedProvider && ['wavespeed', 'modelslab', 'fal'].includes(requestedProvider))
+    const videoProvider = (requestedProvider && ['fal', 'runway'].includes(requestedProvider))
       ? requestedProvider
       : 'fal';
-    const videoModel = requestedModel || (videoProvider === 'fal' ? 'kling-omni' : 'wan-2.1');
+    const videoModel = requestedModel || (videoProvider === 'runway' ? 'gen4' : 'kling-omni');
     const videoDuration = duration || shot.suggested_duration || 5;
 
     // Map aspect ratio

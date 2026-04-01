@@ -12,11 +12,8 @@ interface CreditAlertProps {
 const PROVIDER_LABELS: Record<ApiProvider, string> = {
   claude: 'Claude',
   fal: 'fal.ai',
-  wavespeed: 'WaveSpeed',
   runway: 'Runway',
-  modelslab: 'ModelsLab',
   elevenlabs: 'ElevenLabs',
-  creatomate: 'Creatomate',
   global: 'Budget Global',
 };
 

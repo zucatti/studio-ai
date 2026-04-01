@@ -135,8 +135,8 @@ export function PlanEditorModal({
   const [pickingFrame, setPickingFrame] = useState<'in' | 'out' | null>(null);
 
   // Video generation settings
-  const [videoProvider, setVideoProvider] = useState<VideoProvider>('wavespeed');
-  const [videoModel, setVideoModel] = useState('kwaivgi/kling-v3.0-pro/image-to-video');
+  const [videoProvider, setVideoProvider] = useState<VideoProvider>('fal');
+  const [videoModel, setVideoModel] = useState('kling-omni');
   const [showAdvancedVideo, setShowAdvancedVideo] = useState(false); // Hidden by default
 
   // Get appropriate video models based on provider and dialogue state
@@ -1562,7 +1562,7 @@ export function PlanEditorModal({
                       <div>
                         <Label className="text-slate-400 text-xs mb-1.5 block">Provider</Label>
                         <div className="inline-flex rounded-lg bg-white/5 p-1 w-full">
-                          {(['wavespeed', 'modelslab', 'fal'] as VideoProvider[]).map((provider) => (
+                          {(['fal', 'runway'] as VideoProvider[]).map((provider) => (
                             <button
                               key={provider}
                               onClick={() => setVideoProvider(provider)}

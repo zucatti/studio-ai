@@ -9,9 +9,7 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { ApiProvider, ApiCallStatus } from '@/types/database';
 import {
   calculateFalCost,
-  calculateWavespeedCost,
   calculateRunwayCost,
-  calculateModelslabCost,
   calculateElevenLabsCost,
   calculateClaudeCost,
 } from '@/lib/credits';
@@ -92,14 +90,8 @@ function calculateCostForProvider(params: LogApiUsageParams): number {
     case 'fal':
       return calculateFalCost(model, params.imagesCount || 1);
 
-    case 'wavespeed':
-      return calculateWavespeedCost(model, params.imagesCount || 1, params.videoDuration);
-
     case 'runway':
       return calculateRunwayCost(model, params.videoDuration || 5);
-
-    case 'modelslab':
-      return calculateModelslabCost(model, params.imagesCount || 1);
 
     case 'elevenlabs':
       return calculateElevenLabsCost(model, params.characters || 0);
@@ -138,25 +130,6 @@ export async function logFalUsage(options: {
   });
 }
 
-export async function logWavespeedUsage(options: {
-  operation: string;
-  model: string;
-  imagesCount?: number;
-  videoDuration?: number;
-  projectId?: string;
-  estimatedCost?: number;
-}): Promise<void> {
-  await logApiUsage({
-    provider: 'wavespeed',
-    operation: options.operation,
-    model: options.model,
-    imagesCount: options.imagesCount,
-    videoDuration: options.videoDuration,
-    projectId: options.projectId,
-    estimatedCost: options.estimatedCost,
-  });
-}
-
 export async function logRunwayUsage(options: {
   operation: string;
   model: string;
@@ -168,25 +141,6 @@ export async function logRunwayUsage(options: {
     provider: 'runway',
     operation: options.operation,
     model: options.model,
-    videoDuration: options.videoDuration,
-    projectId: options.projectId,
-    estimatedCost: options.estimatedCost,
-  });
-}
-
-export async function logModelslabUsage(options: {
-  operation: string;
-  model: string;
-  imagesCount?: number;
-  videoDuration?: number;
-  projectId?: string;
-  estimatedCost?: number;
-}): Promise<void> {
-  await logApiUsage({
-    provider: 'modelslab',
-    operation: options.operation,
-    model: options.model,
-    imagesCount: options.imagesCount,
     videoDuration: options.videoDuration,
     projectId: options.projectId,
     estimatedCost: options.estimatedCost,

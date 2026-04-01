@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { getAllPrices, refreshCache, needsSync } from '@/lib/pricing-service';
+import { refreshCache, needsSync } from '@/lib/pricing-service';
 
 // Admin user IDs that can modify pricing
 const ADMIN_USER_IDS = [
@@ -130,19 +130,18 @@ export async function POST(request: NextRequest) {
  */
 async function syncPricesFromProviders(supabase: ReturnType<typeof createServerSupabaseClient>) {
   const results = {
-    wavespeed: { updated: 0, errors: [] as string[] },
     fal: { updated: 0, errors: [] as string[] },
     runway: { updated: 0, errors: [] as string[] },
   };
 
-  // Sync WaveSpeed prices
+  // Sync fal.ai prices
   try {
-    const wavespeedPrices = await fetchWavespeedPrices();
-    for (const price of wavespeedPrices) {
+    const falPrices = await fetchFalPrices();
+    for (const price of falPrices) {
       const { error } = await supabase
         .from('provider_pricing')
         .upsert({
-          provider: 'wavespeed',
+          provider: 'fal',
           model: price.model,
           model_alias: price.alias,
           price_per_unit: price.price,
@@ -156,20 +155,50 @@ async function syncPricesFromProviders(supabase: ReturnType<typeof createServerS
         });
 
       if (error) {
-        results.wavespeed.errors.push(price.model);
+        results.fal.errors.push(price.model);
       } else {
-        results.wavespeed.updated++;
+        results.fal.updated++;
       }
     }
   } catch (error) {
-    results.wavespeed.errors.push(`Sync failed: ${error}`);
+    results.fal.errors.push(`Sync failed: ${error}`);
+  }
+
+  // Sync Runway prices
+  try {
+    const runwayPrices = await fetchRunwayPrices();
+    for (const price of runwayPrices) {
+      const { error } = await supabase
+        .from('provider_pricing')
+        .upsert({
+          provider: 'runway',
+          model: price.model,
+          model_alias: price.alias,
+          price_per_unit: price.price,
+          unit_type: price.unitType,
+          category: price.category,
+          display_name: price.displayName,
+          source: 'api',
+          last_synced_at: new Date().toISOString(),
+        }, {
+          onConflict: 'provider,model',
+        });
+
+      if (error) {
+        results.runway.errors.push(price.model);
+      } else {
+        results.runway.updated++;
+      }
+    }
+  } catch (error) {
+    results.runway.errors.push(`Sync failed: ${error}`);
   }
 
   // Log sync
   await supabase.from('pricing_sync_log').insert({
     provider: 'all',
     status: 'success',
-    models_updated: results.wavespeed.updated + results.fal.updated + results.runway.updated,
+    models_updated: results.fal.updated + results.runway.updated,
     sync_source: 'api',
   });
 
@@ -177,10 +206,9 @@ async function syncPricesFromProviders(supabase: ReturnType<typeof createServerS
 }
 
 /**
- * Fetch prices from WaveSpeed API
- * Note: This is a placeholder - implement actual API call when available
+ * Fetch fal.ai prices
  */
-async function fetchWavespeedPrices(): Promise<Array<{
+async function fetchFalPrices(): Promise<Array<{
   model: string;
   alias?: string;
   price: number;
@@ -188,29 +216,32 @@ async function fetchWavespeedPrices(): Promise<Array<{
   category: string;
   displayName: string;
 }>> {
-  // WaveSpeed pricing page: https://wavespeed.ai/pricing
-  // If they have an API, we'd call it here
-
-  // For now, return current known prices (March 2026)
   return [
-    // Kling
-    { model: 'kwaivgi/kling-video-o3-pro/image-to-video', alias: 'kling-o3-pro', price: 0.02, unitType: 'per_generation', category: 'video', displayName: 'Kling O3 Pro' },
-    { model: 'kwaivgi/kling-video-o3-std/image-to-video', alias: 'kling-o3-std', price: 0.015, unitType: 'per_generation', category: 'video', displayName: 'Kling O3 Std' },
-    // Sora
-    { model: 'openai/sora-2/image-to-video', alias: 'sora-2', price: 0.10, unitType: 'per_generation', category: 'video', displayName: 'Sora 2' },
-    { model: 'openai/sora-2-pro/image-to-video', alias: 'sora-2-pro', price: 0.15, unitType: 'per_generation', category: 'video', displayName: 'Sora 2 Pro' },
-    // Veo
-    { model: 'google/veo3.1/image-to-video', alias: 'veo-3.1', price: 0.40, unitType: 'per_generation', category: 'video', displayName: 'Veo 3.1' },
-    // Seedance
-    { model: 'bytedance/seedance-v2.0/image-to-video', alias: 'seedance-2', price: 0.03, unitType: 'per_generation', category: 'video', displayName: 'Seedance 2.0' },
-    { model: 'bytedance/seedance-v1.5-pro/image-to-video', alias: 'seedance-1.5', price: 0.025, unitType: 'per_generation', category: 'video', displayName: 'Seedance 1.5' },
-    // WAN
-    { model: 'alibaba/wan-2.6/image-to-video', alias: 'wan-2.6', price: 0.02, unitType: 'per_generation', category: 'video', displayName: 'WAN 2.6' },
-    { model: 'alibaba/wan-2.5/image-to-video', alias: 'wan-2.5', price: 0.05, unitType: 'per_generation', category: 'video', displayName: 'WAN 2.5' },
-    // OmniHuman
-    { model: 'bytedance/omnihuman-1.5/image-to-video', alias: 'omnihuman-1.5', price: 0.05, unitType: 'per_generation', category: 'video', displayName: 'OmniHuman 1.5' },
-    // Image
-    { model: 'flux-dev', price: 0.005, unitType: 'per_generation', category: 'image', displayName: 'Flux Dev' },
-    { model: 'flux-schnell', price: 0.005, unitType: 'per_generation', category: 'image', displayName: 'Flux Schnell' },
+    { model: 'fal-ai/nano-banana-2', alias: 'nano-banana-2', price: 0.04, unitType: 'per_generation', category: 'image', displayName: 'Nano Banana 2' },
+    { model: 'fal-ai/seedream-v4', alias: 'seedream-v4', price: 0.03, unitType: 'per_generation', category: 'image', displayName: 'Seedream v4' },
+    { model: 'fal-ai/flux/schnell', alias: 'flux-schnell', price: 0.003, unitType: 'per_generation', category: 'image', displayName: 'Flux Schnell' },
+    { model: 'fal-ai/flux/dev', alias: 'flux-dev', price: 0.01, unitType: 'per_generation', category: 'image', displayName: 'Flux Dev' },
+    { model: 'fal-ai/kling-video/v3/standard/image-to-video', alias: 'kling-omni', price: 0.10, unitType: 'per_generation', category: 'video', displayName: 'Kling 3.0 Omni' },
+    { model: 'fal-ai/veo3.1/fast/image-to-video', alias: 'veo-3', price: 0.40, unitType: 'per_generation', category: 'video', displayName: 'Veo 3.1' },
+    { model: 'fal-ai/bytedance/omnihuman/v1.5', alias: 'omnihuman', price: 0.05, unitType: 'per_generation', category: 'video', displayName: 'OmniHuman 1.5' },
+    { model: 'fal-ai/sora-2/image-to-video', alias: 'sora-2', price: 0.10, unitType: 'per_generation', category: 'video', displayName: 'Sora 2' },
+  ];
+}
+
+/**
+ * Fetch Runway prices
+ */
+async function fetchRunwayPrices(): Promise<Array<{
+  model: string;
+  alias?: string;
+  price: number;
+  unitType: string;
+  category: string;
+  displayName: string;
+}>> {
+  return [
+    { model: 'gen4', alias: 'gen4', price: 0.05, unitType: 'per_second', category: 'video', displayName: 'Gen-4 Turbo' },
+    { model: 'gen4.5', alias: 'gen4.5', price: 0.10, unitType: 'per_second', category: 'video', displayName: 'Gen-4.5' },
+    { model: 'gen4-image', alias: 'gen4-image', price: 0.05, unitType: 'per_generation', category: 'image', displayName: 'Gen-4 Image' },
   ];
 }

@@ -2,7 +2,7 @@
  * Credit Management Service
  *
  * Handles budget verification, usage logging, and spending tracking
- * for all API providers (fal.ai, WaveSpeed, Runway, ModelsLab, ElevenLabs, Creatomate)
+ * for all API providers (fal.ai, Runway, ElevenLabs, Claude)
  */
 
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -34,7 +34,7 @@ export interface ProviderConfig {
 }
 
 // Dashboard providers
-export type DashboardProvider = 'claude' | 'fal' | 'wavespeed' | 'runway' | 'modelslab' | 'elevenlabs' | 'creatomate';
+export type DashboardProvider = 'claude' | 'fal' | 'runway' | 'elevenlabs';
 
 export const PROVIDERS: Record<DashboardProvider, ProviderConfig> = {
   claude: {
@@ -49,14 +49,7 @@ export const PROVIDERS: Record<DashboardProvider, ProviderConfig> = {
     displayName: 'fal.ai',
     color: '#8B5CF6',
     dashboardUrl: 'https://fal.ai/dashboard/usage-billing/credits',
-    description: 'Images (Nano Banana 2, Ideogram) & vidéos (Kling)',
-  },
-  wavespeed: {
-    name: 'wavespeed',
-    displayName: 'WaveSpeed',
-    color: '#3B82F6',
-    dashboardUrl: 'https://wavespeed.ai/dashboard',
-    description: 'Images (FLUX, SD 3.5) & vidéos (Kling, Luma, MiniMax)',
+    description: 'Images & vidéos (Kling, Veo, OmniHuman)',
   },
   runway: {
     name: 'runway',
@@ -65,26 +58,12 @@ export const PROVIDERS: Record<DashboardProvider, ProviderConfig> = {
     dashboardUrl: 'https://dev.runwayml.com/organization/d06cfd54-cddc-4b7b-931d-7342064714f6/usage',
     description: 'Vidéos (Gen-4, Gen-4.5)',
   },
-  modelslab: {
-    name: 'modelslab',
-    displayName: 'ModelsLab',
-    color: '#06B6D4',
-    dashboardUrl: 'https://modelslab.com/dashboard',
-    description: 'Images (FLUX, SDXL, SD 3.5) & vidéos',
-  },
   elevenlabs: {
     name: 'elevenlabs',
     displayName: 'ElevenLabs',
     color: '#10B981',
     dashboardUrl: 'https://elevenlabs.io/app/subscription/api',
     description: 'Text-to-speech',
-  },
-  creatomate: {
-    name: 'creatomate',
-    displayName: 'Creatomate',
-    color: '#F59E0B',
-    dashboardUrl: 'https://creatomate.com/projects/2a3d5c8f-8d36-4bbf-9a06-a452fc0d256c',
-    description: 'Video templating',
   },
 };
 
@@ -128,63 +107,6 @@ export const CLAUDE_PRICES: Record<string, { input: number; output: number }> = 
 };
 
 /**
- * WaveSpeedAI pricing per request (in USD)
- * https://wavespeed.ai/pricing - Updated March 2026
- */
-export const WAVESPEED_PRICES: Record<string, number> = {
-  // Image generation
-  'flux-dev': 0.005, // Flux Dev Ultra Fast
-  'flux-schnell': 0.005,
-  'flux-pro': 0.005,
-  'z-image': 0.005,
-  'nano-banana-pro': 0.14,
-  'seedream-v4.5': 0.04,
-  'sd-3.5-large': 0.02,
-  'sd-3.5-turbo': 0.01,
-
-  // Video generation - Kling models (per generation, not per second)
-  'kling-o3-pro': 0.02,
-  'kling-o3-std': 0.015,
-  'kwaivgi/kling-video-o3-pro/image-to-video': 0.02,
-  'kwaivgi/kling-video-o3-std/image-to-video': 0.015,
-  'kling-1.6': 0.07,
-
-  // Video generation - Sora
-  'sora-2': 0.10,
-  'sora-2-pro': 0.15,
-  'openai/sora-2/image-to-video': 0.10,
-  'openai/sora-2-pro/image-to-video': 0.15,
-
-  // Video generation - Veo
-  'veo-3.1': 0.40,
-  'google/veo3.1/image-to-video': 0.40,
-
-  // Video generation - Seedance
-  'seedance-2': 0.03,
-  'seedance-1.5': 0.025,
-  'bytedance/seedance-v2.0/image-to-video': 0.03,
-  'bytedance/seedance-v1.5-pro/image-to-video': 0.025,
-
-  // Video generation - WAN
-  'wan-2.6': 0.02,
-  'wan-2.5': 0.05,
-  'wan-2.2': 0.01, // Wan 2.2 Ultra Fast
-  'alibaba/wan-2.6/image-to-video': 0.02,
-  'alibaba/wan-2.5/image-to-video': 0.05,
-
-  // Video generation - OmniHuman
-  'omnihuman-1.5': 0.05,
-  'bytedance/omnihuman-1.5/image-to-video': 0.05,
-
-  // Video generation - Other
-  'infinitetalk': 0.03,
-  'luma-ray2': 0.10,
-  'minimax-video': 0.05,
-
-  default: 0.02,
-};
-
-/**
  * Runway ML pricing per second of video (in USD)
  * https://docs.dev.runwayml.com/guides/pricing/ - Updated March 2026
  * Credits cost $0.01 each
@@ -210,38 +132,6 @@ export const RUNWAY_PRICES: Record<string, number> = {
   'gen-4-image': 0.05,
   // Gen-4 Image Turbo: 2 credits = $0.02/image
   'gen4-image-turbo': 0.02,
-  default: 0.05,
-};
-
-/**
- * ModelsLab pricing per request (in USD)
- * https://modelslab.com/pricing - Updated March 2026
- */
-export const MODELSLAB_PRICES: Record<string, number> = {
-  // Image generation - Flux models
-  'flux-pro': 0.07,
-  'flux-pro-1.1': 0.06,
-  'flux-pro-1.1-ultra': 0.08,
-  'flux-2-pro': 0.054,
-  'flux-2-max': 0.08,
-  'flux-kontext-pro': 0.044,
-  'flux-kontext-dev': 0.0047,
-  'flux-2-dev': 0.0047,
-  'flux': 0.054,
-  'flux-schnell': 0.0047,
-  // Other image models
-  'qwen-image-2.0-pro': 0.075,
-  'seedream-4.0': 0.033,
-  'stable-diffusion': 0.01,
-  'sdxl': 0.02,
-  'sd-3.5': 0.03,
-  // Video generation (per second for Seedance, per request for others)
-  'seedance': 0.04, // ~$0.031-0.055/second avg
-  'omnihuman': 0.168,
-  'wan-2.5': 0.05,
-  'text2video': 0.10,
-  'img2video': 0.12,
-  'video2video': 0.15,
   default: 0.05,
 };
 
@@ -308,17 +198,6 @@ export const ELEVENLABS_PRICES: Record<string, number> = {
   default: 0.30,
 };
 
-/**
- * Creatomate pricing per render (in USD)
- * Based on video duration/complexity
- */
-export const CREATOMATE_PRICES: Record<string, number> = {
-  'video-render': 0.10,
-  'image-render': 0.02,
-  'gif-render': 0.05,
-  default: 0.10,
-};
-
 // ============================================================================
 // Cost Calculation Functions
 // ============================================================================
@@ -342,18 +221,6 @@ export function calculateFalCost(endpoint: string, count: number = 1): number {
   return price * count;
 }
 
-export function calculateWavespeedCost(model: string, count: number = 1, durationSeconds?: number): number {
-  const price = WAVESPEED_PRICES[model] || WAVESPEED_PRICES.default;
-  // Most WaveSpeed video models are priced per generation (not per second)
-  // Only legacy models like kling-1.6, luma-ray2 were priced per 5s segment
-  const legacyPerSecondModels = ['kling-1.6', 'luma-ray2'];
-  if (durationSeconds && legacyPerSecondModels.some(m => model.includes(m))) {
-    const segments = Math.ceil(durationSeconds / 5);
-    return price * segments;
-  }
-  return price * count;
-}
-
 export function calculateRunwayCost(model: string, durationSeconds: number = 5): number {
   const price = RUNWAY_PRICES[model] || RUNWAY_PRICES.default;
   // Gen-4 image is per-image
@@ -364,25 +231,9 @@ export function calculateRunwayCost(model: string, durationSeconds: number = 5):
   return price * durationSeconds;
 }
 
-export function calculateModelslabCost(model: string, count: number = 1, frames?: number): number {
-  const price = MODELSLAB_PRICES[model] || MODELSLAB_PRICES.default;
-  // Video models may scale with frames
-  if (frames && ['text2video', 'img2video', 'video2video'].includes(model)) {
-    // Rough scaling: base price + small increment per extra 25 frames
-    const extraSegments = Math.max(0, Math.floor((frames - 25) / 25));
-    return price + (extraSegments * 0.02);
-  }
-  return price * count;
-}
-
 export function calculateElevenLabsCost(model: string, characters: number): number {
   const pricePerThousand = ELEVENLABS_PRICES[model] || ELEVENLABS_PRICES.default;
   return (characters * pricePerThousand) / 1000;
-}
-
-export function calculateCreatomateCost(renderType: string, count: number = 1): number {
-  const price = CREATOMATE_PRICES[renderType] || CREATOMATE_PRICES.default;
-  return price * count;
 }
 
 /**
@@ -396,27 +247,17 @@ export function calculateCost(
     imagesCount?: number;
     videoDuration?: number;
     requestCount?: number;
-    frames?: number;
   }
 ): number {
   switch (provider) {
     case 'fal':
       return calculateFalCost(model, metrics.requestCount || 1);
 
-    case 'wavespeed':
-      return calculateWavespeedCost(model, metrics.imagesCount || 1, metrics.videoDuration);
-
     case 'runway':
       return calculateRunwayCost(model, metrics.videoDuration || 5);
 
-    case 'modelslab':
-      return calculateModelslabCost(model, metrics.imagesCount || 1, metrics.frames);
-
     case 'elevenlabs':
       return calculateElevenLabsCost(model, metrics.characters || 0);
-
-    case 'creatomate':
-      return calculateCreatomateCost(model, metrics.requestCount || 1);
 
     default:
       return 0;

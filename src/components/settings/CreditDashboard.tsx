@@ -26,30 +26,14 @@ const ProviderIcons: Record<DashboardProvider, React.FC<{ className?: string; st
       <path d="M7 2v11h3v9l7-12h-4l4-8H7z" fill="currentColor"/>
     </svg>
   ),
-  wavespeed: ({ className, style }) => (
-    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M3 12h2l2-6 3 12 3-8 2 4h2l2-4h2" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-    </svg>
-  ),
   runway: ({ className, style }) => (
     <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
     </svg>
   ),
-  modelslab: ({ className, style }) => (
-    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 2L2 7v10l10 5 10-5V7l-10-5z" stroke="currentColor" strokeWidth="2" fill="none"/>
-      <path d="M12 22V12M2 7l10 5 10-5" stroke="currentColor" strokeWidth="2"/>
-    </svg>
-  ),
   elevenlabs: ({ className, style }) => (
     <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
       <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z" fill="currentColor"/>
-    </svg>
-  ),
-  creatomate: ({ className, style }) => (
-    <svg className={className} style={style} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M18 4l2 4h-3l-2-4h-2l2 4h-3l-2-4H8l2 4H7L5 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V4h-4zM4 12h16v6H4v-6z" fill="currentColor"/>
     </svg>
   ),
 };
@@ -61,7 +45,7 @@ interface MonthlyData {
 }
 
 // Provider order for display
-const PROVIDER_ORDER: DashboardProvider[] = ['claude', 'fal', 'wavespeed', 'runway', 'modelslab', 'elevenlabs', 'creatomate'];
+const PROVIDER_ORDER: DashboardProvider[] = ['claude', 'fal', 'runway', 'elevenlabs'];
 
 // Per-provider state
 interface ProviderState {
@@ -480,18 +464,6 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
           };
         }
 
-        // WaveSpeed - has balance API
-        if (data.wavespeed) {
-          next.wavespeed = {
-            ...next.wavespeed,
-            loading: false,
-            balance: data.wavespeed.usage?.currentBalance,
-            status: data.wavespeed.status as ProviderState['status'],
-            message: data.wavespeed.error,
-            hasBalanceApi: data.wavespeed.usage?.currentBalance !== undefined,
-          };
-        }
-
         // Runway - has balance API via organization endpoint
         if (data.runway) {
           next.runway = {
@@ -501,18 +473,6 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
             status: data.runway.status as ProviderState['status'],
             message: data.runway.error,
             hasBalanceApi: data.runway.usage?.currentBalance !== undefined,
-          };
-        }
-
-        // ModelsLab - has wallet balance API
-        if (data.modelslab) {
-          next.modelslab = {
-            ...next.modelslab,
-            loading: false,
-            balance: data.modelslab.usage?.currentBalance,
-            status: data.modelslab.status as ProviderState['status'],
-            message: data.modelslab.error,
-            hasBalanceApi: data.modelslab.usage?.currentBalance !== undefined,
           };
         }
 
@@ -527,17 +487,6 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
             status: data.elevenlabs.status as ProviderState['status'],
             message: data.elevenlabs.error,
             hasBalanceApi: true,
-          };
-        }
-
-        // Creatomate - no usage API, will use logs
-        if (data.creatomate) {
-          next.creatomate = {
-            ...next.creatomate,
-            loading: false,
-            status: data.creatomate.status as ProviderState['status'],
-            message: data.creatomate.error,
-            hasBalanceApi: false,
           };
         }
 
@@ -778,39 +727,39 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
         </CardContent>
       </Card>
 
-      {/* Crédits disponibles - fal.ai, WaveSpeed, Runway ML, ElevenLabs */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
-          Crédits disponibles
-        </h3>
-        <div className="flex gap-3">
-          {(['fal', 'wavespeed', 'runway', 'elevenlabs'] as DashboardProvider[]).map(provider => (
-            <CompactCard
-              key={provider}
-              provider={provider}
-              state={providerStates[provider]}
-              type="balance"
-              onOpenDashboard={() => handleOpenDashboard(provider)}
-            />
-          ))}
+      {/* Provider Cards Row */}
+      <div className="flex gap-6">
+        {/* Crédits disponibles - fal.ai, Runway ML, ElevenLabs */}
+        <div className="flex-[3] space-y-3">
+          <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
+            Crédits disponibles
+          </h3>
+          <div className="flex gap-3">
+            {(['fal', 'runway', 'elevenlabs'] as DashboardProvider[]).map(provider => (
+              <CompactCard
+                key={provider}
+                provider={provider}
+                state={providerStates[provider]}
+                type="balance"
+                onOpenDashboard={() => handleOpenDashboard(provider)}
+              />
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Dépensés - Claude, Creatomate, ModelsLab */}
-      <div className="space-y-3">
-        <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
-          Dépensés
-        </h3>
-        <div className="flex gap-3">
-          {(['claude', 'creatomate', 'modelslab'] as DashboardProvider[]).map(provider => (
+        {/* Crédits dépensés - Claude */}
+        <div className="flex-1 space-y-3">
+          <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
+            Crédits dépensés
+          </h3>
+          <div className="flex gap-3">
             <CompactCard
-              key={provider}
-              provider={provider}
-              state={providerStates[provider]}
+              provider="claude"
+              state={providerStates.claude}
               type="spent"
-              onOpenDashboard={() => handleOpenDashboard(provider)}
+              onOpenDashboard={() => handleOpenDashboard('claude')}
             />
-          ))}
+          </div>
         </div>
       </div>
     </div>

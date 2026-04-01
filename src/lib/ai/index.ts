@@ -37,18 +37,6 @@ export {
   type FalVideoOutput,
 } from './fal-wrapper';
 
-// WaveSpeedAI
-export {
-  WavespeedWrapper,
-  createWavespeedWrapper,
-  type WavespeedWrapperOptions,
-  type WavespeedWrapperResult,
-  type WavespeedTaskResult,
-  type WavespeedModel,
-  type ImageGenerationInput as WavespeedImageInput,
-  type VideoGenerationInput as WavespeedVideoInput,
-} from './wavespeed-wrapper';
-
 // Runway ML
 export {
   RunwayWrapper,
@@ -61,18 +49,6 @@ export {
   type ImageGenerationInput as RunwayImageInput,
 } from './runway-wrapper';
 
-// ModelsLab
-export {
-  ModelslabWrapper,
-  createModelslabWrapper,
-  type ModelslabWrapperOptions,
-  type ModelslabWrapperResult,
-  type ModelslabTaskResult,
-  type ModelslabModel,
-  type ImageGenerationInput as ModelslabImageInput,
-  type VideoGenerationInput as ModelslabVideoInput,
-} from './modelslab-wrapper';
-
 // ElevenLabs
 export {
   ElevenLabsWrapper,
@@ -84,23 +60,11 @@ export {
   type VoiceInfo,
 } from './elevenlabs-wrapper';
 
-// Creatomate
-export {
-  CreatomateWrapper,
-  createCreatomateWrapper,
-  type CreatomateWrapperOptions,
-  type CreatomateWrapperResult,
-  type RenderOptions,
-  type RenderResult,
-} from './creatomate-wrapper';
-
 // Simple API usage logging (for routes that don't use full wrappers)
 export {
   logApiUsage,
   logFalUsage,
-  logWavespeedUsage,
   logRunwayUsage,
-  logModelslabUsage,
   logElevenLabsUsage,
   logClaudeUsage,
 } from './log-api-usage';

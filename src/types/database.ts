@@ -776,7 +776,7 @@ export type ProjectWithScenes = Project & {
 // Enums for credit management
 export type BudgetPeriod = 'daily' | 'weekly' | 'monthly';
 // Note: 'claude' is used internally but not shown in dashboard
-export type ApiProvider = 'claude' | 'fal' | 'wavespeed' | 'runway' | 'modelslab' | 'elevenlabs' | 'creatomate' | 'global';
+export type ApiProvider = 'claude' | 'fal' | 'runway' | 'elevenlabs' | 'global';
 export type ApiCallStatus = 'success' | 'failed' | 'blocked';
 
 // Credit allocation types

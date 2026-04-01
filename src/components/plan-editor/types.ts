@@ -62,7 +62,7 @@ export interface PlanData {
 export interface VideoGenerationOptions {
   videoModel: string;
   duration: number;
-  videoProvider: 'wavespeed' | 'modelslab' | 'fal';
+  videoProvider: 'fal' | 'runway';
 }
 
 /**

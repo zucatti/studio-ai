@@ -112,7 +112,6 @@ import {
 import { createElevenLabsWrapper } from '@/lib/ai/elevenlabs-wrapper';
 import {
   VideoProvider,
-  generateVideo as generateVideoUnified,
   isProviderAvailable,
   PROVIDER_INFO,
 } from '@/lib/ai/video-provider';
@@ -374,13 +373,13 @@ export async function POST(request: Request, { params }: RouteParams) {
 
       send('progress', { step: 'init', message: 'Initialisation...', progress: 0 });
 
-      // Get video provider (default to wavespeed)
-      const videoProvider: VideoProvider = (requestedProvider && ['wavespeed', 'modelslab', 'fal'].includes(requestedProvider))
+      // Get video provider (default to fal)
+      const videoProvider: VideoProvider = (requestedProvider && ['fal', 'runway'].includes(requestedProvider))
         ? requestedProvider as VideoProvider
-        : 'wavespeed';
+        : 'fal';
 
       // Get video model (default based on provider)
-      let videoModel: string = requestedModel || (videoProvider === 'fal' ? 'kling-omni' : 'wan-2.1');
+      let videoModel: string = requestedModel || (videoProvider === 'runway' ? 'gen4' : 'kling-omni');
 
       const supabase = createServerSupabaseClient();
 
@@ -669,70 +668,8 @@ export async function POST(request: Request, { params }: RouteParams) {
 
       let result: { taskId?: string; cost?: number; videoUrl?: string };
 
-      // WaveSpeed and ModelsLab: use unified provider abstraction
-      if (videoProvider === 'wavespeed' || videoProvider === 'modelslab') {
-        const providerName = PROVIDER_INFO[videoProvider].name;
-
-        send('progress', {
-          step: 'video_request',
-          message: `Génération via ${providerName} (${videoModel})...`,
-          progress: 50,
-          details: {
-            provider: videoProvider,
-            model: videoModel,
-            duration: videoDuration,
-            aspectRatio,
-          }
-        });
-
-        // Get signed audio URL if available (for OmniHuman)
-        let audioUrlForProvider: string | undefined;
-        if (dialogueAudioUrl) {
-          audioUrlForProvider = await getSignedAudioUrl(dialogueAudioUrl);
-        }
-
-        try {
-          const unifiedResult = await generateVideoUnified(
-            videoProvider,
-            {
-              prompt: videoPrompt,
-              firstFrameUrl,
-              lastFrameUrl,
-              duration: videoDuration,
-              aspectRatio,
-              model: videoModel,
-              audioUrl: audioUrlForProvider,
-            },
-            {
-              userId: session.user.sub,
-              projectId,
-              supabase,
-              operation: `generate-video-${videoProvider}`,
-            },
-            async (step, message, progress) => {
-              const mappedProgress = 50 + Math.round(progress * 0.4);
-              send('progress', { step, message, progress: mappedProgress });
-              await updateJobProgress(supabase, jobId, mappedProgress, message);
-            }
-          );
-
-          console.log(`[Video Gen] ${providerName} result:`, JSON.stringify(unifiedResult, null, 2));
-          result = { videoUrl: unifiedResult.videoUrl, cost: unifiedResult.cost, taskId: unifiedResult.taskId };
-
-        } catch (providerError) {
-          const errorMsg = providerError instanceof Error ? providerError.message : 'Unknown error';
-          await failJob(supabase, jobId, errorMsg);
-          send('error', {
-            error: errorMsg,
-            step: 'video_generation',
-            provider: videoProvider,
-          });
-          close();
-          return;
-        }
-
       // Sora 2 flow via fal.ai
-      } else if (videoModel === 'sora-2') {
+      if (videoModel === 'sora-2') {
         send('progress', {
           step: 'video_request',
           message: 'Génération Sora 2 via fal.ai...',
@@ -947,23 +884,14 @@ export async function POST(request: Request, { params }: RouteParams) {
       // All providers return video URL directly
       if (result.videoUrl) {
         const modelNames: Record<string, string> = {
-          // WaveSpeed models (2026)
-          'kwaivgi/kling-video-o3-pro/image-to-video': 'Kling O3 Pro',
-          'kwaivgi/kling-v3.0-pro/image-to-video': 'Kling 3.0 Pro',
-          'openai/sora-2/image-to-video-pro': 'Sora 2 Pro',
-          'google/veo3.1/image-to-video': 'Veo 3.1',
-          'bytedance/seedance-v1.5-pro/image-to-video': 'Seedance 1.5 Pro',
-          'alibaba/wan-2.6/image-to-video': 'WAN 2.6',
-          'bytedance/avatar-omni-human-1.5': 'OmniHuman 1.5',
-          // ModelsLab models (2026)
-          'kling-v3-i2v': 'Kling 3.0',
-          'sora-2-i2v': 'Sora 2',
-          'veo-3-i2v': 'Veo 3',
           // fal.ai models
           'kling-omni': 'Kling 3.0 Omni',
           'sora-2': 'Sora 2',
           'veo-3': 'Veo 3.1',
           'omnihuman': 'OmniHuman 1.5',
+          // Runway models
+          'gen4': 'Gen-4 Turbo',
+          'gen4.5': 'Gen-4.5',
         };
         const modelName = modelNames[videoModel] || videoModel;
 

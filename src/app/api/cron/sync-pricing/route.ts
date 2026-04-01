@@ -31,17 +31,16 @@ export async function GET(request: NextRequest) {
     }
 
     const supabase = createServerSupabaseClient();
-
-    // Sync WaveSpeed prices
-    const wavespeedPrices = await fetchWavespeedPrices();
     let updated = 0;
     let errors = 0;
 
-    for (const price of wavespeedPrices) {
+    // Sync fal.ai prices
+    const falPrices = await fetchFalPrices();
+    for (const price of falPrices) {
       const { error } = await supabase
         .from('provider_pricing')
         .upsert({
-          provider: 'wavespeed',
+          provider: 'fal',
           model: price.model,
           model_alias: price.alias,
           price_per_unit: price.price,
@@ -56,19 +55,18 @@ export async function GET(request: NextRequest) {
 
       if (error) {
         errors++;
-        console.error(`[Cron] Failed to update ${price.model}:`, error);
       } else {
         updated++;
       }
     }
 
-    // Sync fal.ai prices
-    const falPrices = await fetchFalPrices();
-    for (const price of falPrices) {
+    // Sync Runway prices
+    const runwayPrices = await fetchRunwayPrices();
+    for (const price of runwayPrices) {
       const { error } = await supabase
         .from('provider_pricing')
         .upsert({
-          provider: 'fal',
+          provider: 'runway',
           model: price.model,
           model_alias: price.alias,
           price_per_unit: price.price,
@@ -120,30 +118,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * Fetch WaveSpeed prices
- * TODO: Implement actual API call when WaveSpeed provides one
- */
-async function fetchWavespeedPrices() {
-  // Current prices as of March 2026
-  return [
-    { model: 'kwaivgi/kling-video-o3-pro/image-to-video', alias: 'kling-o3-pro', price: 0.02, unitType: 'per_generation', category: 'video', displayName: 'Kling O3 Pro' },
-    { model: 'kwaivgi/kling-video-o3-std/image-to-video', alias: 'kling-o3-std', price: 0.015, unitType: 'per_generation', category: 'video', displayName: 'Kling O3 Std' },
-    { model: 'openai/sora-2/image-to-video', alias: 'sora-2', price: 0.10, unitType: 'per_generation', category: 'video', displayName: 'Sora 2' },
-    { model: 'openai/sora-2-pro/image-to-video', alias: 'sora-2-pro', price: 0.15, unitType: 'per_generation', category: 'video', displayName: 'Sora 2 Pro' },
-    { model: 'google/veo3.1/image-to-video', alias: 'veo-3.1', price: 0.40, unitType: 'per_generation', category: 'video', displayName: 'Veo 3.1' },
-    { model: 'bytedance/seedance-v2.0/image-to-video', alias: 'seedance-2', price: 0.03, unitType: 'per_generation', category: 'video', displayName: 'Seedance 2.0' },
-    { model: 'bytedance/seedance-v1.5-pro/image-to-video', alias: 'seedance-1.5', price: 0.025, unitType: 'per_generation', category: 'video', displayName: 'Seedance 1.5' },
-    { model: 'alibaba/wan-2.6/image-to-video', alias: 'wan-2.6', price: 0.02, unitType: 'per_generation', category: 'video', displayName: 'WAN 2.6' },
-    { model: 'alibaba/wan-2.5/image-to-video', alias: 'wan-2.5', price: 0.05, unitType: 'per_generation', category: 'video', displayName: 'WAN 2.5' },
-    { model: 'bytedance/omnihuman-1.5/image-to-video', alias: 'omnihuman-1.5', price: 0.05, unitType: 'per_generation', category: 'video', displayName: 'OmniHuman 1.5' },
-    { model: 'flux-dev', price: 0.005, unitType: 'per_generation', category: 'image', displayName: 'Flux Dev' },
-    { model: 'flux-schnell', price: 0.005, unitType: 'per_generation', category: 'image', displayName: 'Flux Schnell' },
-  ];
-}
-
-/**
  * Fetch fal.ai prices
- * TODO: Implement actual API call
  */
 async function fetchFalPrices() {
   return [
@@ -151,7 +126,20 @@ async function fetchFalPrices() {
     { model: 'fal-ai/seedream-v4', alias: 'seedream-v4', price: 0.03, unitType: 'per_generation', category: 'image', displayName: 'Seedream v4' },
     { model: 'fal-ai/flux/schnell', alias: 'flux-schnell', price: 0.003, unitType: 'per_generation', category: 'image', displayName: 'Flux Schnell' },
     { model: 'fal-ai/flux/dev', alias: 'flux-dev', price: 0.01, unitType: 'per_generation', category: 'image', displayName: 'Flux Dev' },
-    { model: 'fal-ai/kling-video/v1/pro/image-to-video', alias: 'kling-pro', price: 0.10, unitType: 'per_generation', category: 'video', displayName: 'Kling Pro' },
-    { model: 'fal-ai/wan-2.5', alias: 'wan-2.5', price: 0.05, unitType: 'per_generation', category: 'video', displayName: 'WAN 2.5' },
+    { model: 'fal-ai/kling-video/v3/standard/image-to-video', alias: 'kling-omni', price: 0.10, unitType: 'per_generation', category: 'video', displayName: 'Kling 3.0 Omni' },
+    { model: 'fal-ai/veo3.1/fast/image-to-video', alias: 'veo-3', price: 0.40, unitType: 'per_generation', category: 'video', displayName: 'Veo 3.1' },
+    { model: 'fal-ai/bytedance/omnihuman/v1.5', alias: 'omnihuman', price: 0.05, unitType: 'per_generation', category: 'video', displayName: 'OmniHuman 1.5' },
+    { model: 'fal-ai/sora-2/image-to-video', alias: 'sora-2', price: 0.10, unitType: 'per_generation', category: 'video', displayName: 'Sora 2' },
+  ];
+}
+
+/**
+ * Fetch Runway prices
+ */
+async function fetchRunwayPrices() {
+  return [
+    { model: 'gen4', alias: 'gen4', price: 0.05, unitType: 'per_second', category: 'video', displayName: 'Gen-4 Turbo' },
+    { model: 'gen4.5', alias: 'gen4.5', price: 0.10, unitType: 'per_second', category: 'video', displayName: 'Gen-4.5' },
+    { model: 'gen4-image', alias: 'gen4-image', price: 0.05, unitType: 'per_generation', category: 'image', displayName: 'Gen-4 Image' },
   ];
 }
