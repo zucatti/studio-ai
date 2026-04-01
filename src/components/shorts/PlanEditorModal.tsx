@@ -22,7 +22,7 @@ import {
 import { DurationPicker } from './DurationPicker';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { VideoGenerationCard, type VideoGenerationProgress } from './VideoGenerationCard';
-import { Loader2, ImageIcon, Film, Play, Pause, Mic, Images, Video, Link, Maximize2, Volume2, VolumeX, Download, X, Clock, Settings, Music } from 'lucide-react';
+import { Loader2, ImageIcon, Film, Play, Pause, Mic, Images, Video, Link, Maximize2, Volume2, VolumeX, Download, X, Clock, Settings, Music, ChevronDown, Sparkles } from 'lucide-react';
 import { useBibleStore } from '@/store/bible-store';
 import type { Plan } from '@/store/shorts-store';
 import type { ShotType, CameraAngle, CameraMovement, AspectRatio } from '@/types/database';
@@ -139,6 +139,14 @@ export function PlanEditorModal({
   const [videoModel, setVideoModel] = useState('kling-omni');
   const [showAdvancedVideo, setShowAdvancedVideo] = useState(false); // Hidden by default
 
+  // Cinematic shot details (for mega-prompt mode)
+  const [showCinematicDetails, setShowCinematicDetails] = useState(false);
+  const [shotSubject, setShotSubject] = useState('');
+  const [framing, setFraming] = useState('');
+  const [action, setAction] = useState('');
+  const [environment, setEnvironment] = useState('');
+  const [dialogueTone, setDialogueTone] = useState('');
+
   // Get appropriate video models based on provider and dialogue state
   const availableVideoModels = useMemo(() => {
     if (hasDialogue) {
@@ -222,6 +230,14 @@ export function PlanEditorModal({
       setAudioEnd(plan.audio_end ?? null);
       // Auto-show video preview if video exists
       setShowVideoPreview(!!plan.generated_video_url);
+      // Cinematic shot details
+      setShotSubject(plan.shot_subject || '');
+      setFraming(plan.framing || '');
+      setAction(plan.action || '');
+      setEnvironment(plan.environment || '');
+      setDialogueTone(plan.dialogue_tone || '');
+      // Auto-expand cinematic details if any are filled
+      setShowCinematicDetails(!!(plan.shot_subject || plan.framing || plan.action || plan.environment || plan.dialogue_tone));
     }
     // Only sync on modal open (plan id change)
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1133,7 +1149,7 @@ export function PlanEditorModal({
                   {/* Animation Prompt - fills available space */}
                   <div className={cn(
                     "flex flex-col min-h-0",
-                    hasDialogue ? "flex-[3]" : "flex-1"
+                    hasDialogue || showCinematicDetails ? "flex-[2]" : "flex-1"
                   )}>
                     <Label className="text-blue-400 text-xs mb-1 block flex-shrink-0">Animation Prompt</Label>
                     <div className="flex-1 min-h-0">
@@ -1148,11 +1164,109 @@ export function PlanEditorModal({
                     </div>
                   </div>
 
+                  {/* Cinematic Details Section - Collapsible */}
+                  <div className="border-t border-white/10 pt-2 mt-2">
+                    <button
+                      onClick={() => setShowCinematicDetails(!showCinematicDetails)}
+                      className="flex items-center justify-between w-full text-left group"
+                    >
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-3 h-3 text-amber-400" />
+                        <Label className="text-amber-400 text-xs cursor-pointer group-hover:text-amber-300">
+                          Détails Cinématiques
+                        </Label>
+                        {(shotSubject || framing || action || environment) && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400">
+                            {[shotSubject, framing, action, environment].filter(Boolean).length} champs
+                          </span>
+                        )}
+                      </div>
+                      <ChevronDown className={cn(
+                        "w-4 h-4 text-slate-400 transition-transform",
+                        showCinematicDetails && "rotate-180"
+                      )} />
+                    </button>
+
+                    {showCinematicDetails && (
+                      <div className="mt-2 grid grid-cols-2 gap-2">
+                        {/* Shot Subject */}
+                        <div>
+                          <Label className="text-slate-500 text-[10px] mb-0.5 block">Sujet du plan</Label>
+                          <input
+                            value={shotSubject}
+                            onChange={(e) => {
+                              setShotSubject(e.target.value);
+                              onUpdate({ shot_subject: e.target.value || undefined });
+                            }}
+                            placeholder="ex: Sarah's eyes, kitchen doorway"
+                            className="w-full h-7 px-2 text-xs bg-white/5 border border-white/10 rounded text-white placeholder-slate-500 focus:border-amber-500/50 focus:outline-none"
+                          />
+                        </div>
+
+                        {/* Framing */}
+                        <div>
+                          <Label className="text-slate-500 text-[10px] mb-0.5 block">Cadrage</Label>
+                          <input
+                            value={framing}
+                            onChange={(e) => {
+                              setFraming(e.target.value);
+                              onUpdate({ framing: e.target.value || undefined });
+                            }}
+                            placeholder="ex: Tight close-up from nose up"
+                            className="w-full h-7 px-2 text-xs bg-white/5 border border-white/10 rounded text-white placeholder-slate-500 focus:border-amber-500/50 focus:outline-none"
+                          />
+                        </div>
+
+                        {/* Action */}
+                        <div>
+                          <Label className="text-slate-500 text-[10px] mb-0.5 block">Action</Label>
+                          <input
+                            value={action}
+                            onChange={(e) => {
+                              setAction(e.target.value);
+                              onUpdate({ action: e.target.value || undefined });
+                            }}
+                            placeholder="ex: Her eyes widen slightly"
+                            className="w-full h-7 px-2 text-xs bg-white/5 border border-white/10 rounded text-white placeholder-slate-500 focus:border-amber-500/50 focus:outline-none"
+                          />
+                        </div>
+
+                        {/* Environment */}
+                        <div>
+                          <Label className="text-slate-500 text-[10px] mb-0.5 block">Environnement</Label>
+                          <input
+                            value={environment}
+                            onChange={(e) => {
+                              setEnvironment(e.target.value);
+                              onUpdate({ environment: e.target.value || undefined });
+                            }}
+                            placeholder="ex: Kitchen background softly blurred"
+                            className="w-full h-7 px-2 text-xs bg-white/5 border border-white/10 rounded text-white placeholder-slate-500 focus:border-amber-500/50 focus:outline-none"
+                          />
+                        </div>
+
+                        {/* Dialogue Tone - full width */}
+                        <div className="col-span-2">
+                          <Label className="text-slate-500 text-[10px] mb-0.5 block">Ton du dialogue</Label>
+                          <input
+                            value={dialogueTone}
+                            onChange={(e) => {
+                              setDialogueTone(e.target.value);
+                              onUpdate({ dialogue_tone: e.target.value || undefined });
+                            }}
+                            placeholder="ex: flatly, coldly, whispers, with tension"
+                            className="w-full h-7 px-2 text-xs bg-white/5 border border-white/10 rounded text-white placeholder-slate-500 focus:border-amber-500/50 focus:outline-none"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Dialogue section */}
                   <div
                     className={cn(
                       "border-t border-white/10 pt-2 mt-2",
-                      hasDialogue ? "flex-[2] flex flex-col min-h-0" : "flex-shrink-0"
+                      hasDialogue ? "flex-[1] flex flex-col min-h-0" : "flex-shrink-0"
                     )}
                     onClick={(e) => e.stopPropagation()}
                     onPointerDown={(e) => e.stopPropagation()}

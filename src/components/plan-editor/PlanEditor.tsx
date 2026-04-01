@@ -40,6 +40,8 @@ import {
   FileText,
   Copy,
   Check,
+  Clapperboard,
+  Sparkles,
 } from 'lucide-react';
 import { useBibleStore } from '@/store/bible-store';
 import { cn } from '@/lib/utils';
@@ -54,43 +56,16 @@ import type {
   ASPECT_RATIO_CONFIG as AspectConfigType,
 } from './types';
 import { MODE_CONFIG, ASPECT_RATIO_CONFIG } from './types';
-import type { ShotType, CameraAngle, CameraMovement, Shot } from '@/types/database';
-
-// Shot types
-const SHOT_TYPES: { value: ShotType; label: string }[] = [
-  { value: 'wide', label: 'Plan large' },
-  { value: 'medium', label: 'Plan moyen' },
-  { value: 'close_up', label: 'Gros plan' },
-  { value: 'extreme_close_up', label: 'Très gros plan' },
-  { value: 'over_shoulder', label: 'Par-dessus épaule' },
-  { value: 'pov', label: 'Point de vue' },
-];
-
-// Camera angles
-const CAMERA_ANGLES: { value: CameraAngle; label: string }[] = [
-  { value: 'eye_level', label: 'Niveau des yeux' },
-  { value: 'low_angle', label: 'Contre-plongée' },
-  { value: 'high_angle', label: 'Plongée' },
-  { value: 'dutch_angle', label: 'Angle hollandais' },
-  { value: 'birds_eye', label: 'Vue aérienne' },
-  { value: 'worms_eye', label: 'Contre-plongée extrême' },
-];
-
-// Camera movements
-const CAMERA_MOVEMENTS: { value: CameraMovement; label: string }[] = [
-  { value: 'static', label: 'Statique' },
-  { value: 'slow_dolly_in', label: 'Dolly in lent' },
-  { value: 'slow_dolly_out', label: 'Dolly out lent' },
-  { value: 'tracking_forward', label: 'Travelling avant' },
-  { value: 'tracking_backward', label: 'Travelling arrière' },
-  { value: 'orbit_180', label: 'Orbite 180°' },
-  { value: 'handheld', label: 'Caméra à l\'épaule' },
-  { value: 'smooth_zoom_in', label: 'Zoom in doux' },
-  { value: 'smooth_zoom_out', label: 'Zoom out doux' },
-];
-
-// Duration options
-const DURATION_OPTIONS = [3, 5, 7, 10];
+import type { Shot } from '@/types/database';
+import type { Segment, CinematicHeaderConfig } from '@/types/cinematic';
+import {
+  SegmentTimeline,
+  calculateMinPlanDuration,
+  scaleSegmentsToDuration,
+  MIN_SEGMENT_DURATION,
+} from '@/components/shorts/SegmentTimeline';
+import { SegmentEditor } from '@/components/shorts/SegmentEditor';
+import { CinematicHeaderWizard } from '@/components/shorts/CinematicHeaderWizard';
 
 interface PlanEditorModalProps extends PlanEditorProps {
   open: boolean;
@@ -162,6 +137,14 @@ export function PlanEditor({
   // Prompt display state
   const [showVideoPrompt, setShowVideoPrompt] = useState(false);
   const [copiedVideoPrompt, setCopiedVideoPrompt] = useState(false);
+
+  // Segment state
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
+  const [showSegmentEditor, setShowSegmentEditor] = useState(false);
+
+  // Cinematic style wizard state
+  const [showStyleWizard, setShowStyleWizard] = useState(false);
 
   // Sticky generating state to prevent flickering
   // Once we start generating, stay in that mode until video URL changes
@@ -260,7 +243,7 @@ export function PlanEditor({
   // === COMPUTED ===
 
   // Check if Frame Out should be shown (hidden for dialogue mode - OmniHuman doesn't support it)
-  const showFrameOut = config.showFrameOut && !hasDialogue;
+  const showFrameOut = config.showFrameOut;
 
   // Characters for dialogue
   const dialogueCharacters = useMemo(() => {
@@ -301,9 +284,35 @@ export function PlanEditor({
     onUpdate({ animation_prompt: value });
   }, [onUpdate]);
 
-  const handleDurationChange = useCallback((duration: number) => {
-    onUpdate({ duration });
-  }, [onUpdate]);
+  const handleDurationChange = useCallback((newDuration: number) => {
+    const segments = plan.segments || [];
+    const oldDuration = plan.duration;
+
+    if (newDuration === oldDuration) return;
+
+    if (segments.length === 0) {
+      onUpdate({ duration: newDuration });
+      return;
+    }
+
+    // Try to scale segments to new duration
+    const scaledSegments = scaleSegmentsToDuration(segments, oldDuration, newDuration);
+
+    if (scaledSegments === null) {
+      // Can't reduce further - all segments at minimum
+      // Clamp to absolute minimum
+      const minDuration = calculateMinPlanDuration(segments.length);
+      if (minDuration !== oldDuration) {
+        const clampedSegments = scaleSegmentsToDuration(segments, oldDuration, minDuration);
+        if (clampedSegments) {
+          onUpdate({ duration: minDuration, segments: clampedSegments });
+        }
+      }
+      return;
+    }
+
+    onUpdate({ duration: newDuration, segments: scaledSegments });
+  }, [plan.segments, plan.duration, onUpdate]);
 
   // Gallery/Bible selection
   const openGalleryPicker = useCallback((frameType: 'in' | 'out') => {
@@ -527,6 +536,42 @@ export function PlanEditor({
     }
   }, [plan?.video_prompt]);
 
+  // Cinematic style handler
+  const handleCinematicStyleChange = useCallback((config: CinematicHeaderConfig) => {
+    onUpdate({ cinematic_header: config });
+    setShowStyleWizard(false);
+  }, [onUpdate]);
+
+  // Segment handlers
+  const handleSegmentsChange = useCallback((segments: Segment[]) => {
+    onUpdate({ segments });
+  }, [onUpdate]);
+
+  const handleEditSegment = useCallback((segment: Segment) => {
+    setEditingSegment(segment);
+    setShowSegmentEditor(true);
+  }, []);
+
+  const handleSaveSegment = useCallback((updatedSegment: Segment) => {
+    const segments = plan?.segments || [];
+    const updated = segments.map((s) =>
+      s.id === updatedSegment.id ? updatedSegment : s
+    );
+    onUpdate({ segments: updated });
+    setShowSegmentEditor(false);
+    setEditingSegment(null);
+  }, [plan?.segments, onUpdate]);
+
+  // Get characters for segment dialogue
+  const segmentCharacters = useMemo(() => {
+    return projectAssets
+      .filter((asset) => asset.asset_type === 'character')
+      .map((asset) => ({
+        id: asset.id,
+        name: asset.name,
+      }));
+  }, [projectAssets]);
+
   if (!plan) return null;
 
   return (
@@ -543,34 +588,46 @@ export function PlanEditor({
             <DialogTitle className="text-white flex items-center gap-2">
               <Film className="w-5 h-5 text-blue-400" />
               Plan {plan.number || ''}
-              <span className="ml-2 px-2 py-0.5 rounded bg-white/5 text-xs text-slate-400">
-                {ratioConfig.label} ({aspectRatio})
-              </span>
             </DialogTitle>
+            <span className="mr-8 px-2 py-0.5 rounded bg-white/5 text-xs text-slate-400">
+              {ratioConfig.label} ({aspectRatio})
+            </span>
           </div>
 
           {/* Settings Row */}
           <div className="flex items-center gap-4 mt-4">
-            {/* Duration */}
+            {/* Duration Slider */}
             {config.showDuration && (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-3">
                 <Label className="text-slate-400 text-xs whitespace-nowrap">Durée</Label>
                 {config.durationEditable ? (
-                  <div className="inline-flex rounded-lg bg-white/5 p-0.5">
-                    {DURATION_OPTIONS.map((d) => (
-                      <button
-                        key={d}
-                        onClick={() => handleDurationChange(d)}
-                        className={cn(
-                          'px-2.5 py-1 text-xs font-medium rounded-md transition-all',
-                          plan.duration === d
-                            ? 'bg-blue-500 text-white'
-                            : 'text-slate-400 hover:text-white'
-                        )}
-                      >
-                        {d}s
-                      </button>
-                    ))}
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={3}
+                      max={15}
+                      step={1}
+                      value={plan.duration}
+                      onChange={(e) => handleDurationChange(parseInt(e.target.value))}
+                      className="w-32 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer
+                        [&::-webkit-slider-thumb]:appearance-none
+                        [&::-webkit-slider-thumb]:w-4
+                        [&::-webkit-slider-thumb]:h-4
+                        [&::-webkit-slider-thumb]:rounded-full
+                        [&::-webkit-slider-thumb]:bg-blue-500
+                        [&::-webkit-slider-thumb]:cursor-pointer
+                        [&::-webkit-slider-thumb]:transition-transform
+                        [&::-webkit-slider-thumb]:hover:scale-110
+                        [&::-moz-range-thumb]:w-4
+                        [&::-moz-range-thumb]:h-4
+                        [&::-moz-range-thumb]:rounded-full
+                        [&::-moz-range-thumb]:bg-blue-500
+                        [&::-moz-range-thumb]:border-0
+                        [&::-moz-range-thumb]:cursor-pointer"
+                    />
+                    <span className="text-white text-sm font-medium w-10 text-center bg-white/5 rounded px-2 py-0.5">
+                      {plan.duration}s
+                    </span>
                   </div>
                 ) : (
                   <span className="text-slate-400 text-xs px-2 py-1 bg-white/5 rounded">
@@ -580,120 +637,35 @@ export function PlanEditor({
               </div>
             )}
 
-            {/* Camera settings */}
-            {config.showCameraSettings && (
-              <>
-                <div className="flex items-center gap-2">
-                  <Label className="text-slate-400 text-xs whitespace-nowrap">Type</Label>
-                  <Select
-                    value={plan.shot_type || '_none'}
-                    onValueChange={(v) => onUpdate({ shot_type: v === '_none' ? null : v as ShotType })}
-                  >
-                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs w-[130px]">
-                      <SelectValue placeholder="-" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#1a2e44] border-white/10">
-                      <SelectItem value="_none" className="text-xs text-slate-500">-</SelectItem>
-                      {SHOT_TYPES.map((type) => (
-                        <SelectItem key={type.value} value={type.value} className="text-xs">
-                          {type.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Label className="text-slate-400 text-xs whitespace-nowrap">Angle</Label>
-                  <Select
-                    value={plan.camera_angle || '_none'}
-                    onValueChange={(v) => onUpdate({ camera_angle: v === '_none' ? null : v as CameraAngle })}
-                  >
-                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs w-[140px]">
-                      <SelectValue placeholder="-" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#1a2e44] border-white/10">
-                      <SelectItem value="_none" className="text-xs text-slate-500">-</SelectItem>
-                      {CAMERA_ANGLES.map((angle) => (
-                        <SelectItem key={angle.value} value={angle.value} className="text-xs">
-                          {angle.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Label className="text-slate-400 text-xs whitespace-nowrap">Mouvement</Label>
-                  <Select
-                    value={plan.camera_movement || '_none'}
-                    onValueChange={(v) => onUpdate({ camera_movement: v === '_none' ? null : v as CameraMovement })}
-                  >
-                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs w-[140px]">
-                      <SelectValue placeholder="-" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#1a2e44] border-white/10">
-                      <SelectItem value="_none" className="text-xs text-slate-500">-</SelectItem>
-                      {CAMERA_MOVEMENTS.map((movement) => (
-                        <SelectItem key={movement.value} value={movement.value} className="text-xs">
-                          {movement.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </>
-            )}
-
-            {/* Audio Mode (video-free only) */}
-            {config.showAudioMode && (
-              <div className="flex items-center gap-2 ml-auto">
-                <Label className="text-slate-400 text-xs whitespace-nowrap">Audio</Label>
-                <div className="inline-flex rounded-lg bg-white/5 p-0.5">
-                  {([
-                    { value: 'mute', label: 'Muet' },
-                    { value: 'dialogue', label: 'Dialogue' },
-                    { value: 'audio', label: 'Audio' },
-                    { value: 'instrumental', label: 'Instru' },
-                    { value: 'vocal', label: 'Vocal' },
-                  ] as const).map((m) => (
-                    <button
-                      key={m.value}
-                      onClick={() => {
-                        setAudioMode(m.value);
-                        onUpdate({ audio_mode: m.value });
-                        if (m.value === 'dialogue' && !hasDialogue) {
-                          setHasDialogue(true);
-                          onUpdate({ has_dialogue: true, audio_mode: m.value });
-                        } else if (m.value !== 'dialogue' && hasDialogue) {
-                          setHasDialogue(false);
-                          onUpdate({ has_dialogue: false, audio_mode: m.value });
-                        }
-                      }}
-                      className={cn(
-                        'px-2.5 py-1 text-xs font-medium rounded-md transition-all',
-                        audioMode === m.value
-                          ? m.value === 'mute'
-                            ? 'bg-slate-600 text-white'
-                            : m.value === 'dialogue'
-                              ? 'bg-purple-500 text-white'
-                              : 'bg-blue-500 text-white'
-                          : 'text-slate-400 hover:text-white'
-                      )}
-                    >
-                      {m.label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+            {/* Style Button - Opens CinematicHeaderWizard */}
+            {mode === 'video-free' && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowStyleWizard(true)}
+                className={cn(
+                  'h-8 gap-2 border-white/10',
+                  plan.cinematic_header
+                    ? 'bg-amber-500/20 border-amber-500/30 text-amber-300 hover:bg-amber-500/30'
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                )}
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                Style
+                {plan.cinematic_header && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
+                )}
+              </Button>
             )}
           </div>
         </DialogHeader>
 
         {/* MAIN CONTENT */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* CENTER: Frames Area */}
-          <div className="flex-1 p-4 flex flex-col bg-[#0a0e12] overflow-hidden">
+        <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Frames Row */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* CENTER: Frames Area */}
+            <div className="flex-1 p-4 flex flex-col bg-[#0a0e12] overflow-hidden">
             {/* Top bar */}
             <div className="flex-shrink-0 mb-3 flex items-center justify-between">
               <div className="w-32" />
@@ -1050,114 +1022,49 @@ export function PlanEditor({
                   )}
                 </div>
 
-                {/* BOTTOM: Prompt Panel */}
-                <div className="flex-1 min-h-0 flex flex-col">
-                  <div className="flex-1 bg-slate-900/95 backdrop-blur border border-blue-500/30 rounded-xl p-4 shadow-2xl flex flex-col overflow-hidden">
-                    {/* Animation Prompt */}
-                    <div className={cn(
-                      'flex flex-col min-h-0',
-                      config.showDialogue && hasDialogue ? 'flex-[2]' : 'flex-1'
-                    )}>
-                      <Label className="text-blue-400 text-xs mb-1 block flex-shrink-0">
-                        Animation Prompt
-                      </Label>
-                      <div className="flex-1 min-h-0">
-                        <MentionInput
-                          value={animationPrompt}
-                          onChange={handleAnimationPromptChange}
-                          placeholder="Décrivez l'animation... (@Personnage #Lieu)"
-                          projectId={projectId}
-                          minHeight="80px"
-                          className="h-full"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Dialogue section (video-free mode only) */}
-                    {config.showDialogue && (
-                      <div
-                        className={cn(
-                          'border-t border-white/10 pt-3 mt-3',
-                          hasDialogue ? 'flex-1 flex flex-col min-h-0' : 'flex-shrink-0'
-                        )}
-                      >
-                        <div className="flex items-center justify-between flex-shrink-0">
-                          <div className="flex items-center gap-2">
-                            <Mic className="w-3 h-3 text-slate-400" />
-                            {hasDialogue ? (
-                              <Select
-                                value={dialogueCharacterId || ''}
-                                onValueChange={(v) => {
-                                  setDialogueCharacterId(v);
-                                  onUpdate({ dialogue_character_id: v });
-                                }}
-                              >
-                                <SelectTrigger className="bg-white/5 border-white/10 text-white h-7 text-xs w-32">
-                                  <SelectValue placeholder="Personnage" />
-                                </SelectTrigger>
-                                <SelectContent className="bg-[#1a2e44] border-white/10 z-[9999]">
-                                  {dialogueCharacters.map((char) => (
-                                    <SelectItem key={char.id} value={char.id} className="text-xs">
-                                      {char.name}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                            ) : (
-                              <Label className="text-slate-400 text-xs">Dialogue</Label>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Label className="text-slate-500 text-xs">{hasDialogue ? 'ON' : 'OFF'}</Label>
-                            <button
-                              type="button"
-                              role="switch"
-                              aria-checked={hasDialogue}
-                              onClick={() => {
-                                const newValue = !hasDialogue;
-                                setHasDialogue(newValue);
-                                const newAudioMode = newValue ? 'dialogue' : 'mute';
-                                setAudioMode(newAudioMode);
-                                onUpdate({ has_dialogue: newValue, audio_mode: newAudioMode });
-                              }}
-                              className={cn(
-                                'relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors',
-                                hasDialogue ? 'bg-blue-500' : 'bg-slate-600'
-                              )}
-                            >
-                              <span
-                                className={cn(
-                                  'pointer-events-none block h-4 w-4 rounded-full bg-white shadow-lg ring-0 transition-transform',
-                                  hasDialogue ? 'translate-x-4' : 'translate-x-0'
-                                )}
-                              />
-                            </button>
-                          </div>
-                        </div>
-                        {hasDialogue && (
-                          <div className="flex-1 mt-2 min-h-0">
-                            <MentionInput
-                              value={dialogueText}
-                              onChange={(value) => {
-                                setDialogueText(value);
-                                onUpdate({ dialogue_text: value });
-                              }}
-                              placeholder="Ce que le personnage dit..."
-                              projectId={projectId}
-                              minHeight="60px"
-                              className="flex-1"
-                            />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
+                {/* BOTTOM: Prompt Panel - Hidden, prompts now in segments */}
               </div>
             )}
           </div>
+          </div>
+
+          {/* Segment Timeline (video-free mode only) - Full width below frames */}
+          {mode === 'video-free' && (
+            <div className="flex-shrink-0 px-6 py-4 border-t border-white/10 bg-[#0a0e12]">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-sm font-medium text-slate-300 flex items-center gap-2">
+                  <Clapperboard className="w-4 h-4 text-indigo-400" />
+                  Segments cinématiques
+                </h3>
+                <span className="text-xs text-slate-500">
+                  {(plan.segments?.length || 0)} segment{(plan.segments?.length || 0) !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <SegmentTimeline
+                segments={plan.segments || []}
+                planDuration={plan.duration}
+                selectedSegmentId={selectedSegmentId}
+                onSelectSegment={setSelectedSegmentId}
+                onSegmentsChange={handleSegmentsChange}
+                onEditSegment={handleEditSegment}
+              />
+            </div>
+          )}
 
         </div>
+
+        {/* Segment Editor Dialog */}
+        <SegmentEditor
+          segment={editingSegment}
+          open={showSegmentEditor}
+          onOpenChange={(open) => {
+            setShowSegmentEditor(open);
+            if (!open) setEditingSegment(null);
+          }}
+          onSave={handleSaveSegment}
+          characters={segmentCharacters}
+          planDuration={plan.duration}
+        />
 
         {/* Gallery Picker */}
         <GalleryPicker
@@ -1287,6 +1194,15 @@ export function PlanEditor({
       </DialogContent>
     </Dialog>
     )}
+
+    {/* Cinematic Style Wizard */}
+    <CinematicHeaderWizard
+      open={showStyleWizard}
+      onOpenChange={setShowStyleWizard}
+      value={plan.cinematic_header || null}
+      onChange={handleCinematicStyleChange}
+      projectId={projectId}
+    />
   </>
   );
 }

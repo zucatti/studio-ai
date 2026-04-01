@@ -110,6 +110,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       'audio_asset_id',
       'audio_start',
       'audio_end',
+      // Cinematic fields
+      'title',
+      'cinematic_header',
+      'segments',
     ];
 
     const updates: Record<string, any> = {};

@@ -1,39 +1,67 @@
 import { create } from 'zustand';
 import type { ShotType, CameraAngle, CameraMovement } from '@/types/database';
+import type {
+  CinematicHeaderConfig,
+  GenerationMode,
+  DialogueLanguage,
+  Segment,
+  PlanTranslation,
+} from '@/types/cinematic';
 
-// Plan (shot within a short)
+// Plan (generation unit within a short, max 15s)
 export interface Plan {
   id: string;
   short_id: string;
   shot_number: number;
   description: string;
   duration: number;
-  shot_type: ShotType | null;
-  camera_angle: CameraAngle | null;
-  camera_movement: CameraMovement | null;
+  sort_order: number;
+
+  // Plan title (optional, fallback: "Plan 1", "Plan 2", etc.)
+  title: string | null;
+
+  // Cinematic style (belongs to plan, not short)
+  cinematic_header: CinematicHeaderConfig | null;
+
+  // Reference frames
   storyboard_image_url: string | null; // Frame In (first frame)
   first_frame_url: string | null; // Alias for storyboard_image_url
   last_frame_url: string | null; // Frame Out (last frame)
+
+  // Segments (shots within this plan) - NEW
+  segments: Segment[];
+
+  // Translations (language versions) - NEW
+  translations: PlanTranslation[];
+
+  // Generation
   generated_video_url: string | null;
   generation_status: string;
-  sort_order: number;
-  frame_in: number; // 0-100 percentage
-  frame_out: number; // 0-100 percentage
-  // Animation prompt for video generation (supports &in/&out)
+
+  // Legacy fields (for compatibility during migration)
+  shot_type: ShotType | null;
+  camera_angle: CameraAngle | null;
+  camera_movement: CameraMovement | null;
+  frame_in: number;
+  frame_out: number;
   animation_prompt: string | null;
-  // Dialogue (lip-sync)
   has_dialogue: boolean;
   dialogue_text: string | null;
-  dialogue_character_id: string | null; // Global asset ID for voice
-  dialogue_audio_url: string | null; // Generated ElevenLabs audio
-  // Audio/Music
+  dialogue_character_id: string | null;
+  dialogue_audio_url: string | null;
   audio_mode: 'mute' | 'dialogue' | 'audio' | 'instrumental' | 'vocal';
-  audio_asset_id: string | null; // Global asset ID for music/audio
-  audio_start: number; // Start time in seconds
-  audio_end: number | null; // End time in seconds (null = use plan duration)
+  audio_asset_id: string | null;
+  audio_start: number;
+  audio_end: number | null;
+  shot_subject: string | null;
+  framing: string | null;
+  action: string | null;
+  environment: string | null;
+  dialogue_tone: string | null;
+  start_time: number | null;
 }
 
-// Short (scene used as a short)
+// Short (scene used as a short - simple container)
 export interface Short {
   id: string;
   project_id: string;
@@ -47,6 +75,12 @@ export interface Short {
   assembled_video_duration: number | null; // Duration in seconds (from FFmpeg)
   created_at: string;
   updated_at: string;
+  // Short-level settings (cinematic style is now on each plan)
+  dialogue_language: DialogueLanguage;
+  // Legacy fields (kept for backwards compatibility)
+  cinematic_header?: CinematicHeaderConfig | null;
+  character_mappings?: unknown[] | null;
+  generation_mode?: GenerationMode;
 }
 
 interface ShortsStore {
@@ -63,7 +97,11 @@ interface ShortsStore {
 
   // Short CRUD
   createShort: (projectId: string, title: string) => Promise<Short | null>;
-  updateShort: (projectId: string, shortId: string, updates: Partial<{ title: string; description: string }>) => Promise<void>;
+  updateShort: (projectId: string, shortId: string, updates: Partial<{
+    title: string;
+    description: string;
+    dialogue_language: DialogueLanguage;
+  }>) => Promise<void>;
   deleteShort: (projectId: string, shortId: string) => Promise<void>;
   reorderShorts: (projectId: string, orderedIds: string[]) => Promise<void>;
 
@@ -73,9 +111,17 @@ interface ShortsStore {
   deletePlan: (projectId: string, planId: string) => Promise<void>;
   reorderPlans: (projectId: string, shortId: string, orderedIds: string[]) => Promise<void>;
 
+  // Plan cinematic actions (style belongs to plan now)
+  setPlanCinematicHeader: (projectId: string, planId: string, header: CinematicHeaderConfig | null) => Promise<void>;
+  updatePlanSegments: (projectId: string, planId: string, segments: Segment[]) => Promise<void>;
+
+  // Short-level settings
+  setDialogueLanguage: (projectId: string, shortId: string, language: DialogueLanguage) => Promise<void>;
+
   // Helpers
   getShortById: (shortId: string) => Short | undefined;
   getPlansByShort: (shortId: string) => Plan[];
+  getPlanById: (planId: string) => Plan | undefined;
 }
 
 export const useShortsStore = create<ShortsStore>((set, get) => ({
@@ -120,6 +166,11 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           totalDuration: 0,
           assembled_video_url: null,
           assembled_video_duration: null,
+          // Cinematic defaults
+          cinematic_header: data.short.cinematic_header || null,
+          character_mappings: data.short.character_mappings || null,
+          generation_mode: data.short.generation_mode || 'standard',
+          dialogue_language: data.short.dialogue_language || 'en',
         };
         set((state) => ({
           shorts: [...state.shorts, newShort],
@@ -134,7 +185,11 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
   },
 
   // Update a short
-  updateShort: async (projectId: string, shortId: string, updates: Partial<{ title: string; description: string }>) => {
+  updateShort: async (projectId: string, shortId: string, updates: Partial<{
+    title: string;
+    description: string;
+    dialogue_language: DialogueLanguage;
+  }>) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}`, {
         method: 'PATCH',
@@ -213,29 +268,43 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           shot_number: data.plan.shot_number,
           description: data.plan.description || '',
           duration: data.plan.duration || 5,
-          shot_type: data.plan.shot_type,
-          camera_angle: data.plan.camera_angle,
-          camera_movement: data.plan.camera_movement,
+          sort_order: data.plan.sort_order || 0,
+          // Plan title (optional, fallback: "Plan 1", "Plan 2", etc.)
+          title: data.plan.title ?? null,
+          // Cinematic style (belongs to plan, not short)
+          cinematic_header: data.plan.cinematic_header ?? null,
+          // Reference frames
           storyboard_image_url: data.plan.storyboard_image_url || data.plan.first_frame_url,
           first_frame_url: data.plan.first_frame_url || data.plan.storyboard_image_url,
           last_frame_url: data.plan.last_frame_url,
+          // Segments (shots within this plan)
+          segments: data.plan.segments ?? [],
+          // Translations (language versions)
+          translations: data.plan.translations ?? [],
+          // Generation
           generated_video_url: data.plan.generated_video_url,
           generation_status: data.plan.generation_status || 'not_started',
-          sort_order: data.plan.sort_order || 0,
+          // Legacy fields (for compatibility)
+          shot_type: data.plan.shot_type,
+          camera_angle: data.plan.camera_angle,
+          camera_movement: data.plan.camera_movement,
           frame_in: data.plan.frame_in ?? 0,
           frame_out: data.plan.frame_out ?? 100,
-          // Animation prompt
           animation_prompt: data.plan.animation_prompt ?? null,
-          // Dialogue fields
           has_dialogue: data.plan.has_dialogue ?? false,
           dialogue_text: data.plan.dialogue_text ?? null,
           dialogue_character_id: data.plan.dialogue_character_id ?? null,
           dialogue_audio_url: data.plan.dialogue_audio_url ?? null,
-          // Audio/Music
           audio_mode: data.plan.audio_mode || 'mute',
           audio_asset_id: data.plan.audio_asset_id ?? null,
           audio_start: data.plan.audio_start ?? 0,
           audio_end: data.plan.audio_end ?? null,
+          shot_subject: data.plan.shot_subject ?? null,
+          framing: data.plan.framing ?? null,
+          action: data.plan.action ?? null,
+          environment: data.plan.environment ?? null,
+          dialogue_tone: data.plan.dialogue_tone ?? null,
+          start_time: data.plan.start_time ?? null,
         };
 
         set((state) => ({
@@ -352,6 +421,97 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
     }
   },
 
+  // Plan cinematic actions (style belongs to plan now)
+  setPlanCinematicHeader: async (projectId: string, planId: string, header: CinematicHeaderConfig | null) => {
+    // Find the short containing this plan
+    const short = get().shorts.find(s => s.plans.some(p => p.id === planId));
+    if (!short) return;
+
+    // Optimistic update
+    set((state) => ({
+      shorts: state.shorts.map((s) =>
+        s.id === short.id
+          ? {
+              ...s,
+              plans: s.plans.map((p) =>
+                p.id === planId ? { ...p, cinematic_header: header } : p
+              ),
+            }
+          : s
+      ),
+    }));
+
+    try {
+      await fetch(`/api/projects/${projectId}/shorts/${short.id}/plans/${planId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cinematic_header: header }),
+      });
+    } catch (error) {
+      console.error('Error updating plan cinematic header:', error);
+      get().fetchShorts(projectId);
+    }
+  },
+
+  updatePlanSegments: async (projectId: string, planId: string, segments: Segment[]) => {
+    // Find the short containing this plan
+    const short = get().shorts.find(s => s.plans.some(p => p.id === planId));
+    if (!short) return;
+
+    // Calculate new duration from segments
+    const duration = segments.length > 0
+      ? Math.max(...segments.map(s => s.end_time))
+      : 5;
+
+    // Optimistic update
+    set((state) => ({
+      shorts: state.shorts.map((s) =>
+        s.id === short.id
+          ? {
+              ...s,
+              plans: s.plans.map((p) =>
+                p.id === planId ? { ...p, segments, duration } : p
+              ),
+              totalDuration: s.plans.reduce((sum, p) =>
+                p.id === planId ? sum + duration : sum + p.duration, 0
+              ),
+            }
+          : s
+      ),
+    }));
+
+    try {
+      await fetch(`/api/projects/${projectId}/shorts/${short.id}/plans/${planId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ segments, duration }),
+      });
+    } catch (error) {
+      console.error('Error updating plan segments:', error);
+      get().fetchShorts(projectId);
+    }
+  },
+
+  // Short-level settings
+  setDialogueLanguage: async (projectId: string, shortId: string, language: DialogueLanguage) => {
+    set((state) => ({
+      shorts: state.shorts.map((s) =>
+        s.id === shortId ? { ...s, dialogue_language: language } : s
+      ),
+    }));
+
+    try {
+      await fetch(`/api/projects/${projectId}/shorts/${shortId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dialogue_language: language }),
+      });
+    } catch (error) {
+      console.error('Error updating dialogue language:', error);
+      get().fetchShorts(projectId);
+    }
+  },
+
   // Helpers
   getShortById: (shortId: string) => {
     return get().shorts.find((s) => s.id === shortId);
@@ -360,5 +520,13 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
   getPlansByShort: (shortId: string) => {
     const short = get().shorts.find((s) => s.id === shortId);
     return short?.plans || [];
+  },
+
+  getPlanById: (planId: string) => {
+    for (const short of get().shorts) {
+      const plan = short.plans.find((p) => p.id === planId);
+      if (plan) return plan;
+    }
+    return undefined;
   },
 }));

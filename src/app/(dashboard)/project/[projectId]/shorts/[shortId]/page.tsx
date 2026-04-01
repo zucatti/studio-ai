@@ -9,9 +9,11 @@ import { VideoGenerationCard, type VideoGenerationProgress } from '@/components/
 import { VideoCard } from '@/components/shorts/VideoCard';
 import { ProjectBibleButton } from '@/components/bible/ProjectBible';
 import { formatDuration } from '@/components/shorts/DurationPicker';
+import { CinematicHeaderWizard } from '@/components/shorts/CinematicHeaderWizard';
 import { useShortsStore, type Plan } from '@/store/shorts-store';
 import { useJobsStore } from '@/store/jobs-store';
 import type { AspectRatio } from '@/types/database';
+import type { CinematicHeaderConfig } from '@/types/cinematic';
 import {
   ArrowLeft,
   Loader2,
@@ -23,6 +25,8 @@ import {
   Play,
   Download,
   Clapperboard,
+  Sparkles,
+  Settings2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -59,6 +63,10 @@ export default function ShortDetailPage() {
 
   // Tab state: 'edition' or 'montage'
   const [activeTab, setActiveTab] = useState<'edition' | 'montage'>('edition');
+
+  // Cinematic mode state
+  const [showCinematicWizard, setShowCinematicWizard] = useState(false);
+  const [isGeneratingCinematic, setIsGeneratingCinematic] = useState(false);
 
   // Montage state
   const [isAssembling, setIsAssembling] = useState(false);
@@ -188,6 +196,58 @@ export default function ShortDetailPage() {
 
   const handleReorderPlans = async (orderedIds: string[]) => {
     await reorderPlans(projectId, shortId, orderedIds);
+  };
+
+  // Cinematic mode handlers (style is now per-plan, handled in plan editor)
+  // Legacy handler for backwards compatibility - will be removed
+  const handleCinematicHeaderChange = async (_config: CinematicHeaderConfig) => {
+    // Style cinématique is now on each plan, not the short
+    // This is kept for backwards compatibility during migration
+    toast.info('Le style cinématique se configure maintenant dans chaque plan');
+  };
+
+  // Generate all plans (cinematic mega-prompt for each)
+  const handleGenerateCinematic = async () => {
+    if (!short) return;
+
+    // Validation
+    if (short.plans.length === 0) {
+      toast.error('Ajoutez au moins un plan');
+      return;
+    }
+
+    // Check if any plan has segments or content
+    const plansWithContent = short.plans.filter(p =>
+      (p.segments && p.segments.length > 0) || p.storyboard_image_url || p.animation_prompt
+    );
+    if (plansWithContent.length === 0) {
+      toast.error('Configurez au moins un plan avec du contenu');
+      return;
+    }
+
+    setIsGeneratingCinematic(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/generate-cinematic`, {
+        method: 'POST',
+      });
+
+      if (!res.ok) {
+        const error = await res.json();
+        throw new Error(error.error || 'Erreur lors de la génération');
+      }
+
+      toast.success('Génération cinématique démarrée');
+
+      // Refresh jobs
+      await fetchJobs();
+      startPolling();
+
+    } catch (error) {
+      console.error('Cinematic generation error:', error);
+      toast.error(error instanceof Error ? error.message : 'Erreur lors de la génération');
+    } finally {
+      setIsGeneratingCinematic(false);
+    }
   };
 
   // Generate video using BullMQ queue
@@ -468,6 +528,11 @@ export default function ShortDetailPage() {
               <span className="px-2 py-0.5 rounded bg-white/5 text-xs">
                 {aspectRatio}
               </span>
+              {/* Cinematic badge (always cinematic now) */}
+              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-xs font-medium ml-2">
+                <Sparkles className="w-3 h-3" />
+                Cinématique
+              </div>
             </div>
           </div>
         </div>
@@ -477,8 +542,8 @@ export default function ShortDetailPage() {
         </div>
       </div>
 
-      {/* Tab group button */}
-      <div className="flex-shrink-0 pb-4">
+      {/* Tab group button + Generate All */}
+      <div className="flex-shrink-0 pb-4 flex items-center justify-between">
         <div className="inline-flex rounded-lg bg-white/5 p-1">
           <button
             onClick={() => setActiveTab('edition')}
@@ -505,12 +570,37 @@ export default function ShortDetailPage() {
             Montage
           </button>
         </div>
+
+        <Button
+          onClick={handleGenerateCinematic}
+          disabled={isGeneratingCinematic || short.plans.length === 0}
+          className={cn(
+            "gap-2",
+            isGeneratingCinematic
+              ? "bg-amber-500/50"
+              : "bg-gradient-to-r from-amber-500 to-purple-500 hover:from-amber-600 hover:to-purple-600"
+          )}
+        >
+          {isGeneratingCinematic ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Génération...
+            </>
+          ) : (
+            <>
+              <Sparkles className="w-4 h-4" />
+              Générer Tous
+            </>
+          )}
+        </Button>
       </div>
 
       {/* Main content */}
       {activeTab === 'edition' ? (
-      /* EDITION TAB - Two columns */
-      <div className="flex-1 flex gap-6 min-h-0">
+      /* EDITION TAB */
+      <div className="flex-1 flex flex-col gap-4 min-h-0">
+        {/* Two columns layout */}
+        <div className="flex-1 flex gap-6 min-h-0">
         {/* LEFT: Timeline - compact */}
         <div className="w-[320px] flex-shrink-0 rounded-xl bg-[#151d28] border border-white/5 p-4 flex flex-col overflow-hidden">
           <h2 className="text-sm font-medium text-slate-400 mb-3 uppercase tracking-wider flex items-center gap-2">
@@ -602,6 +692,7 @@ export default function ShortDetailPage() {
               </div>
             )}
           </div>
+        </div>
         </div>
       </div>
       ) : (
@@ -819,6 +910,17 @@ export default function ShortDetailPage() {
         </div>
       )}
 
+      {/* Cinematic Header Wizard */}
+      {short && (
+        <CinematicHeaderWizard
+          open={showCinematicWizard}
+          onOpenChange={setShowCinematicWizard}
+          value={short.cinematic_header as CinematicHeaderConfig | null}
+          onChange={handleCinematicHeaderChange}
+          projectId={projectId}
+        />
+      )}
+
       {/* Plan Editor Modal */}
       {selectedPlan && (
         <PlanEditor
@@ -845,6 +947,10 @@ export default function ShortDetailPage() {
             audio_start: selectedPlan.audio_start,
             audio_end: selectedPlan.audio_end,
             generated_video_url: selectedPlan.generated_video_url,
+            // New segment-based fields
+            title: selectedPlan.title,
+            cinematic_header: selectedPlan.cinematic_header,
+            segments: selectedPlan.segments,
           }}
           previousPlan={previousPlan ? {
             id: previousPlan.id,

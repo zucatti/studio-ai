@@ -1,0 +1,486 @@
+/**
+ * Cinematic Types for Extended Shorts Generation
+ *
+ * These types support the cinematic mega-prompt workflow for Kling Omni generation.
+ */
+
+// ============================================================================
+// Cinematic Header Configuration (Wizard-based)
+// ============================================================================
+
+export type LightingType = 'natural' | 'artificial' | 'mixed';
+export type LightingStyle = 'high_key' | 'low_key' | 'dramatic' | 'soft' | 'harsh' | 'silhouette';
+export type LightingSource = 'single_source' | 'three_point' | 'practical' | 'ambient';
+export type LightingModifier = 'diffused' | 'direct' | 'bounced' | 'colored';
+
+export type TimeOfDayCinematic = 'dawn' | 'morning' | 'midday' | 'afternoon' | 'golden_hour' | 'dusk' | 'night' | 'blue_hour';
+export type Weather = 'clear' | 'cloudy' | 'overcast' | 'rain' | 'fog' | 'storm';
+
+export type CameraTypeCinematic = 'handheld' | 'steadicam' | 'tripod' | 'drone' | 'gimbal' | 'crane' | 'dolly';
+export type LensType = 'wide' | 'standard' | 'telephoto' | 'macro' | 'anamorphic';
+export type ApertureStyle = 'shallow_dof' | 'medium_dof' | 'deep_dof';
+export type FocusStyle = 'rack_focus' | 'pull_focus' | 'soft_focus' | 'sharp';
+
+export type ColorTemperature = 'warm' | 'neutral' | 'cold';
+export type ColorSaturation = 'vibrant' | 'natural' | 'desaturated' | 'monochrome';
+export type ColorContrast = 'low' | 'medium' | 'high';
+export type ColorStyle = 'cinematic' | 'vintage' | 'modern' | 'noir' | 'pastel' | 'teal_orange';
+
+export type ToneGenre = 'thriller' | 'drama' | 'comedy' | 'action' | 'horror' | 'romance' | 'sci_fi' | 'documentary';
+export type ToneMood = 'tense' | 'intimate' | 'epic' | 'melancholic' | 'joyful' | 'mysterious' | 'peaceful';
+export type TonePacing = 'slow' | 'moderate' | 'fast' | 'frenetic';
+
+export interface CinematicHeaderConfig {
+  // Preset ID for reuse
+  preset_id?: string;
+  preset_name?: string;
+
+  // Lighting
+  lighting: {
+    type: LightingType;
+    style: LightingStyle;
+    source?: LightingSource;
+    modifiers?: LightingModifier[];
+  };
+
+  // Time (can come from scene in film mode)
+  time_of_day: TimeOfDayCinematic;
+  weather?: Weather;
+
+  // Camera
+  camera: {
+    type: CameraTypeCinematic;
+    lens: LensType;
+    aperture: ApertureStyle;
+    focus?: FocusStyle;
+  };
+
+  // Color Grading
+  color_grade: {
+    temperature: ColorTemperature;
+    saturation: ColorSaturation;
+    contrast: ColorContrast;
+    style?: ColorStyle;
+    lut_reference?: string; // LUT name: "Kodak 2383", "ARRI LogC", etc.
+  };
+
+  // Tone & Mood
+  tone: {
+    genre: ToneGenre;
+    mood: ToneMood;
+    pacing: TonePacing;
+  };
+
+  // Cast (auto-detected from short's characters)
+  cast?: {
+    count: number;
+    age_range?: string; // "late 20s-early 30s"
+    relationship?: string; // "romantic couple", "rivals", "strangers"
+  };
+
+  // Additional text (for what's not covered)
+  additional_notes?: string;
+}
+
+// ============================================================================
+// Character Mapping for Kling Elements
+// ============================================================================
+
+export interface CharacterMapping {
+  character_id: string;
+  element_index: number; // 1-4 (for @Element1, @Element2, etc.)
+  voice_index: number;   // 1-2 (for <<<voice_1>>>, <<<voice_2>>>)
+}
+
+// ============================================================================
+// Extended Short Fields (to be added to Short interface)
+// ============================================================================
+
+export type GenerationMode = 'standard' | 'cinematic';
+export type DialogueLanguage = 'en' | 'fr' | 'es' | 'de' | 'it' | 'pt' | 'zh' | 'ja' | 'ko';
+
+// ============================================================================
+// Shot Types (segment within a plan)
+// ============================================================================
+
+export type ShotType =
+  | 'extreme_wide'
+  | 'wide'
+  | 'medium_wide'
+  | 'medium'
+  | 'medium_close_up'
+  | 'close_up'
+  | 'extreme_close_up'
+  | 'over_shoulder'
+  | 'pov'
+  | 'insert'
+  | 'two_shot';
+
+export type DialogueTone =
+  | 'neutral'
+  | 'flatly'
+  | 'coldly'
+  | 'warmly'
+  | 'angrily'
+  | 'sadly'
+  | 'whispers'
+  | 'shouts'
+  | 'sarcastically'
+  | 'nervously'
+  | 'seductively';
+
+export type CameraMovement =
+  | 'static'
+  | 'slow_dolly_in'
+  | 'slow_dolly_out'
+  | 'dolly_left'
+  | 'dolly_right'
+  | 'tracking_forward'
+  | 'tracking_backward'
+  | 'pan_left'
+  | 'pan_right'
+  | 'tilt_up'
+  | 'tilt_down'
+  | 'crane_up'
+  | 'crane_down'
+  | 'orbit_cw'
+  | 'orbit_ccw'
+  | 'handheld'
+  | 'zoom_in'
+  | 'zoom_out';
+
+// ============================================================================
+// Dialogue within a Segment
+// ============================================================================
+
+export interface SegmentDialogue {
+  character_id: string;
+  character_name: string;  // For display
+  tone?: DialogueTone;
+  text: string;            // Original language
+  text_en?: string;        // Claude translation (auto-generated)
+}
+
+// ============================================================================
+// Segment (Shot within a Plan)
+// ============================================================================
+
+export interface Segment {
+  id: string;
+
+  // Timing (in seconds)
+  start_time: number;
+  end_time: number;
+
+  // Identification
+  shot_type: ShotType;
+  subject: string;  // "@Morgana", "the knife", "both characters"
+
+  // Description (all optional)
+  framing?: string;
+  action?: string;
+  dialogue?: SegmentDialogue;
+  environment?: string;
+  camera_movement?: CameraMovement;
+  camera_notes?: string;
+
+  // Override (for advanced users)
+  custom_prompt?: string;
+}
+
+// ============================================================================
+// Plan Translation (language version)
+// ============================================================================
+
+export interface PlanTranslation {
+  language: DialogueLanguage;
+  audio_url: string;      // ElevenLabs generated audio
+  video_url: string;      // Sync Lipsync result
+  status: 'pending' | 'generating' | 'completed' | 'failed';
+  created_at?: string;
+}
+
+// ============================================================================
+// Short Extension (simplified - no character_mappings)
+// ============================================================================
+
+export interface CinematicShortExtension {
+  dialogue_language?: DialogueLanguage;
+}
+
+// ============================================================================
+// Extended Plan Fields (new structure with segments)
+// ============================================================================
+
+export interface CinematicPlanExtension {
+  // Plan title (optional, fallback: "Plan 1", "Plan 2", etc.)
+  title?: string;
+
+  // Cinematic style (belongs to plan, not short)
+  cinematic_header?: CinematicHeaderConfig;
+
+  // Reference frames
+  frame_in_url?: string;
+  frame_out_url?: string;
+
+  // Segments (shots within this plan)
+  segments: Segment[];
+
+  // Translations (language versions)
+  translations?: PlanTranslation[];
+
+  // Legacy fields (kept for migration compatibility)
+  shot_subject?: string;
+  framing?: string;
+  action?: string;
+  environment?: string;
+  dialogue_tone?: string;
+  start_time?: number;
+}
+
+// ============================================================================
+// Cinematic Preset (reusable configurations)
+// ============================================================================
+
+export interface CinematicPreset {
+  id: string;
+  user_id: string;
+  project_id: string | null; // NULL = global user preset
+  name: string;
+  description?: string;
+  config: CinematicHeaderConfig;
+  is_default: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+// ============================================================================
+// Character Data Extension (for fal.ai voice)
+// ============================================================================
+
+export interface CharacterDataExtension {
+  // Existing fields
+  visual_description?: string;
+  voice_id?: string;           // ElevenLabs voice_id
+  voice_name?: string;
+  reference_images?: string[];
+
+  // NEW: fal.ai voice fields
+  fal_voice_id?: string;           // voice_id from fal.ai create-voice
+  fal_voice_sample_url?: string;   // Sample audio URL used to create the voice
+}
+
+// ============================================================================
+// Cinematic Generation Request
+// ============================================================================
+
+export interface CinematicGenerationRequest {
+  short_id: string;
+  project_id: string;
+
+  // Elements for Kling (up to 4)
+  elements: Array<{
+    character_id: string;
+    frontal_image_url: string;
+    reference_image_urls?: string[];
+  }>;
+
+  // Voices (up to 2)
+  voices: Array<{
+    character_id: string;
+    fal_voice_id: string;
+  }>;
+
+  // The mega-prompt
+  prompt: string;
+
+  // Generation options
+  duration: number; // 3-15 seconds
+  generate_audio: boolean; // true for English native Kling, false for post-process
+  dialogue_language: DialogueLanguage;
+}
+
+// ============================================================================
+// Helper Types for Wizard UI
+// ============================================================================
+
+export interface LightingOption {
+  value: LightingStyle;
+  label: string;
+  description: string;
+}
+
+export interface CameraOption {
+  value: CameraTypeCinematic;
+  label: string;
+  description: string;
+}
+
+export interface ColorStyleOption {
+  value: ColorStyle;
+  label: string;
+  description: string;
+}
+
+export interface ToneOption {
+  value: ToneMood;
+  label: string;
+  forGenres: ToneGenre[];
+}
+
+// Preset options for wizard
+export const LIGHTING_OPTIONS: LightingOption[] = [
+  { value: 'high_key', label: 'High-key', description: 'Bright, even lighting with minimal shadows' },
+  { value: 'low_key', label: 'Low-key', description: 'Dark, dramatic with strong shadows' },
+  { value: 'dramatic', label: 'Dramatic', description: 'High contrast with defined shadows' },
+  { value: 'soft', label: 'Soft', description: 'Diffused, gentle lighting' },
+  { value: 'harsh', label: 'Harsh', description: 'Direct, hard shadows' },
+  { value: 'silhouette', label: 'Silhouette', description: 'Backlit subjects in shadow' },
+];
+
+export const CAMERA_TYPE_OPTIONS: CameraOption[] = [
+  { value: 'handheld', label: 'Handheld', description: 'Natural shake, documentary feel' },
+  { value: 'steadicam', label: 'Steadicam', description: 'Smooth tracking shots' },
+  { value: 'tripod', label: 'Tripod', description: 'Static, stable framing' },
+  { value: 'drone', label: 'Drone', description: 'Aerial perspectives' },
+  { value: 'gimbal', label: 'Gimbal', description: 'Smooth handheld movement' },
+  { value: 'crane', label: 'Crane', description: 'Sweeping vertical movements' },
+  { value: 'dolly', label: 'Dolly', description: 'Smooth horizontal tracking' },
+];
+
+export const COLOR_STYLE_OPTIONS: ColorStyleOption[] = [
+  { value: 'cinematic', label: 'Cinematic', description: 'Classic film look with controlled colors' },
+  { value: 'vintage', label: 'Vintage', description: 'Warm, faded look' },
+  { value: 'modern', label: 'Modern', description: 'Clean, contemporary colors' },
+  { value: 'noir', label: 'Noir', description: 'High contrast black and white or muted colors' },
+  { value: 'pastel', label: 'Pastel', description: 'Soft, muted tones' },
+  { value: 'teal_orange', label: 'Teal & Orange', description: 'Popular cinema color grading' },
+];
+
+export const GENRE_OPTIONS: { value: ToneGenre; label: string }[] = [
+  { value: 'thriller', label: 'Thriller' },
+  { value: 'drama', label: 'Drama' },
+  { value: 'comedy', label: 'Comedy' },
+  { value: 'action', label: 'Action' },
+  { value: 'horror', label: 'Horror' },
+  { value: 'romance', label: 'Romance' },
+  { value: 'sci_fi', label: 'Sci-Fi' },
+  { value: 'documentary', label: 'Documentary' },
+];
+
+export const MOOD_OPTIONS: ToneOption[] = [
+  { value: 'tense', label: 'Tense', forGenres: ['thriller', 'horror', 'action'] },
+  { value: 'intimate', label: 'Intimate', forGenres: ['drama', 'romance'] },
+  { value: 'epic', label: 'Epic', forGenres: ['action', 'sci_fi'] },
+  { value: 'melancholic', label: 'Melancholic', forGenres: ['drama', 'romance'] },
+  { value: 'joyful', label: 'Joyful', forGenres: ['comedy', 'romance'] },
+  { value: 'mysterious', label: 'Mysterious', forGenres: ['thriller', 'horror', 'sci_fi'] },
+  { value: 'peaceful', label: 'Peaceful', forGenres: ['drama', 'documentary'] },
+];
+
+export const TIME_OF_DAY_OPTIONS: { value: TimeOfDayCinematic; label: string }[] = [
+  { value: 'dawn', label: 'Dawn' },
+  { value: 'morning', label: 'Morning' },
+  { value: 'midday', label: 'Midday' },
+  { value: 'afternoon', label: 'Afternoon' },
+  { value: 'golden_hour', label: 'Golden Hour' },
+  { value: 'dusk', label: 'Dusk' },
+  { value: 'night', label: 'Night' },
+  { value: 'blue_hour', label: 'Blue Hour' },
+];
+
+export const PACING_OPTIONS: { value: TonePacing; label: string }[] = [
+  { value: 'slow', label: 'Slow' },
+  { value: 'moderate', label: 'Moderate' },
+  { value: 'fast', label: 'Fast' },
+  { value: 'frenetic', label: 'Frenetic' },
+];
+
+// ============================================================================
+// Shot/Segment Options
+// ============================================================================
+
+export const SHOT_TYPE_OPTIONS: { value: ShotType; label: string; description: string }[] = [
+  { value: 'extreme_wide', label: 'Extreme Wide', description: 'Vast landscape or setting' },
+  { value: 'wide', label: 'Wide', description: 'Full scene with context' },
+  { value: 'medium_wide', label: 'Medium Wide', description: 'Subject with environment' },
+  { value: 'medium', label: 'Medium', description: 'Waist-up framing' },
+  { value: 'medium_close_up', label: 'Medium Close-up', description: 'Chest-up framing' },
+  { value: 'close_up', label: 'Close-up', description: 'Face or detail' },
+  { value: 'extreme_close_up', label: 'Extreme Close-up', description: 'Eyes or minute detail' },
+  { value: 'over_shoulder', label: 'Over Shoulder', description: 'From behind one character' },
+  { value: 'pov', label: 'POV', description: 'Character\'s point of view' },
+  { value: 'insert', label: 'Insert', description: 'Object or detail cutaway' },
+  { value: 'two_shot', label: 'Two Shot', description: 'Two characters in frame' },
+];
+
+export const DIALOGUE_TONE_OPTIONS: { value: DialogueTone; label: string }[] = [
+  { value: 'neutral', label: 'Neutral' },
+  { value: 'flatly', label: 'Flatly' },
+  { value: 'coldly', label: 'Coldly' },
+  { value: 'warmly', label: 'Warmly' },
+  { value: 'angrily', label: 'Angrily' },
+  { value: 'sadly', label: 'Sadly' },
+  { value: 'whispers', label: 'Whispers' },
+  { value: 'shouts', label: 'Shouts' },
+  { value: 'sarcastically', label: 'Sarcastically' },
+  { value: 'nervously', label: 'Nervously' },
+  { value: 'seductively', label: 'Seductively' },
+];
+
+export const CAMERA_MOVEMENT_OPTIONS: { value: CameraMovement; label: string; description: string }[] = [
+  { value: 'static', label: 'Static', description: 'No movement' },
+  { value: 'slow_dolly_in', label: 'Dolly In (slow)', description: 'Slowly move toward subject' },
+  { value: 'slow_dolly_out', label: 'Dolly Out (slow)', description: 'Slowly move away from subject' },
+  { value: 'dolly_left', label: 'Dolly Left', description: 'Track left' },
+  { value: 'dolly_right', label: 'Dolly Right', description: 'Track right' },
+  { value: 'tracking_forward', label: 'Tracking Forward', description: 'Follow subject forward' },
+  { value: 'tracking_backward', label: 'Tracking Backward', description: 'Pull back from subject' },
+  { value: 'pan_left', label: 'Pan Left', description: 'Rotate camera left' },
+  { value: 'pan_right', label: 'Pan Right', description: 'Rotate camera right' },
+  { value: 'tilt_up', label: 'Tilt Up', description: 'Tilt camera upward' },
+  { value: 'tilt_down', label: 'Tilt Down', description: 'Tilt camera downward' },
+  { value: 'crane_up', label: 'Crane Up', description: 'Rise vertically' },
+  { value: 'crane_down', label: 'Crane Down', description: 'Descend vertically' },
+  { value: 'orbit_cw', label: 'Orbit CW', description: 'Circle clockwise around subject' },
+  { value: 'orbit_ccw', label: 'Orbit CCW', description: 'Circle counter-clockwise' },
+  { value: 'handheld', label: 'Handheld', description: 'Natural shake, documentary feel' },
+  { value: 'zoom_in', label: 'Zoom In', description: 'Zoom toward subject' },
+  { value: 'zoom_out', label: 'Zoom Out', description: 'Zoom away from subject' },
+];
+
+export const DIALOGUE_LANGUAGE_OPTIONS: { value: DialogueLanguage; label: string; flag: string }[] = [
+  { value: 'en', label: 'English', flag: '🇬🇧' },
+  { value: 'fr', label: 'French', flag: '🇫🇷' },
+  { value: 'es', label: 'Spanish', flag: '🇪🇸' },
+  { value: 'de', label: 'German', flag: '🇩🇪' },
+  { value: 'it', label: 'Italian', flag: '🇮🇹' },
+  { value: 'pt', label: 'Portuguese', flag: '🇵🇹' },
+  { value: 'zh', label: 'Chinese', flag: '🇨🇳' },
+  { value: 'ja', label: 'Japanese', flag: '🇯🇵' },
+  { value: 'ko', label: 'Korean', flag: '🇰🇷' },
+];
+
+// ============================================================================
+// Helper: Create default segment
+// ============================================================================
+
+export function createDefaultSegment(startTime: number = 0, duration: number = 5): Segment {
+  return {
+    id: crypto.randomUUID(),
+    start_time: startTime,
+    end_time: startTime + duration,
+    shot_type: 'medium',
+    subject: '',
+  };
+}
+
+// ============================================================================
+// Helper: Get plan display title
+// ============================================================================
+
+export function getPlanDisplayTitle(plan: { title?: string | null; sort_order?: number }, index?: number): string {
+  if (plan.title) return plan.title;
+  const num = plan.sort_order !== undefined ? plan.sort_order + 1 : (index !== undefined ? index + 1 : 1);
+  return `Plan ${num}`;
+}

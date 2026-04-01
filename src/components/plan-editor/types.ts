@@ -1,4 +1,5 @@
 import type { AspectRatio, ShotType, CameraAngle, CameraMovement } from '@/types/database';
+import type { Segment, CinematicHeaderConfig } from '@/types/cinematic';
 
 /**
  * Mode du PlanEditor:
@@ -54,6 +55,15 @@ export interface PlanData {
   first_frame_prompt?: string | null;
   last_frame_prompt?: string | null;
   video_prompt?: string | null;
+
+  // Plan title (optional, fallback: "Plan 1", "Plan 2", etc.)
+  title?: string | null;
+
+  // Cinematic header (style, camera, color grade, etc.)
+  cinematic_header?: CinematicHeaderConfig | null;
+
+  // Segments (shots within this plan)
+  segments?: Segment[];
 }
 
 /**

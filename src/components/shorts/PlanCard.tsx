@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { Play, Clock, MoreVertical, Pencil, Trash2, ImageIcon, GripVertical, Video, CheckCircle2 } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Play, Clock, MoreVertical, Pencil, Trash2, ImageIcon, GripVertical, Video, CheckCircle2, Clapperboard } from 'lucide-react';
 import { StorageImg } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,6 +23,59 @@ import {
 import { formatDuration } from './DurationPicker';
 import { cn } from '@/lib/utils';
 import type { Plan } from '@/store/shorts-store';
+import type { Segment, ShotType } from '@/types/cinematic';
+import { getPlanDisplayTitle } from '@/types/cinematic';
+
+// Color for shot type in mini timeline
+function getMiniSegmentColor(type: ShotType): string {
+  const colors: Record<ShotType, string> = {
+    extreme_wide: 'bg-purple-500',
+    wide: 'bg-indigo-500',
+    medium_wide: 'bg-blue-500',
+    medium: 'bg-cyan-500',
+    medium_close_up: 'bg-teal-500',
+    close_up: 'bg-green-500',
+    extreme_close_up: 'bg-lime-500',
+    over_shoulder: 'bg-amber-500',
+    pov: 'bg-orange-500',
+    insert: 'bg-rose-500',
+    two_shot: 'bg-pink-500',
+  };
+  return colors[type] || 'bg-slate-500';
+}
+
+// Mini timeline component for plan card
+function MiniSegmentTimeline({ segments, duration }: { segments: Segment[]; duration: number }) {
+  if (!segments || segments.length === 0) {
+    return (
+      <div className="w-full h-1.5 bg-slate-700/50 rounded-full overflow-hidden">
+        <div className="w-full h-full bg-slate-600/30" />
+      </div>
+    );
+  }
+
+  const sortedSegments = [...segments].sort((a, b) => a.start_time - b.start_time);
+
+  return (
+    <div className="w-full h-1.5 bg-slate-700/50 rounded-full overflow-hidden flex">
+      {sortedSegments.map((seg, i) => {
+        const widthPercent = ((seg.end_time - seg.start_time) / duration) * 100;
+        const leftGapPercent = i === 0 ? (seg.start_time / duration) * 100 : 0;
+
+        return (
+          <div
+            key={seg.id}
+            className={cn('h-full flex-shrink-0', getMiniSegmentColor(seg.shot_type))}
+            style={{
+              width: `${Math.max(widthPercent, 3)}%`,
+              marginLeft: leftGapPercent > 0 ? `${leftGapPercent}%` : undefined,
+            }}
+          />
+        );
+      })}
+    </div>
+  );
+}
 
 interface PlanCardProps {
   plan: Plan;
@@ -83,21 +136,32 @@ export function PlanCard({
           </div>
 
           {/* Info - simplified for compact mode */}
-          <div className="flex-1 min-w-0 flex items-center justify-between">
-            {/* Left: Plan number */}
-            <span className="text-[10px] font-medium text-blue-400 bg-blue-500/20 px-1.5 py-0.5 rounded">
-              P{plan.shot_number}
-            </span>
-
-            {/* Right: Duration + Video indicator */}
-            <div className="flex items-center gap-2">
-              {plan.generated_video_url && (
-                <CheckCircle2 className="w-3 h-3 text-green-400" />
-              )}
-              <span className="text-[10px] text-slate-500 tabular-nums">
-                {formatDuration(plan.duration)}
+          <div className="flex-1 min-w-0 space-y-1">
+            <div className="flex items-center justify-between">
+              {/* Left: Plan title */}
+              <span className="text-[10px] font-medium text-slate-300 truncate max-w-[100px]">
+                {getPlanDisplayTitle(plan)}
               </span>
+
+              {/* Right: Duration + indicators */}
+              <div className="flex items-center gap-1.5">
+                {(plan.segments?.length || 0) > 0 && (
+                  <span className="text-[9px] text-slate-500">
+                    {plan.segments?.length}
+                    <Clapperboard className="w-2.5 h-2.5 inline ml-0.5" />
+                  </span>
+                )}
+                {plan.generated_video_url && (
+                  <CheckCircle2 className="w-3 h-3 text-green-400" />
+                )}
+                <span className="text-[10px] text-slate-500 tabular-nums">
+                  {formatDuration(plan.duration)}
+                </span>
+              </div>
             </div>
+
+            {/* Mini segment timeline */}
+            <MiniSegmentTimeline segments={plan.segments || []} duration={plan.duration} />
           </div>
 
           {/* Compact menu */}
@@ -212,23 +276,35 @@ export function PlanCard({
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="text-xs font-medium text-blue-400 bg-blue-500/20 px-1.5 py-0.5 rounded">
               P{plan.shot_number}
             </span>
+            <span className="text-sm font-medium text-slate-200 truncate">
+              {getPlanDisplayTitle(plan)}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 mt-1">
             <span className="flex items-center gap-1 text-xs text-slate-400">
               <Clock className="w-3 h-3" />
               {formatDuration(plan.duration)}
             </span>
+            {(plan.segments?.length || 0) > 0 && (
+              <span className="flex items-center gap-1 text-xs text-slate-400">
+                <Clapperboard className="w-3 h-3" />
+                {plan.segments?.length} segments
+              </span>
+            )}
             {plan.generated_video_url && (
               <span className="flex items-center gap-1 text-xs text-green-400">
                 <CheckCircle2 className="w-3 h-3" />
               </span>
             )}
           </div>
-          <p className="text-sm text-slate-300 mt-1 line-clamp-2">
-            {plan.description || 'Pas de description'}
-          </p>
+          {/* Mini segment timeline */}
+          <div className="mt-2">
+            <MiniSegmentTimeline segments={plan.segments || []} duration={plan.duration} />
+          </div>
         </div>
 
         {/* Menu */}

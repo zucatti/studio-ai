@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
+import { randomUUID } from 'crypto';
 
 interface RouteParams {
   params: Promise<{ projectId: string; shortId: string }>;
@@ -56,7 +57,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     const nextOrder = (maxData?.sort_order ?? -1) + 1;
     const nextNumber = (maxData?.shot_number ?? 0) + 1;
 
-    // Create the plan (shot)
+    // Create default segment that fills the entire plan duration
+    const defaultSegment = {
+      id: randomUUID(),
+      start_time: 0,
+      end_time: duration,
+      shot_type: 'medium',
+      subject: '',
+    };
+
+    // Create the plan (shot) with default segment
     const { data: shot, error } = await supabase
       .from('shots')
       .insert({
@@ -68,6 +78,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         sort_order: nextOrder,
         status: 'draft',
         generation_status: 'not_started',
+        segments: [defaultSegment],
       })
       .select()
       .single();
@@ -90,6 +101,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         storyboard_image_url: shot.storyboard_image_url,
         generation_status: shot.generation_status || 'not_started',
         sort_order: shot.sort_order,
+        // Cinematic fields
+        title: shot.title,
+        cinematic_header: shot.cinematic_header,
+        segments: shot.segments || [defaultSegment],
       },
     }, { status: 201 });
   } catch (error) {

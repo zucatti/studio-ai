@@ -30,7 +30,11 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
 
     // Get the short (scene) with its plans (shots)
-    const { data: scene, error } = await supabase
+    // Try with cinematic columns first, fall back if they don't exist
+    let scene;
+    let queryError;
+
+    const fullQuery = await supabase
       .from('scenes')
       .select(`
         id,
@@ -39,6 +43,10 @@ export async function GET(request: Request, { params }: RouteParams) {
         title,
         description,
         sort_order,
+        cinematic_header,
+        character_mappings,
+        generation_mode,
+        dialogue_language,
         created_at,
         updated_at,
         shots (
@@ -57,6 +65,45 @@ export async function GET(request: Request, { params }: RouteParams) {
       .eq('id', shortId)
       .eq('project_id', projectId)
       .single();
+
+    if (fullQuery.error && fullQuery.error.message?.includes('column')) {
+      // Fallback: cinematic columns don't exist yet
+      const basicQuery = await supabase
+        .from('scenes')
+        .select(`
+          id,
+          project_id,
+          scene_number,
+          title,
+          description,
+          sort_order,
+          created_at,
+          updated_at,
+          shots (
+            id,
+            shot_number,
+            description,
+            duration,
+            shot_type,
+            camera_angle,
+            camera_movement,
+            storyboard_image_url,
+            generation_status,
+            sort_order
+          )
+        `)
+        .eq('id', shortId)
+        .eq('project_id', projectId)
+        .single();
+
+      scene = basicQuery.data;
+      queryError = basicQuery.error;
+    } else {
+      scene = fullQuery.data;
+      queryError = fullQuery.error;
+    }
+
+    const error = queryError;
 
     if (error || !scene) {
       return NextResponse.json({ error: 'Short not found' }, { status: 404 });
@@ -88,6 +135,10 @@ export async function GET(request: Request, { params }: RouteParams) {
         description: scene.description,
         scene_number: scene.scene_number,
         sort_order: scene.sort_order,
+        cinematic_header: (scene as Record<string, unknown>).cinematic_header || null,
+        character_mappings: (scene as Record<string, unknown>).character_mappings || null,
+        generation_mode: (scene as Record<string, unknown>).generation_mode || 'standard',
+        dialogue_language: (scene as Record<string, unknown>).dialogue_language || 'en',
         plans,
         totalDuration,
         created_at: scene.created_at,
@@ -110,7 +161,14 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     const { projectId, shortId } = await params;
     const body = await request.json();
-    const { title, description } = body;
+    const {
+      title,
+      description,
+      cinematic_header,
+      character_mappings,
+      generation_mode,
+      dialogue_language,
+    } = body;
 
     const supabase = createServerSupabaseClient();
 
@@ -130,6 +188,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     const updates: Record<string, unknown> = {};
     if (title !== undefined) updates.title = title;
     if (description !== undefined) updates.description = description;
+    if (cinematic_header !== undefined) updates.cinematic_header = cinematic_header;
+    if (character_mappings !== undefined) updates.character_mappings = character_mappings;
+    if (generation_mode !== undefined) updates.generation_mode = generation_mode;
+    if (dialogue_language !== undefined) updates.dialogue_language = dialogue_language;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No updates provided' }, { status: 400 });
@@ -156,6 +218,10 @@ export async function PATCH(request: Request, { params }: RouteParams) {
         description: scene.description,
         scene_number: scene.scene_number,
         sort_order: scene.sort_order,
+        cinematic_header: (scene as Record<string, unknown>).cinematic_header || null,
+        character_mappings: (scene as Record<string, unknown>).character_mappings || null,
+        generation_mode: (scene as Record<string, unknown>).generation_mode || 'standard',
+        dialogue_language: (scene as Record<string, unknown>).dialogue_language || 'en',
         created_at: scene.created_at,
         updated_at: scene.updated_at,
       },

@@ -410,6 +410,25 @@ export const FAL_KLING_ENDPOINTS = {
 // OmniHuman 1.5 endpoint
 export const FAL_OMNIHUMAN_ENDPOINT = 'fal-ai/bytedance/omnihuman/v1.5';
 
+// Sync Lipsync 1.9 endpoint (for video translation with lip-sync)
+export const FAL_SYNC_LIPSYNC_ENDPOINT = 'fal-ai/sync-lipsync';
+
+// Sync Lipsync 1.9 types
+export interface SyncLipsyncInput extends Record<string, unknown> {
+  video_url: string;           // Source video URL
+  audio_url: string;           // Target audio in different language
+  sync_mode?: 'loop' | 'freeze' | 'bounce' | 'remap';  // remap for translation
+}
+
+export interface SyncLipsyncOutput {
+  video: {
+    url: string;
+    content_type?: string;
+    file_name?: string;
+    file_size?: number;
+  };
+}
+
 // Sora 2 endpoint
 export const FAL_SORA2_ENDPOINT = 'fal-ai/sora-2/image-to-video';
 
@@ -791,6 +810,251 @@ export async function generateVeo31VideoFal(
 
   return {
     videoUrl,
+    cost: result.cost,
+  };
+}
+
+// ============================================================================
+// Kling Voice Creation (for Omni cinematic mode)
+// ============================================================================
+
+export const FAL_KLING_CREATE_VOICE = 'fal-ai/kling-video/create-voice';
+
+export interface KlingCreateVoiceInput extends Record<string, unknown> {
+  audio_url: string; // 5-30 seconds audio sample
+}
+
+export interface KlingCreateVoiceOutput {
+  voice_id: string;
+}
+
+/**
+ * Create a Kling voice from an audio sample
+ * Used for cinematic mode to enable voice sync with Kling Omni
+ *
+ * @param wrapper - FalWrapper instance
+ * @param audioUrl - URL to audio sample (5-30 seconds)
+ * @returns voice_id for use with <<<voice_1>>> syntax
+ */
+export async function createKlingVoiceFal(
+  wrapper: FalWrapper,
+  audioUrl: string
+): Promise<{ voiceId: string; cost: number }> {
+  console.log(`[fal.ai] Creating Kling voice from audio sample...`);
+  console.log(`[fal.ai] Audio URL: ${audioUrl.substring(0, 60)}...`);
+
+  const result = await wrapper.subscribe<KlingCreateVoiceInput, KlingCreateVoiceOutput>({
+    endpoint: FAL_KLING_CREATE_VOICE,
+    input: {
+      audio_url: audioUrl,
+    },
+    logs: true,
+  });
+
+  const voiceId = result.result.voice_id;
+
+  if (!voiceId) {
+    throw new Error('Kling create-voice returned no voice_id');
+  }
+
+  console.log(`[fal.ai] Created Kling voice: ${voiceId}`);
+
+  return {
+    voiceId,
+    cost: result.cost,
+  };
+}
+
+// ============================================================================
+// Kling Omni Image-to-Video (with elements and voices)
+// ============================================================================
+
+export const FAL_KLING_OMNI_I2V = 'fal-ai/kling-video/o3/standard/image-to-video';
+
+export interface KlingOmniElement {
+  frontal_image_url: string;
+  reference_image_urls?: string[];
+}
+
+export interface KlingOmniVoice {
+  voice_id: string;
+}
+
+export interface KlingOmniInput extends Record<string, unknown> {
+  prompt: string;
+  start_image_url?: string;
+  end_image_url?: string;
+  duration?: number;           // 3-15 seconds
+  generate_audio?: boolean;    // True for native Kling audio generation
+  negative_prompt?: string;
+  cfg_scale?: number;
+  elements?: KlingOmniElement[];  // Up to 4 elements (@Element1-4)
+  voices?: KlingOmniVoice[];      // Up to 2 voices (<<<voice_1>>>, <<<voice_2>>>)
+}
+
+export interface KlingOmniOutput {
+  video: {
+    url: string;
+    content_type?: string;
+    file_name?: string;
+    file_size?: number;
+  };
+}
+
+/**
+ * Generate a video using Kling Omni (O3) with multi-character support
+ * Supports up to 4 character elements and 2 voices
+ */
+export async function generateKlingOmniVideoFal(
+  wrapper: FalWrapper,
+  input: {
+    prompt: string;
+    imageUrl?: string;
+    endImageUrl?: string;
+    elements?: Array<{
+      frontalImageUrl: string;
+      referenceImageUrls?: string[];
+    }>;
+    voices?: Array<{
+      voiceId: string;
+    }>;
+    duration?: number;
+    generateAudio?: boolean;
+    negativePrompt?: string;
+  }
+): Promise<{ videoUrl: string; cost: number }> {
+  const {
+    prompt,
+    imageUrl,
+    endImageUrl,
+    elements = [],
+    voices = [],
+    duration = 10,
+    generateAudio = false,
+    negativePrompt = 'blur, distort, low quality, watermark, text',
+  } = input;
+
+  // Build elements array for fal.ai
+  const falElements: KlingOmniElement[] = elements.map(el => ({
+    frontal_image_url: el.frontalImageUrl,
+    reference_image_urls: el.referenceImageUrls,
+  }));
+
+  // Build voices array for fal.ai
+  const falVoices: KlingOmniVoice[] = voices.map(v => ({
+    voice_id: v.voiceId,
+  }));
+
+  const falInput: KlingOmniInput = {
+    prompt,
+    duration: Math.max(3, Math.min(15, duration)),
+    generate_audio: generateAudio,
+    negative_prompt: negativePrompt,
+    cfg_scale: 0.5,
+  };
+
+  if (imageUrl) {
+    falInput.start_image_url = imageUrl;
+  }
+
+  if (endImageUrl) {
+    falInput.end_image_url = endImageUrl;
+  }
+
+  if (falElements.length > 0) {
+    falInput.elements = falElements;
+  }
+
+  if (falVoices.length > 0) {
+    falInput.voices = falVoices;
+  }
+
+  console.log(`[fal.ai] Generating Kling Omni video...`);
+  console.log(`[fal.ai] Prompt: ${prompt.substring(0, 100)}...`);
+  console.log(`[fal.ai] Duration: ${duration}s, Elements: ${falElements.length}, Voices: ${falVoices.length}`);
+  console.log(`[fal.ai] Generate audio: ${generateAudio}`);
+
+  const result = await wrapper.subscribe<KlingOmniInput, KlingOmniOutput>({
+    endpoint: FAL_KLING_OMNI_I2V,
+    input: falInput,
+    logs: true,
+  });
+
+  const videoUrl = result.result.video?.url;
+
+  if (!videoUrl) {
+    throw new Error('Kling Omni returned no video URL');
+  }
+
+  console.log(`[fal.ai] Kling Omni video URL: ${videoUrl}`);
+
+  return {
+    videoUrl,
+    cost: result.cost,
+  };
+}
+
+// ============================================================================
+// Sync Lipsync 1.9 (Video Translation with Lip-sync)
+// ============================================================================
+
+/**
+ * Apply lip-sync translation to a video using Sync Lipsync 1.9 via fal.ai
+ *
+ * This is used for translating videos to different languages while
+ * maintaining lip-sync. It takes an existing video (in English) and
+ * new audio (in target language) and produces a video with lip-sync
+ * adjusted for the new audio.
+ *
+ * Use case: English video -> French audio -> French video with lip-sync
+ *
+ * @param wrapper - FalWrapper instance
+ * @param videoUrl - Source video URL (in original language)
+ * @param audioUrl - Target audio URL (in translated language)
+ * @param syncMode - Sync mode: 'remap' for translation, 'loop' for longer audio
+ * @returns Video URL with translated lip-sync
+ */
+export async function applySyncLipsyncFal(
+  wrapper: FalWrapper,
+  input: {
+    videoUrl: string;
+    audioUrl: string;
+    syncMode?: 'loop' | 'freeze' | 'bounce' | 'remap';
+  }
+): Promise<{ videoUrl: string; cost: number }> {
+  const {
+    videoUrl,
+    audioUrl,
+    syncMode = 'remap',  // Default to remap for translation use case
+  } = input;
+
+  const falInput: SyncLipsyncInput = {
+    video_url: videoUrl,
+    audio_url: audioUrl,
+    sync_mode: syncMode,
+  };
+
+  console.log(`[fal.ai] Applying Sync Lipsync 1.9...`);
+  console.log(`[fal.ai] Video: ${videoUrl.substring(0, 60)}...`);
+  console.log(`[fal.ai] Audio: ${audioUrl.substring(0, 60)}...`);
+  console.log(`[fal.ai] Sync mode: ${syncMode}`);
+
+  const result = await wrapper.subscribe<SyncLipsyncInput, SyncLipsyncOutput>({
+    endpoint: FAL_SYNC_LIPSYNC_ENDPOINT,
+    input: falInput,
+    logs: true,
+  });
+
+  const resultVideoUrl = result.result.video?.url;
+
+  if (!resultVideoUrl) {
+    throw new Error('Sync Lipsync returned no video URL');
+  }
+
+  console.log(`[fal.ai] Sync Lipsync video URL: ${resultVideoUrl}`);
+
+  return {
+    videoUrl: resultVideoUrl,
     cost: result.cost,
   };
 }

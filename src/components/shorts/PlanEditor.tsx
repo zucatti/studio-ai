@@ -1,8 +1,9 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { MentionInput } from '@/components/ui/mention-input';
 import { MentionText, type MentionEntity } from '@/components/ui/mention-text';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { StorageImg } from '@/components/ui/storage-image';
@@ -13,12 +14,31 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from '@/components/ui/collapsible';
 import { DurationPicker } from './DurationPicker';
-import { Wand2, RefreshCw, Loader2, ImageIcon } from 'lucide-react';
+import { SegmentTimeline } from './SegmentTimeline';
+import { SegmentEditor } from './SegmentEditor';
+import {
+  Wand2,
+  RefreshCw,
+  Loader2,
+  ImageIcon,
+  ChevronDown,
+  ChevronRight,
+  Film,
+  Clapperboard,
+  Settings2,
+} from 'lucide-react';
 import { useBibleStore } from '@/store/bible-store';
 import { generateReferenceName, getReferencePrefix } from '@/lib/reference-name';
 import type { Plan } from '@/store/shorts-store';
 import type { ShotType, CameraAngle, CameraMovement } from '@/types/database';
+import type { Segment, CinematicHeaderConfig } from '@/types/cinematic';
+import { getPlanDisplayTitle } from '@/types/cinematic';
 
 const SHOT_TYPES: { value: ShotType; label: string }[] = [
   { value: 'wide', label: 'Plan large' },
@@ -56,11 +76,41 @@ interface PlanEditorProps {
   onUpdate: (updates: Partial<Plan>) => void;
   onGenerate: (planId: string) => Promise<void>;
   isGenerating: boolean;
+  characters?: Array<{ id: string; name: string }>;
 }
 
-export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating }: PlanEditorProps) {
+export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating, characters = [] }: PlanEditorProps) {
   const [description, setDescription] = useState('');
+  const [title, setTitle] = useState('');
+  const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(null);
+  const [editingSegment, setEditingSegment] = useState<Segment | null>(null);
+  const [showCinematicSettings, setShowCinematicSettings] = useState(false);
   const { projectAssets, fetchProjectAssets } = useBibleStore();
+
+  // Sync title with plan
+  useEffect(() => {
+    if (plan) {
+      setTitle(plan.title || '');
+    }
+  }, [plan?.id, plan?.title]);
+
+  // Handle segments change
+  const handleSegmentsChange = useCallback((segments: Segment[]) => {
+    onUpdate({ segments });
+  }, [onUpdate]);
+
+  // Handle segment save from editor
+  const handleSegmentSave = useCallback((segment: Segment) => {
+    if (!plan?.segments) return;
+    const updated = plan.segments.map((s) => s.id === segment.id ? segment : s);
+    onUpdate({ segments: updated });
+    setEditingSegment(null);
+  }, [plan?.segments, onUpdate]);
+
+  // Handle edit segment (double-click)
+  const handleEditSegment = useCallback((segment: Segment) => {
+    setEditingSegment(segment);
+  }, []);
 
   // Fetch project assets for mentions
   useEffect(() => {
@@ -153,6 +203,20 @@ export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating
         )}
       </div>
 
+      {/* Plan Title */}
+      <div className="space-y-2">
+        <Label className="text-slate-300 text-sm">Nom du plan</Label>
+        <Input
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            onUpdate({ title: e.target.value || null });
+          }}
+          placeholder={getPlanDisplayTitle(plan)}
+          className="bg-white/5 border-white/10 text-white placeholder:text-slate-500"
+        />
+      </div>
+
       {/* Duration */}
       <div className="space-y-2">
         <Label className="text-slate-300 text-sm">Durée</Label>
@@ -161,6 +225,32 @@ export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating
           onChange={(duration) => onUpdate({ duration })}
         />
       </div>
+
+      {/* Segments Timeline */}
+      <div className="space-y-2">
+        <Label className="text-slate-300 text-sm flex items-center gap-2">
+          <Clapperboard className="w-4 h-4 text-indigo-400" />
+          Segments (Shots)
+        </Label>
+        <SegmentTimeline
+          segments={plan.segments || []}
+          planDuration={plan.duration}
+          selectedSegmentId={selectedSegmentId}
+          onSelectSegment={setSelectedSegmentId}
+          onSegmentsChange={handleSegmentsChange}
+          onEditSegment={handleEditSegment}
+        />
+      </div>
+
+      {/* Segment Editor Dialog */}
+      <SegmentEditor
+        segment={editingSegment}
+        open={!!editingSegment}
+        onOpenChange={(open) => !open && setEditingSegment(null)}
+        onSave={handleSegmentSave}
+        characters={characters}
+        planDuration={plan.duration}
+      />
 
       {/* Description */}
       <div className="space-y-2">
