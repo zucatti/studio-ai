@@ -302,4 +302,163 @@
     border-right: 2px solid rgba(255, 255, 255, 0.5) !important;
     right: 0 !important;
   }
+
+  /* ============================================================================
+   * Camera Movement Animations
+   * ============================================================================ */
+
+  /* Dolly In - Scale up slowly */
+  .animate-dolly-in {
+    animation: dolly-in 4s ease-in-out infinite;
+  }
+  @keyframes dolly-in {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.15); }
+  }
+
+  /* Dolly Out - Scale down slowly */
+  .animate-dolly-out {
+    animation: dolly-out 4s ease-in-out infinite;
+  }
+  @keyframes dolly-out {
+    0%, 100% { transform: scale(1.15); }
+    50% { transform: scale(1); }
+  }
+
+  /* Dolly Left */
+  .animate-dolly-left {
+    animation: dolly-left 4s ease-in-out infinite;
+  }
+  @keyframes dolly-left {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(-8%); }
+  }
+
+  /* Dolly Right */
+  .animate-dolly-right {
+    animation: dolly-right 4s ease-in-out infinite;
+  }
+  @keyframes dolly-right {
+    0%, 100% { transform: translateX(0); }
+    50% { transform: translateX(8%); }
+  }
+
+  /* Tracking Forward - Similar to dolly in but with perspective feel */
+  .animate-tracking-forward {
+    animation: tracking-forward 4s ease-in-out infinite;
+  }
+  @keyframes tracking-forward {
+    0%, 100% { transform: scale(1) translateY(0); }
+    50% { transform: scale(1.2) translateY(-3%); }
+  }
+
+  /* Tracking Backward */
+  .animate-tracking-backward {
+    animation: tracking-backward 4s ease-in-out infinite;
+  }
+  @keyframes tracking-backward {
+    0%, 100% { transform: scale(1.2) translateY(-3%); }
+    50% { transform: scale(1) translateY(0); }
+  }
+
+  /* Pan Left - Image moves right */
+  .animate-pan-left {
+    animation: pan-left 4s ease-in-out infinite;
+  }
+  @keyframes pan-left {
+    0%, 100% { transform: translateX(-5%); }
+    50% { transform: translateX(5%); }
+  }
+
+  /* Pan Right - Image moves left */
+  .animate-pan-right {
+    animation: pan-right 4s ease-in-out infinite;
+  }
+  @keyframes pan-right {
+    0%, 100% { transform: translateX(5%); }
+    50% { transform: translateX(-5%); }
+  }
+
+  /* Tilt Up - Image moves down */
+  .animate-tilt-up {
+    animation: tilt-up 4s ease-in-out infinite;
+  }
+  @keyframes tilt-up {
+    0%, 100% { transform: translateY(-5%); }
+    50% { transform: translateY(5%); }
+  }
+
+  /* Tilt Down - Image moves up */
+  .animate-tilt-down {
+    animation: tilt-down 4s ease-in-out infinite;
+  }
+  @keyframes tilt-down {
+    0%, 100% { transform: translateY(5%); }
+    50% { transform: translateY(-5%); }
+  }
+
+  /* Crane Up */
+  .animate-crane-up {
+    animation: crane-up 4s ease-in-out infinite;
+  }
+  @keyframes crane-up {
+    0%, 100% { transform: translateY(-3%) scale(1); }
+    50% { transform: translateY(5%) scale(1.05); }
+  }
+
+  /* Crane Down */
+  .animate-crane-down {
+    animation: crane-down 4s ease-in-out infinite;
+  }
+  @keyframes crane-down {
+    0%, 100% { transform: translateY(5%) scale(1.05); }
+    50% { transform: translateY(-3%) scale(1); }
+  }
+
+  /* Orbit Clockwise */
+  .animate-orbit-cw {
+    animation: orbit-cw 6s linear infinite;
+  }
+  @keyframes orbit-cw {
+    0% { transform: rotate(0deg) scale(1.1); }
+    100% { transform: rotate(360deg) scale(1.1); }
+  }
+
+  /* Orbit Counter-Clockwise */
+  .animate-orbit-ccw {
+    animation: orbit-ccw 6s linear infinite;
+  }
+  @keyframes orbit-ccw {
+    0% { transform: rotate(0deg) scale(1.1); }
+    100% { transform: rotate(-360deg) scale(1.1); }
+  }
+
+  /* Handheld - Subtle shake */
+  .animate-handheld {
+    animation: handheld 0.15s ease-in-out infinite;
+  }
+  @keyframes handheld {
+    0%, 100% { transform: translate(0, 0) rotate(0deg); }
+    25% { transform: translate(0.5%, 0.3%) rotate(0.2deg); }
+    50% { transform: translate(-0.3%, 0.5%) rotate(-0.1deg); }
+    75% { transform: translate(0.4%, -0.3%) rotate(0.15deg); }
+  }
+
+  /* Zoom In - Quick scale */
+  .animate-zoom-in {
+    animation: zoom-in 3s ease-out infinite;
+  }
+  @keyframes zoom-in {
+    0%, 100% { transform: scale(1); }
+    50% { transform: scale(1.25); }
+  }
+
+  /* Zoom Out */
+  .animate-zoom-out {
+    animation: zoom-out 3s ease-out infinite;
+  }
+  @keyframes zoom-out {
+    0%, 100% { transform: scale(1.25); }
+    50% { transform: scale(1); }
+  }
 }
