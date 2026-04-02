@@ -2,8 +2,7 @@ import { NextResponse } from 'next/server';
 import { logElevenLabsUsage } from '@/lib/ai/log-api-usage';
 
 const ELEVENLABS_API_KEY = process.env.AI_ELEVEN_LABS;
-const ELEVENLABS_API_URL_V1 = 'https://api.elevenlabs.io/v1';
-const ELEVENLABS_API_URL_V2 = 'https://api.elevenlabs.io/v2';
+const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
 
 export async function GET(request: Request) {
   if (!ELEVENLABS_API_KEY) {
@@ -14,41 +13,27 @@ export async function GET(request: Request) {
   const search = searchParams.get('search') || '';
 
   try {
-    // Fetch all voices with pagination
-    let allVoices: Array<{
+    // Fetch all voices - v1 API returns all voices including personal ones
+    const response = await fetch(`${ELEVENLABS_API_URL}/voices`, {
+      headers: {
+        'xi-api-key': ELEVENLABS_API_KEY,
+      },
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('ElevenLabs API error:', error);
+      return NextResponse.json({ error: 'Failed to fetch voices' }, { status: response.status });
+    }
+
+    const data = await response.json();
+    let voices: Array<{
       voice_id: string;
       name: string;
       labels?: Record<string, string>;
       preview_url?: string;
       category?: string;
-    }> = [];
-    let nextPageToken: string | null = null;
-
-    do {
-      const url = new URL(`${ELEVENLABS_API_URL_V2}/voices`);
-      url.searchParams.set('page_size', '100'); // Max allowed
-      if (nextPageToken) {
-        url.searchParams.set('next_page_token', nextPageToken);
-      }
-
-      const response = await fetch(url.toString(), {
-        headers: {
-          'xi-api-key': ELEVENLABS_API_KEY,
-        },
-      });
-
-      if (!response.ok) {
-        const error = await response.text();
-        console.error('ElevenLabs API error:', error);
-        return NextResponse.json({ error: 'Failed to fetch voices' }, { status: response.status });
-      }
-
-      const data = await response.json();
-      allVoices = allVoices.concat(data.voices || []);
-      nextPageToken = data.next_page_token || null;
-    } while (nextPageToken);
-
-    let voices = allVoices;
+    }> = data.voices || [];
 
     // Filter by search term if provided
     if (search) {
@@ -90,7 +75,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'voiceId and text are required' }, { status: 400 });
     }
 
-    const response = await fetch(`${ELEVENLABS_API_URL_V1}/text-to-speech/${voiceId}`, {
+    const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: {
         'xi-api-key': ELEVENLABS_API_KEY,
