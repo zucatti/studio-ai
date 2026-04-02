@@ -104,10 +104,10 @@ function CameraPreview({ movement, framing, composition }: CameraPreviewProps) {
   const baseScale = getFramingScale(framing);
 
   return (
-    <div className="relative w-full aspect-video bg-black rounded-lg overflow-hidden border border-white/10">
+    <div className="relative w-full h-full bg-black rounded-lg overflow-hidden border border-white/10">
       {/* Cinematic letterbox bars */}
-      <div className="absolute inset-x-0 top-0 h-[12%] bg-black z-10" />
-      <div className="absolute inset-x-0 bottom-0 h-[12%] bg-black z-10" />
+      <div className="absolute inset-x-0 top-0 h-[8%] bg-black z-10" />
+      <div className="absolute inset-x-0 bottom-0 h-[8%] bg-black z-10" />
 
       {/* Preview image with animation */}
       <div
@@ -139,8 +139,8 @@ function CameraPreview({ movement, framing, composition }: CameraPreviewProps) {
       )}
 
       {/* Movement label */}
-      <div className="absolute bottom-[14%] left-3 z-20">
-        <span className="px-2 py-1 bg-black/70 text-white text-xs font-medium rounded">
+      <div className="absolute bottom-[10%] left-4 z-20">
+        <span className="px-3 py-1.5 bg-black/70 text-white text-sm font-medium rounded">
           {CAMERA_MOVEMENT_OPTIONS.find(o => o.value === movement)?.label || 'Static'}
         </span>
       </div>
@@ -148,15 +148,15 @@ function CameraPreview({ movement, framing, composition }: CameraPreviewProps) {
       {/* Replay button */}
       <button
         onClick={replay}
-        className="absolute bottom-[14%] right-3 z-20 p-1.5 bg-black/70 hover:bg-black/90 text-white rounded-full transition-colors"
+        className="absolute bottom-[10%] right-4 z-20 p-2 bg-black/70 hover:bg-black/90 text-white rounded-full transition-colors"
         title="Replay animation"
       >
-        <RotateCcw className="w-4 h-4" />
+        <RotateCcw className="w-5 h-5" />
       </button>
 
       {/* Framing indicator */}
-      <div className="absolute top-[14%] left-3 z-20">
-        <span className="px-2 py-1 bg-indigo-600/80 text-white text-xs font-medium rounded">
+      <div className="absolute top-[10%] left-4 z-20">
+        <span className="px-3 py-1.5 bg-indigo-600/80 text-white text-sm font-medium rounded">
           {SHOT_FRAMING_OPTIONS.find(o => o.value === framing)?.label}
           {composition && composition !== 'single' && (
             <> · {SHOT_COMPOSITION_OPTIONS.find(o => o.value === composition)?.label}</>
@@ -549,8 +549,8 @@ export function SegmentEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-5xl max-h-[85vh] overflow-hidden bg-slate-900 border-white/10 p-0 [&>button]:hidden">
-        <div className="flex flex-col h-full max-h-[85vh]">
+      <DialogContent className="w-[90vw] max-w-[1600px] h-[85vh] overflow-hidden bg-slate-900 border-white/10 p-0 [&>button]:hidden">
+        <div className="flex flex-col h-full">
           {/* Header */}
           <DialogHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">
             <div className="flex items-center justify-between">
@@ -597,10 +597,9 @@ export function SegmentEditor({
             {viewMode === 'edit' ? (
               <div className="h-full flex">
                 {/* Left Panel - Camera Preview */}
-                <div className="w-[400px] flex-shrink-0 p-5 border-r border-white/10 flex flex-col gap-4">
-                  {/* Camera Preview */}
-                  <div>
-                    <Label className="text-slate-300 text-xs mb-2 block">Camera Preview</Label>
+                <div className="w-[55%] flex-shrink-0 p-6 border-r border-white/10 flex flex-col gap-5">
+                  {/* Camera Preview - Large */}
+                  <div className="flex-1 min-h-0">
                     <CameraPreview
                       movement={formData.camera_movement || 'static'}
                       framing={formData.shot_framing || 'medium'}
