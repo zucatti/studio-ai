@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -18,10 +18,26 @@ import {
   DialogHeader,
   DialogTitle,
   DialogDescription,
-  DialogFooter,
 } from '@/components/ui/dialog';
-import { MessageSquare, Video, Clapperboard, Save, X } from 'lucide-react';
+import {
+  MessageSquare,
+  Clapperboard,
+  Save,
+  X,
+  Sparkles,
+  Copy,
+  Check,
+  User,
+  MapPin,
+  Camera,
+  Move,
+  Eye,
+  Zap,
+  Heart,
+  Clock,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import type { Segment, ShotType, CameraMovement, DialogueTone } from '@/types/cinematic';
 import {
   SHOT_TYPE_OPTIONS,
@@ -29,13 +45,196 @@ import {
   DIALOGUE_TONE_OPTIONS,
 } from '@/types/cinematic';
 
+// ============================================================================
+// Shot Presets - Quick configurations
+// ============================================================================
+
+interface ShotPreset {
+  id: string;
+  label: string;
+  icon: React.ReactNode;
+  description: string;
+  config: Partial<Segment>;
+  suggestedFraming?: string[];
+  suggestedActions?: string[];
+}
+
+const SHOT_PRESETS: ShotPreset[] = [
+  {
+    id: 'establishing',
+    label: 'Establishing',
+    icon: <MapPin className="w-4 h-4" />,
+    description: 'Set the scene with a wide view',
+    config: {
+      shot_type: 'wide',
+      camera_movement: 'static',
+    },
+    suggestedFraming: [
+      'Camera low, ground level',
+      'High angle looking down',
+      'Centered composition',
+      'Symmetrical framing',
+    ],
+    suggestedActions: [
+      'Fog obscures the floor',
+      'Lights illuminate the scene',
+      'Wind moves through the space',
+      'Shadows dance on walls',
+    ],
+  },
+  {
+    id: 'dialogue_cu',
+    label: 'Dialogue',
+    icon: <MessageSquare className="w-4 h-4" />,
+    description: 'Close-up for intimate dialogue',
+    config: {
+      shot_type: 'close_up',
+      camera_movement: 'static',
+    },
+    suggestedFraming: [
+      'Tight on face',
+      'Eyes and mouth visible',
+      'Shallow depth of field',
+      'Side lighting on face',
+    ],
+    suggestedActions: [
+      'Direct eye contact with camera',
+      'Looks away thoughtfully',
+      'A tear runs down cheek',
+      'Slight smile forms',
+    ],
+  },
+  {
+    id: 'action',
+    label: 'Action',
+    icon: <Zap className="w-4 h-4" />,
+    description: 'Dynamic movement shot',
+    config: {
+      shot_type: 'medium',
+      camera_movement: 'tracking_forward',
+    },
+    suggestedFraming: [
+      'Following the movement',
+      'Low angle for power',
+      'Dutch angle for tension',
+      'Handheld energy',
+    ],
+    suggestedActions: [
+      'Runs toward camera',
+      'Throws punch',
+      'Jumps and lands',
+      'Quick turn and react',
+    ],
+  },
+  {
+    id: 'reveal',
+    label: 'Reveal',
+    icon: <Eye className="w-4 h-4" />,
+    description: 'Dramatic reveal with camera movement',
+    config: {
+      shot_type: 'medium_wide',
+      camera_movement: 'slow_dolly_in',
+    },
+    suggestedFraming: [
+      'Subject in center',
+      'Slow approach',
+      'Pull-back reveals context',
+      'Crane up reveals scope',
+    ],
+    suggestedActions: [
+      'Turns slowly to camera',
+      'Steps into light',
+      'Object revealed in frame',
+      'Character appears from shadow',
+    ],
+  },
+  {
+    id: 'reaction',
+    label: 'Reaction',
+    icon: <Heart className="w-4 h-4" />,
+    description: 'Capture emotional response',
+    config: {
+      shot_type: 'close_up',
+      camera_movement: 'static',
+    },
+    suggestedFraming: [
+      'Tight on expression',
+      'Profile view',
+      'Over shoulder of speaker',
+      'Soft focus background',
+    ],
+    suggestedActions: [
+      'Eyes widen',
+      'Breath catches',
+      'Tears well up',
+      'Subtle nod',
+    ],
+  },
+  {
+    id: 'detail',
+    label: 'Detail/Insert',
+    icon: <Camera className="w-4 h-4" />,
+    description: 'Extreme close-up on object or detail',
+    config: {
+      shot_type: 'extreme_close_up',
+      camera_movement: 'static',
+    },
+    suggestedFraming: [
+      'Macro lens feel',
+      'Isolated subject',
+      'Dramatic lighting on detail',
+      'Rack focus to detail',
+    ],
+    suggestedActions: [
+      'Hand reaches for object',
+      'Finger presses button',
+      'Drop falls',
+      'Light catches surface',
+    ],
+  },
+];
+
+// ============================================================================
+// Framing suggestions by shot type
+// ============================================================================
+
+const FRAMING_BY_SHOT_TYPE: Record<ShotType, string[]> = {
+  extreme_wide: ['Vast landscape', 'Establishing shot', 'Tiny figures in frame', 'Epic scale'],
+  wide: ['Full scene context', 'All characters visible', 'Environment prominent', 'Balanced composition'],
+  medium_wide: ['Subject with environment', 'Full body visible', 'Room to move', 'Context and subject'],
+  medium: ['Waist up', 'Conversational distance', 'Gestures visible', 'Classic interview framing'],
+  medium_close_up: ['Chest up', 'Intimate but not intense', 'Expressions clear', 'Some body language'],
+  close_up: ['Face fills frame', 'Emotions prominent', 'Shallow DOF', 'Eye contact possible'],
+  extreme_close_up: ['Eyes only', 'Single detail', 'Texture visible', 'Macro feel'],
+  over_shoulder: ['Speaker partially visible', 'Listener in focus', 'Depth in frame', 'Conversation framing'],
+  pov: ['First person view', 'Hands visible in frame', 'Subjective camera', 'What character sees'],
+  insert: ['Object isolated', 'Detail shot', 'Narrative significance', 'Cut-away feel'],
+  two_shot: ['Both characters equal', 'Relationship visible', 'Balanced framing', 'Interaction space'],
+};
+
+// ============================================================================
+// Action verbs for quick suggestions
+// ============================================================================
+
+const ACTION_VERBS = [
+  'stands', 'sits', 'walks', 'runs', 'turns', 'looks', 'reaches', 'holds',
+  'speaks', 'whispers', 'shouts', 'smiles', 'cries', 'laughs', 'freezes',
+  'enters', 'exits', 'approaches', 'retreats', 'touches', 'grabs', 'drops',
+];
+
+// ============================================================================
+// Component
+// ============================================================================
+
 interface SegmentEditorProps {
   segment: Segment | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSave: (segment: Segment) => void;
-  characters?: Array<{ id: string; name: string }>; // Available characters for dialogue
+  characters?: Array<{ id: string; name: string }>;
+  locations?: Array<{ id: string; name: string }>;
   planDuration: number;
+  segmentIndex?: number; // For prompt preview (SHOT 1, SHOT 2, etc.)
 }
 
 export function SegmentEditor({
@@ -44,15 +243,20 @@ export function SegmentEditor({
   onOpenChange,
   onSave,
   characters = [],
+  locations = [],
   planDuration,
+  segmentIndex = 0,
 }: SegmentEditorProps) {
   // Local form state
   const [formData, setFormData] = useState<Partial<Segment>>({});
+  const [copied, setCopied] = useState(false);
+  const [activePreset, setActivePreset] = useState<string | null>(null);
 
   // Reset form when segment changes
   useEffect(() => {
     if (segment) {
       setFormData({ ...segment });
+      setActivePreset(null);
     } else {
       setFormData({});
     }
@@ -66,6 +270,24 @@ export function SegmentEditor({
     []
   );
 
+  // Apply preset
+  const applyPreset = useCallback((preset: ShotPreset) => {
+    setFormData((prev) => ({
+      ...prev,
+      ...preset.config,
+    }));
+    setActivePreset(preset.id);
+  }, []);
+
+  // Add suggestion to field
+  const addToField = useCallback((field: 'framing' | 'action' | 'environment', text: string) => {
+    setFormData((prev) => {
+      const current = prev[field] || '';
+      const newValue = current ? `${current} ${text}` : text;
+      return { ...prev, [field]: newValue };
+    });
+  }, []);
+
   // Handle dialogue toggle
   const hasDialogue = !!formData.dialogue;
   const toggleDialogue = useCallback(() => {
@@ -78,14 +300,14 @@ export function SegmentEditor({
       setFormData((prev) => ({
         ...prev,
         dialogue: {
-          character_id: '',
-          character_name: '',
+          character_id: characters[0]?.id || '',
+          character_name: characters[0]?.name || '',
           tone: 'neutral' as DialogueTone,
           text: '',
         },
       }));
     }
-  }, [hasDialogue]);
+  }, [hasDialogue, characters]);
 
   // Update dialogue field
   const updateDialogueField = useCallback(
@@ -104,7 +326,7 @@ export function SegmentEditor({
     []
   );
 
-  // Handle character selection (also sets character_name)
+  // Handle character selection
   const handleCharacterSelect = useCallback(
     (characterId: string) => {
       const character = characters.find((c) => c.id === characterId);
@@ -121,6 +343,22 @@ export function SegmentEditor({
     [characters]
   );
 
+  // Set subject from character
+  const setSubjectFromCharacter = useCallback((name: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      subject: `@${name}`,
+    }));
+  }, []);
+
+  // Set subject from location
+  const setSubjectFromLocation = useCallback((name: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      subject: `#${name}`,
+    }));
+  }, []);
+
   // Handle save
   const handleSave = useCallback(() => {
     if (!segment) return;
@@ -128,12 +366,70 @@ export function SegmentEditor({
     const updated: Segment = {
       ...segment,
       ...formData,
-      id: segment.id, // Ensure ID is preserved
+      id: segment.id,
     };
 
     onSave(updated);
     onOpenChange(false);
   }, [segment, formData, onSave, onOpenChange]);
+
+  // Format time as MM:SS
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Generate prompt preview
+  const promptPreview = useMemo(() => {
+    const shotNum = segmentIndex + 1;
+    const startTime = formatTime(formData.start_time || 0);
+    const endTime = formatTime(formData.end_time || 0);
+
+    const shotType = SHOT_TYPE_OPTIONS.find(o => o.value === formData.shot_type)?.label.toUpperCase() || 'MEDIUM';
+    const subject = formData.subject || 'subject';
+
+    const lines: string[] = [];
+    lines.push(`SHOT ${shotNum} (${startTime}–${endTime}) — ${shotType}, ${subject}:`);
+
+    if (formData.framing) {
+      lines.push(formData.framing + '.');
+    }
+
+    if (formData.action) {
+      lines.push(formData.action + '.');
+    }
+
+    if (formData.dialogue?.text && formData.dialogue?.character_name) {
+      const tone = formData.dialogue.tone ? `, ${formData.dialogue.tone}` : '';
+      lines.push(`${formData.dialogue.character_name} says${tone}: "${formData.dialogue.text}"`);
+    }
+
+    if (formData.environment) {
+      lines.push(formData.environment + '.');
+    }
+
+    if (formData.camera_movement && formData.camera_movement !== 'static') {
+      const movement = CAMERA_MOVEMENT_OPTIONS.find(o => o.value === formData.camera_movement)?.label || '';
+      lines.push(`Camera: ${movement}.`);
+    }
+
+    return lines.join('\n');
+  }, [formData, segmentIndex]);
+
+  // Copy prompt to clipboard
+  const copyPrompt = useCallback(() => {
+    navigator.clipboard.writeText(promptPreview);
+    setCopied(true);
+    toast.success('Prompt copied!');
+    setTimeout(() => setCopied(false), 2000);
+  }, [promptPreview]);
+
+  // Get current shot type for suggestions
+  const currentShotType = formData.shot_type || 'medium';
+  const currentPreset = SHOT_PRESETS.find(p => p.id === activePreset);
+  const framingSuggestions = currentPreset?.suggestedFraming || FRAMING_BY_SHOT_TYPE[currentShotType] || [];
+  const actionSuggestions = currentPreset?.suggestedActions || [];
 
   // Duration display
   const duration = formData.end_time && formData.start_time
@@ -144,258 +440,366 @@ export function SegmentEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl bg-slate-900 border-white/10">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-white">
-            <Clapperboard className="w-5 h-5 text-indigo-400" />
-            Edit Segment
-          </DialogTitle>
-          <DialogDescription className="text-slate-400">
-            Configure shot timing, framing, and dialogue for this segment.
-          </DialogDescription>
-        </DialogHeader>
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0">
+        <div className="flex flex-col h-full max-h-[90vh]">
+          {/* Header */}
+          <DialogHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">
+            <DialogTitle className="flex items-center gap-2 text-white">
+              <Clapperboard className="w-5 h-5 text-indigo-400" />
+              Shot {segmentIndex + 1} Editor
+            </DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Build your shot with presets and suggestions
+            </DialogDescription>
+          </DialogHeader>
 
-        <div className="grid gap-6 py-4">
-          {/* Timing Row */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-2">
-              <Label className="text-slate-300">Start Time</Label>
-              <Input
-                type="number"
-                step="0.1"
-                min={0}
-                max={formData.end_time ? formData.end_time - 0.5 : planDuration}
-                value={formData.start_time || 0}
-                onChange={(e) => updateField('start_time', parseFloat(e.target.value) || 0)}
-                className="bg-slate-800/50 border-white/10 text-white"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-300">End Time</Label>
-              <Input
-                type="number"
-                step="0.1"
-                min={formData.start_time ? formData.start_time + 0.5 : 0.5}
-                max={planDuration}
-                value={formData.end_time || 0}
-                onChange={(e) => updateField('end_time', parseFloat(e.target.value) || 0)}
-                className="bg-slate-800/50 border-white/10 text-white"
-              />
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-300">Duration</Label>
-              <div className="h-9 flex items-center px-3 bg-slate-800/30 border border-white/5 rounded-md text-slate-400">
-                {duration}s
-              </div>
-            </div>
-          </div>
-
-          {/* Shot Type & Subject Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-slate-300">Shot Type</Label>
-              <Select
-                value={formData.shot_type || 'medium'}
-                onValueChange={(v) => updateField('shot_type', v as ShotType)}
-              >
-                <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-white/10">
-                  {SHOT_TYPE_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value} className="text-white">
-                      <div className="flex flex-col">
-                        <span>{opt.label}</span>
-                        <span className="text-xs text-slate-400">{opt.description}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-300">Subject</Label>
-              <Input
-                value={formData.subject || ''}
-                onChange={(e) => updateField('subject', e.target.value)}
-                placeholder="e.g. @Sarah, the knife, both characters"
-                className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
-              />
-            </div>
-          </div>
-
-          {/* Camera Movement & Framing Row */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label className="text-slate-300">Camera Movement</Label>
-              <Select
-                value={formData.camera_movement || 'static'}
-                onValueChange={(v) => updateField('camera_movement', v as CameraMovement)}
-              >
-                <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-white/10 max-h-60">
-                  {CAMERA_MOVEMENT_OPTIONS.map((opt) => (
-                    <SelectItem key={opt.value} value={opt.value} className="text-white">
-                      <div className="flex flex-col">
-                        <span>{opt.label}</span>
-                        <span className="text-xs text-slate-400">{opt.description}</span>
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-2">
-              <Label className="text-slate-300">Framing Details</Label>
-              <Input
-                value={formData.framing || ''}
-                onChange={(e) => updateField('framing', e.target.value)}
-                placeholder="e.g. Tight framing from nose up"
-                className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
-              />
-            </div>
-          </div>
-
-          {/* Action */}
-          <div className="space-y-2">
-            <Label className="text-slate-300">Action</Label>
-            <Textarea
-              value={formData.action || ''}
-              onChange={(e) => updateField('action', e.target.value)}
-              placeholder="Describe what happens in this shot..."
-              rows={2}
-              className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none"
-            />
-          </div>
-
-          {/* Environment */}
-          <div className="space-y-2">
-            <Label className="text-slate-300">Environment</Label>
-            <Input
-              value={formData.environment || ''}
-              onChange={(e) => updateField('environment', e.target.value)}
-              placeholder="e.g. Kitchen background softly blurred"
-              className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
-            />
-          </div>
-
-          {/* Dialogue Section */}
-          <div className="border-t border-white/10 pt-4">
-            <div className="flex items-center justify-between mb-4">
-              <Label className="text-slate-300 flex items-center gap-2">
-                <MessageSquare className="w-4 h-4" />
-                Dialogue
-              </Label>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={toggleDialogue}
-                className={cn(
-                  'border-white/10',
-                  hasDialogue
-                    ? 'bg-green-500/20 border-green-500/30 text-green-400'
-                    : 'text-slate-400'
-                )}
-              >
-                {hasDialogue ? 'Remove Dialogue' : 'Add Dialogue'}
-              </Button>
-            </div>
-
-            {hasDialogue && (
-              <div className="grid gap-4 p-4 bg-slate-800/30 rounded-lg border border-white/5">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label className="text-slate-400 text-xs">Character</Label>
-                    <Select
-                      value={formData.dialogue?.character_id || ''}
-                      onValueChange={handleCharacterSelect}
+          {/* Content */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Left side - Form */}
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Presets */}
+              <div className="space-y-2">
+                <Label className="text-slate-300 flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  Quick Presets
+                </Label>
+                <div className="grid grid-cols-3 gap-2">
+                  {SHOT_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      onClick={() => applyPreset(preset)}
+                      className={cn(
+                        'p-3 rounded-lg border text-left transition-all',
+                        activePreset === preset.id
+                          ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300'
+                          : 'bg-slate-800/50 border-white/10 text-slate-300 hover:bg-slate-800 hover:border-white/20'
+                      )}
                     >
-                      <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
-                        <SelectValue placeholder="Select character" />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-800 border-white/10">
-                        {characters.map((char) => (
-                          <SelectItem key={char.id} value={char.id} className="text-white">
-                            {char.name}
-                          </SelectItem>
-                        ))}
-                        {characters.length === 0 && (
-                          <SelectItem value="__none__" disabled className="text-slate-500">
-                            No characters available
-                          </SelectItem>
-                        )}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label className="text-slate-400 text-xs">Tone</Label>
-                    <Select
-                      value={formData.dialogue?.tone || 'neutral'}
-                      onValueChange={(v) => updateDialogueField('tone', v)}
-                    >
-                      <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent className="bg-slate-800 border-white/10">
-                        {DIALOGUE_TONE_OPTIONS.map((opt) => (
-                          <SelectItem key={opt.value} value={opt.value} className="text-white">
-                            {opt.label}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                      <div className="flex items-center gap-2 mb-1">
+                        {preset.icon}
+                        <span className="font-medium text-sm">{preset.label}</span>
+                      </div>
+                      <span className="text-xs text-slate-500">{preset.description}</span>
+                    </button>
+                  ))}
                 </div>
+              </div>
+
+              {/* Timing Row */}
+              <div className="grid grid-cols-3 gap-4">
                 <div className="space-y-2">
-                  <Label className="text-slate-400 text-xs">Dialogue Text</Label>
-                  <Textarea
-                    value={formData.dialogue?.text || ''}
-                    onChange={(e) => updateDialogueField('text', e.target.value)}
-                    placeholder="What does the character say?"
-                    rows={2}
-                    className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none"
+                  <Label className="text-slate-300 flex items-center gap-1">
+                    <Clock className="w-3.5 h-3.5" />
+                    Start
+                  </Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={0}
+                    max={formData.end_time ? formData.end_time - 0.5 : planDuration}
+                    value={formData.start_time || 0}
+                    onChange={(e) => updateField('start_time', parseFloat(e.target.value) || 0)}
+                    className="bg-slate-800/50 border-white/10 text-white"
                   />
                 </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-300">End</Label>
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min={formData.start_time ? formData.start_time + 0.5 : 0.5}
+                    max={planDuration}
+                    value={formData.end_time || 0}
+                    onChange={(e) => updateField('end_time', parseFloat(e.target.value) || 0)}
+                    className="bg-slate-800/50 border-white/10 text-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Duration</Label>
+                  <div className="h-9 flex items-center px-3 bg-slate-800/30 border border-white/5 rounded-md text-slate-400 font-mono">
+                    {duration}s
+                  </div>
+                </div>
               </div>
-            )}
+
+              {/* Shot Type & Camera Movement */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-slate-300">Shot Type</Label>
+                  <Select
+                    value={formData.shot_type || 'medium'}
+                    onValueChange={(v) => updateField('shot_type', v as ShotType)}
+                  >
+                    <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-800 border-white/10">
+                      {SHOT_TYPE_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-white">
+                          <span>{opt.label}</span>
+                          <span className="text-xs text-slate-500 ml-2">— {opt.description}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-300 flex items-center gap-1">
+                    <Move className="w-3.5 h-3.5" />
+                    Camera Movement
+                  </Label>
+                  <Select
+                    value={formData.camera_movement || 'static'}
+                    onValueChange={(v) => updateField('camera_movement', v as CameraMovement)}
+                  >
+                    <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent className="bg-slate-800 border-white/10 max-h-60">
+                      {CAMERA_MOVEMENT_OPTIONS.map((opt) => (
+                        <SelectItem key={opt.value} value={opt.value} className="text-white">
+                          <span>{opt.label}</span>
+                          <span className="text-xs text-slate-500 ml-2">— {opt.description}</span>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              {/* Subject */}
+              <div className="space-y-2">
+                <Label className="text-slate-300">Subject</Label>
+                <Input
+                  value={formData.subject || ''}
+                  onChange={(e) => updateField('subject', e.target.value)}
+                  placeholder="e.g. @Sarah, the knife, both characters"
+                  className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
+                />
+                {/* Quick subject chips */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {characters.slice(0, 4).map((char) => (
+                    <button
+                      key={char.id}
+                      onClick={() => setSubjectFromCharacter(char.name)}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30 transition-colors"
+                    >
+                      <User className="w-3 h-3" />
+                      {char.name}
+                    </button>
+                  ))}
+                  {locations.slice(0, 2).map((loc) => (
+                    <button
+                      key={loc.id}
+                      onClick={() => setSubjectFromLocation(loc.name)}
+                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-500/20 text-green-300 rounded hover:bg-green-500/30 transition-colors"
+                    >
+                      <MapPin className="w-3 h-3" />
+                      {loc.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Framing */}
+              <div className="space-y-2">
+                <Label className="text-slate-300">Framing</Label>
+                <Input
+                  value={formData.framing || ''}
+                  onChange={(e) => updateField('framing', e.target.value)}
+                  placeholder="Describe the camera framing..."
+                  className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
+                />
+                {/* Framing suggestions */}
+                <div className="flex flex-wrap gap-1.5">
+                  {framingSuggestions.map((suggestion, i) => (
+                    <button
+                      key={i}
+                      onClick={() => addToField('framing', suggestion)}
+                      className="px-2 py-0.5 text-xs bg-slate-700/50 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300 transition-colors"
+                    >
+                      + {suggestion}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Action */}
+              <div className="space-y-2">
+                <Label className="text-slate-300">Action</Label>
+                <Textarea
+                  value={formData.action || ''}
+                  onChange={(e) => updateField('action', e.target.value)}
+                  placeholder="What happens in this shot..."
+                  rows={2}
+                  className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none"
+                />
+                {/* Action suggestions */}
+                <div className="flex flex-wrap gap-1.5">
+                  {actionSuggestions.length > 0 ? (
+                    actionSuggestions.map((suggestion, i) => (
+                      <button
+                        key={i}
+                        onClick={() => addToField('action', suggestion)}
+                        className="px-2 py-0.5 text-xs bg-slate-700/50 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300 transition-colors"
+                      >
+                        + {suggestion}
+                      </button>
+                    ))
+                  ) : (
+                    ACTION_VERBS.slice(0, 8).map((verb, i) => (
+                      <button
+                        key={i}
+                        onClick={() => addToField('action', verb)}
+                        className="px-2 py-0.5 text-xs bg-slate-700/50 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300 transition-colors"
+                      >
+                        + {verb}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+
+              {/* Environment */}
+              <div className="space-y-2">
+                <Label className="text-slate-300">Environment</Label>
+                <Input
+                  value={formData.environment || ''}
+                  onChange={(e) => updateField('environment', e.target.value)}
+                  placeholder="Lighting, atmosphere, background..."
+                  className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
+                />
+              </div>
+
+              {/* Dialogue Section */}
+              <div className="border-t border-white/10 pt-4">
+                <div className="flex items-center justify-between mb-4">
+                  <Label className="text-slate-300 flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4" />
+                    Dialogue
+                  </Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={toggleDialogue}
+                    className={cn(
+                      'border-white/10',
+                      hasDialogue
+                        ? 'bg-green-500/20 border-green-500/30 text-green-400'
+                        : 'text-slate-400'
+                    )}
+                  >
+                    {hasDialogue ? 'Remove' : 'Add Dialogue'}
+                  </Button>
+                </div>
+
+                {hasDialogue && (
+                  <div className="grid gap-4 p-4 bg-slate-800/30 rounded-lg border border-white/5">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label className="text-slate-400 text-xs">Character</Label>
+                        <Select
+                          value={formData.dialogue?.character_id || ''}
+                          onValueChange={handleCharacterSelect}
+                        >
+                          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
+                            <SelectValue placeholder="Select character" />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-800 border-white/10">
+                            {characters.map((char) => (
+                              <SelectItem key={char.id} value={char.id} className="text-white">
+                                {char.name}
+                              </SelectItem>
+                            ))}
+                            {characters.length === 0 && (
+                              <SelectItem value="__none__" disabled className="text-slate-500">
+                                No characters available
+                              </SelectItem>
+                            )}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label className="text-slate-400 text-xs">Tone</Label>
+                        <Select
+                          value={formData.dialogue?.tone || 'neutral'}
+                          onValueChange={(v) => updateDialogueField('tone', v)}
+                        >
+                          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-800 border-white/10">
+                            {DIALOGUE_TONE_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value} className="text-white">
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="text-slate-400 text-xs">Line</Label>
+                      <Textarea
+                        value={formData.dialogue?.text || ''}
+                        onChange={(e) => updateDialogueField('text', e.target.value)}
+                        placeholder='What does the character say? e.g. "Not in this life."'
+                        rows={2}
+                        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right side - Prompt Preview */}
+            <div className="w-80 border-l border-white/10 bg-slate-950/50 flex flex-col">
+              <div className="p-4 border-b border-white/10 flex items-center justify-between">
+                <Label className="text-slate-300 flex items-center gap-2">
+                  <Clapperboard className="w-4 h-4 text-amber-400" />
+                  Prompt Preview
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={copyPrompt}
+                  className="text-slate-400 hover:text-white"
+                >
+                  {copied ? (
+                    <Check className="w-4 h-4 text-green-400" />
+                  ) : (
+                    <Copy className="w-4 h-4" />
+                  )}
+                </Button>
+              </div>
+              <div className="flex-1 p-4 overflow-y-auto">
+                <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
+                  {promptPreview}
+                </pre>
+              </div>
+            </div>
           </div>
 
-          {/* Custom Prompt Override (Advanced) */}
-          <div className="space-y-2">
-            <Label className="text-slate-300 flex items-center gap-2">
-              <Video className="w-4 h-4" />
-              Custom Prompt Override
-              <span className="text-xs text-slate-500">(optional)</span>
-            </Label>
-            <Textarea
-              value={formData.custom_prompt || ''}
-              onChange={(e) => updateField('custom_prompt', e.target.value)}
-              placeholder="Override the auto-generated prompt with your own..."
-              rows={2}
-              className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none font-mono text-sm"
-            />
+          {/* Footer */}
+          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/10 flex-shrink-0">
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="border-white/10 text-slate-400"
+            >
+              <X className="w-4 h-4 mr-2" />
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSave}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white"
+            >
+              <Save className="w-4 h-4 mr-2" />
+              Save Shot
+            </Button>
           </div>
         </div>
-
-        <DialogFooter className="border-t border-white/10 pt-4">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            className="border-white/10 text-slate-400"
-          >
-            <X className="w-4 h-4 mr-2" />
-            Cancel
-          </Button>
-          <Button
-            onClick={handleSave}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white"
-          >
-            <Save className="w-4 h-4 mr-2" />
-            Save Segment
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

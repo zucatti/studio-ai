@@ -87,6 +87,19 @@ export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating
   const [showCinematicSettings, setShowCinematicSettings] = useState(false);
   const { projectAssets, fetchProjectAssets } = useBibleStore();
 
+  // Derive locations from projectAssets
+  const locations = useMemo(() => {
+    return projectAssets
+      .filter((asset) => asset.asset_type === 'location')
+      .map((asset) => ({ id: asset.id, name: asset.name }));
+  }, [projectAssets]);
+
+  // Get segment index for the editing segment
+  const editingSegmentIndex = useMemo(() => {
+    if (!editingSegment || !plan?.segments) return 0;
+    return plan.segments.findIndex((s) => s.id === editingSegment.id);
+  }, [editingSegment, plan?.segments]);
+
   // Sync title with plan
   useEffect(() => {
     if (plan) {
@@ -249,7 +262,9 @@ export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating
         onOpenChange={(open) => !open && setEditingSegment(null)}
         onSave={handleSegmentSave}
         characters={characters}
+        locations={locations}
         planDuration={plan.duration}
+        segmentIndex={editingSegmentIndex}
       />
 
       {/* Description */}
