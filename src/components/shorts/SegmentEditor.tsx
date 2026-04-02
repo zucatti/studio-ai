@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { MentionInput } from '@/components/ui/mention-input';
@@ -195,10 +194,6 @@ export function SegmentEditor({
       lines.push(`${formData.dialogue.character_name} says${tone}: "${formData.dialogue.text}"`);
     }
 
-    if (formData.environment) {
-      lines.push(formData.environment + '.');
-    }
-
     if (formData.camera_movement && formData.camera_movement !== 'static') {
       const movement = CAMERA_MOVEMENT_OPTIONS.find(o => o.value === formData.camera_movement)?.label || '';
       lines.push(`Camera: ${movement}.`);
@@ -267,8 +262,8 @@ export function SegmentEditor({
             {viewMode === 'edit' ? (
               /* Edit Mode - Single Column Layout */
               <div className="h-full overflow-y-auto p-6 space-y-5">
-                {/* Shot Type, Camera, Environment - Top Row */}
-                <div className="grid grid-cols-3 gap-3">
+                {/* Shot Type & Camera - Top Row */}
+                <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-slate-300 text-xs">Shot Type</Label>
                     <Select
@@ -304,15 +299,6 @@ export function SegmentEditor({
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label className="text-slate-300 text-xs">Environment</Label>
-                    <Input
-                      value={formData.environment || ''}
-                      onChange={(e) => updateField('environment', e.target.value)}
-                      placeholder="Lighting, atmosphere..."
-                      className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 h-9"
-                    />
                   </div>
                 </div>
 
