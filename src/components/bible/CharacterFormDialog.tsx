@@ -1171,15 +1171,15 @@ export function CharacterFormDialog({
   // Normalize string for accent-insensitive search
   const normalize = (str: string) => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-  // Filter voices based on search (accent-insensitive)
+  // Filter voices based on search (accent-insensitive, word-based)
   // Note: When search >= 2 chars, server already filters including Voice Library
   // Only do client-side filtering for very short searches (1 char)
   const filteredVoices = voiceSearch && voiceSearch.length < 2
-    ? voices.filter(
-        (v) =>
-          normalize(v.name).includes(normalize(voiceSearch)) ||
-          Object.values(v.labels).some((l) => normalize(l).includes(normalize(voiceSearch)))
-      )
+    ? voices.filter((v) => {
+        const searchWords = normalize(voiceSearch).split(/[\s\-]+/).filter(w => w.length > 0);
+        const fullText = `${normalize(v.name)} ${Object.values(v.labels).map(l => normalize(l)).join(' ')}`;
+        return searchWords.every(word => fullText.includes(word));
+      })
     : voices;
 
   return (

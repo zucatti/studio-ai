@@ -49,15 +49,18 @@ export async function GET(request: Request) {
       category?: string;
     }> = personalData.voices || [];
 
+
     // Filter personal voices by search term if provided
+    // Search by all words (AND logic) - e.g. "nicolas narration" matches "Voix Nicolas Petit IA AUDIO Narration"
     if (search) {
-      const searchNorm = normalize(search);
-      personalVoices = personalVoices.filter((voice) =>
-        normalize(voice.name).includes(searchNorm) ||
-        Object.values(voice.labels || {}).some(label =>
-          normalize(label).includes(searchNorm)
-        )
-      );
+      const searchWords = normalize(search).split(/[\s\-]+/).filter(w => w.length > 0);
+      personalVoices = personalVoices.filter((voice) => {
+        const nameNorm = normalize(voice.name);
+        const labelsNorm = Object.values(voice.labels || {}).map(l => normalize(l)).join(' ');
+        const fullText = `${nameNorm} ${labelsNorm}`;
+        // All search words must be present
+        return searchWords.every(word => fullText.includes(word));
+      });
     }
 
     // Map personal voices to simplified format
