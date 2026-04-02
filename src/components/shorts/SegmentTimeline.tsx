@@ -497,23 +497,25 @@ export function SegmentTimeline({
               )}
 
               {/* Content */}
-              <div className="absolute inset-x-1 inset-y-0 flex flex-col justify-center min-w-0 px-1 pointer-events-none">
-                {/* Shot type badge */}
-                <div className="flex items-center gap-1 text-white/90 text-[10px] font-medium truncate">
-                  <span className="bg-black/30 px-1 rounded">
-                    {getShotTypeAbbr(segment.shot_type)}
+              <div className="absolute inset-x-1 inset-y-0 flex items-center justify-between min-w-0 px-1.5 pointer-events-none">
+                {/* Left: Shot type (full if wide enough, abbr otherwise) */}
+                <div className="flex items-center gap-1 text-white/90 text-[10px] font-medium min-w-0">
+                  <span className="bg-black/30 px-1 rounded truncate">
+                    {width > 20 ? getShotTypeLabel(segment.shot_type) : getShotTypeAbbr(segment.shot_type)}
                   </span>
-                  {segment.subject && (
-                    <span className="truncate opacity-75">{segment.subject}</span>
+                  {segment.dialogue && (
+                    <MessageSquare className="w-2.5 h-2.5 flex-shrink-0 opacity-75" />
                   )}
                 </div>
 
-                {/* Duration & dialogue indicator */}
-                <div className="flex items-center gap-1 text-white/60 text-[9px]">
-                  <span>{Math.round(duration)}s</span>
-                  {segment.dialogue && (
-                    <MessageSquare className="w-2.5 h-2.5" />
-                  )}
+                {/* Center: Shot number */}
+                <div className="text-white/80 text-[11px] font-bold flex-shrink-0">
+                  {index + 1}
+                </div>
+
+                {/* Right: Duration */}
+                <div className="text-white/60 text-[10px] flex-shrink-0">
+                  {Math.round(duration)}s
                 </div>
               </div>
             </div>
