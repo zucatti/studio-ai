@@ -22,7 +22,11 @@ import { CameraSelector } from './presets/CameraSelector';
 import { ColorGradeSelector } from './presets/ColorGradeSelector';
 import { ToneSelector } from './presets/ToneSelector';
 import { cinematicHeaderToPrompt, createDefaultCinematicHeader, createGenrePreset } from '@/lib/cinematic-header-to-prompt';
-import { Loader2, Save, Sparkles, BookOpen, Pencil, FileText, Copy, Check, Clock, Sun, Camera, Heart, Palette } from 'lucide-react';
+import {
+  Loader2, Save, Sparkles, BookOpen, Pencil, FileText, Copy, Check,
+  Clock, Sun, Camera, Heart, Palette,
+  Sunrise, Sunset, Moon, CloudSun, Cloud, CloudFog, CloudRain, CloudLightning, CircleDot
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Segment } from '@/types/cinematic';
 import { toast } from 'sonner';
@@ -369,53 +373,76 @@ export function CinematicHeaderWizard({
               {/* Tab Content - Fixed height to prevent resize on tab change */}
               <div className="h-[320px] overflow-y-auto p-6">
                 {activeTab === 'time' && (
-                  <div className="max-w-md space-y-4">
+                  <div className="space-y-6">
+                    {/* Time of Day */}
                     <div className="space-y-3">
-                      <Label className="text-slate-300 font-medium">Moment de la journée</Label>
-                      <div className="grid grid-cols-3 gap-2">
-                        {TIME_OF_DAY_OPTIONS.map((opt) => (
+                      <Label className="text-slate-300 font-medium text-sm">Moment de la journée</Label>
+                      <div className="grid grid-cols-4 gap-3">
+                        {[
+                          { value: 'dawn', label: 'Aube', icon: Sunrise, color: 'text-orange-300' },
+                          { value: 'morning', label: 'Matin', icon: CloudSun, color: 'text-yellow-300' },
+                          { value: 'midday', label: 'Midi', icon: Sun, color: 'text-yellow-400' },
+                          { value: 'afternoon', label: 'Après-midi', icon: Sun, color: 'text-amber-400' },
+                          { value: 'golden_hour', label: 'Golden Hour', icon: Sunset, color: 'text-orange-400' },
+                          { value: 'dusk', label: 'Crépuscule', icon: Sunset, color: 'text-purple-400' },
+                          { value: 'blue_hour', label: 'Blue Hour', icon: Moon, color: 'text-blue-400' },
+                          { value: 'night', label: 'Nuit', icon: Moon, color: 'text-indigo-400' },
+                        ].map((opt) => (
                           <button
                             key={opt.value}
-                            onClick={() => setConfig({ ...config, time_of_day: opt.value })}
+                            onClick={() => setConfig({ ...config, time_of_day: opt.value as TimeOfDayCinematic })}
                             className={cn(
-                              'p-3 rounded-lg border text-sm font-medium transition-all text-center',
+                              'flex flex-col items-center gap-2 p-4 rounded-xl border transition-all',
                               config.time_of_day === opt.value
-                                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
-                                : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                                ? 'bg-blue-500/20 border-blue-500/50'
+                                : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
                             )}
                           >
-                            {opt.label}
+                            <opt.icon className={cn('w-8 h-8', config.time_of_day === opt.value ? 'text-blue-300' : opt.color)} />
+                            <span className={cn(
+                              'text-xs font-medium',
+                              config.time_of_day === opt.value ? 'text-blue-300' : 'text-slate-400'
+                            )}>
+                              {opt.label}
+                            </span>
                           </button>
                         ))}
                       </div>
                     </div>
 
+                    {/* Weather */}
                     <div className="space-y-3">
-                      <Label className="text-slate-300 font-medium">Météo (optionnel)</Label>
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          onClick={() => setConfig({ ...config, weather: undefined })}
-                          className={cn(
-                            'p-3 rounded-lg border text-sm font-medium transition-all text-center',
-                            !config.weather
-                              ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
-                              : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
-                          )}
-                        >
-                          Aucune
-                        </button>
-                        {WEATHER_OPTIONS.map((opt) => (
+                      <Label className="text-slate-300 font-medium text-sm">Météo</Label>
+                      <div className="grid grid-cols-7 gap-2">
+                        {[
+                          { value: undefined, label: 'Aucune', icon: CircleDot, color: 'text-slate-500' },
+                          { value: 'clear', label: 'Clair', icon: Sun, color: 'text-yellow-400' },
+                          { value: 'cloudy', label: 'Nuageux', icon: CloudSun, color: 'text-slate-300' },
+                          { value: 'overcast', label: 'Couvert', icon: Cloud, color: 'text-slate-400' },
+                          { value: 'fog', label: 'Brouillard', icon: CloudFog, color: 'text-slate-400' },
+                          { value: 'rain', label: 'Pluie', icon: CloudRain, color: 'text-blue-400' },
+                          { value: 'storm', label: 'Orage', icon: CloudLightning, color: 'text-purple-400' },
+                        ].map((opt) => (
                           <button
-                            key={opt.value}
-                            onClick={() => setConfig({ ...config, weather: opt.value })}
+                            key={opt.value || 'none'}
+                            onClick={() => setConfig({ ...config, weather: opt.value as Weather | undefined })}
                             className={cn(
-                              'p-3 rounded-lg border text-sm font-medium transition-all text-center',
-                              config.weather === opt.value
-                                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
-                                : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                              'flex flex-col items-center gap-1.5 p-3 rounded-lg border transition-all',
+                              config.weather === opt.value || (!config.weather && !opt.value)
+                                ? 'bg-blue-500/20 border-blue-500/50'
+                                : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
                             )}
                           >
-                            {opt.label}
+                            <opt.icon className={cn(
+                              'w-5 h-5',
+                              config.weather === opt.value || (!config.weather && !opt.value) ? 'text-blue-300' : opt.color
+                            )} />
+                            <span className={cn(
+                              'text-[10px] font-medium',
+                              config.weather === opt.value || (!config.weather && !opt.value) ? 'text-blue-300' : 'text-slate-500'
+                            )}>
+                              {opt.label}
+                            </span>
                           </button>
                         ))}
                       </div>
