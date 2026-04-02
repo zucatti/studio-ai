@@ -101,10 +101,10 @@ export function CinematicHeaderWizard({
         const endTime = `${endMins}:${endSecs.toString().padStart(2, '0')}`;
 
         const shotType = segment.shot_type?.toUpperCase() || 'MEDIUM';
-        const subject = segment.description?.match(/[@#!][A-Za-z][A-Za-z0-9_]*/)?.[0] || 'subject';
+        const subject = segment.description?.match(/[@#!][A-Za-z][A-Za-z0-9_]*/)?.[0];
 
         lines.push('');
-        lines.push(`SHOT ${shotNum} (${startTime}–${endTime}) — ${shotType}, ${subject}:`);
+        lines.push(`SHOT ${shotNum} (${startTime}–${endTime}) — ${shotType}${subject ? `, ${subject}` : ''}:`);
         if (segment.description) lines.push(segment.description);
         if (segment.camera_movement && segment.camera_movement !== 'static') {
           lines.push(`Camera: ${segment.camera_movement.replace(/_/g, ' ')}`);

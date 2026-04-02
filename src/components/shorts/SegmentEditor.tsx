@@ -55,9 +55,9 @@ interface SegmentEditorProps {
 }
 
 // Extract subject from description (first @mention or #mention)
-function extractSubject(description: string): string {
+function extractSubject(description: string): string | null {
   const match = description.match(/[@#!][A-Za-z][A-Za-z0-9_]*/);
-  return match ? match[0] : 'subject';
+  return match ? match[0] : null;
 }
 
 export function SegmentEditor({
@@ -176,10 +176,10 @@ export function SegmentEditor({
     const endTime = formatTime(formData.end_time || 0);
 
     const shotType = SHOT_TYPE_OPTIONS.find(o => o.value === formData.shot_type)?.label.toUpperCase() || 'MEDIUM';
-    const subject = formData.description ? extractSubject(formData.description) : 'subject';
+    const subject = formData.description ? extractSubject(formData.description) : null;
 
     const lines: string[] = [];
-    lines.push(`SHOT ${shotNum} (${startTime}–${endTime}) — ${shotType}, ${subject}:`);
+    lines.push(`SHOT ${shotNum} (${startTime}–${endTime}) — ${shotType}${subject ? `, ${subject}` : ''}:`);
 
     if (formData.framing) {
       lines.push(formData.framing + '.');
