@@ -27,7 +27,6 @@ import {
   X,
   Copy,
   Check,
-  Move,
   FileText,
   Pencil,
 } from 'lucide-react';
@@ -289,10 +288,7 @@ export function SegmentEditor({
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-slate-300 text-xs flex items-center gap-1">
-                      <Move className="w-3 h-3" />
-                      Camera
-                    </Label>
+                    <Label className="text-slate-300 text-xs">Camera</Label>
                     <Select
                       value={formData.camera_movement || 'static'}
                       onValueChange={(v) => updateField('camera_movement', v as CameraMovement)}
