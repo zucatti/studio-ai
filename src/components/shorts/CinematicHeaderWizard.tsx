@@ -22,7 +22,7 @@ import { CameraSelector } from './presets/CameraSelector';
 import { ColorGradeSelector } from './presets/ColorGradeSelector';
 import { ToneSelector } from './presets/ToneSelector';
 import { cinematicHeaderToPrompt, createDefaultCinematicHeader, createGenrePreset } from '@/lib/cinematic-header-to-prompt';
-import { Loader2, Save, Sparkles, BookOpen, Pencil, FileText, Copy, Check } from 'lucide-react';
+import { Loader2, Save, Sparkles, BookOpen, Pencil, FileText, Copy, Check, Clock, Sun, Camera, Heart, Palette } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Segment } from '@/types/cinematic';
 import { toast } from 'sonner';
@@ -79,6 +79,7 @@ export function CinematicHeaderWizard({
 
   // View mode state
   const [viewMode, setViewMode] = useState<'edit' | 'prompt'>('edit');
+  const [activeTab, setActiveTab] = useState<'time' | 'lighting' | 'camera' | 'tone' | 'color'>('time');
   const [copied, setCopied] = useState(false);
 
   // Presets state
@@ -233,7 +234,7 @@ export function CinematicHeaderWizard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-6xl max-h-[90vh] bg-[#0f1419] border-white/10 overflow-hidden flex flex-col [&>button]:hidden">
+      <DialogContent className="max-w-4xl max-h-[90vh] bg-[#0f1419] border-white/10 overflow-hidden flex flex-col [&>button]:hidden">
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <DialogTitle className="text-white flex items-center gap-2">
@@ -271,11 +272,11 @@ export function CinematicHeaderWizard({
           </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto min-h-[500px]">
+        <div className="flex-1 overflow-hidden flex flex-col min-h-[400px]">
           {viewMode === 'edit' ? (
             <>
               {/* Presets Section */}
-              <div className="px-4 py-3 border-b border-white/10">
+              <div className="px-4 py-3 border-b border-white/10 flex-shrink-0">
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-2">
                     <BookOpen className="w-4 h-4 text-slate-400" />
@@ -338,90 +339,125 @@ export function CinematicHeaderWizard({
                 )}
               </div>
 
-              {/* Main Configuration Grid - 3 columns */}
-              <div className="grid grid-cols-3 gap-4 p-4">
-                {/* Column 1: Lighting + Time/Weather */}
-                <div className="space-y-4">
-                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+              {/* Category Tabs */}
+              <div className="px-4 py-3 border-b border-white/10 flex-shrink-0">
+                <div className="inline-flex rounded-lg bg-slate-800/50 p-1 gap-1">
+                  {[
+                    { id: 'time' as const, label: 'Temporalité', icon: Clock },
+                    { id: 'lighting' as const, label: 'Éclairage', icon: Sun },
+                    { id: 'camera' as const, label: 'Caméra', icon: Camera },
+                    { id: 'tone' as const, label: 'Tone & Mood', icon: Heart },
+                    { id: 'color' as const, label: 'Colorimétrie', icon: Palette },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={cn(
+                        'px-4 py-2 text-sm font-medium rounded-md transition-all flex items-center gap-2',
+                        activeTab === tab.id
+                          ? 'bg-slate-700 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-700/50'
+                      )}
+                    >
+                      <tab.icon className="w-4 h-4" />
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Tab Content */}
+              <div className="flex-1 overflow-y-auto p-6">
+                {activeTab === 'time' && (
+                  <div className="max-w-md space-y-4">
+                    <div className="space-y-3">
+                      <Label className="text-slate-300 font-medium">Moment de la journée</Label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {TIME_OF_DAY_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setConfig({ ...config, time_of_day: opt.value })}
+                            className={cn(
+                              'p-3 rounded-lg border text-sm font-medium transition-all text-center',
+                              config.time_of_day === opt.value
+                                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                                : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Label className="text-slate-300 font-medium">Météo (optionnel)</Label>
+                      <div className="grid grid-cols-3 gap-2">
+                        <button
+                          onClick={() => setConfig({ ...config, weather: undefined })}
+                          className={cn(
+                            'p-3 rounded-lg border text-sm font-medium transition-all text-center',
+                            !config.weather
+                              ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                              : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                          )}
+                        >
+                          Aucune
+                        </button>
+                        {WEATHER_OPTIONS.map((opt) => (
+                          <button
+                            key={opt.value}
+                            onClick={() => setConfig({ ...config, weather: opt.value })}
+                            className={cn(
+                              'p-3 rounded-lg border text-sm font-medium transition-all text-center',
+                              config.weather === opt.value
+                                ? 'bg-blue-500/20 border-blue-500/50 text-blue-300'
+                                : 'bg-white/5 border-white/10 text-slate-400 hover:bg-white/10 hover:text-white'
+                            )}
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'lighting' && (
+                  <div className="max-w-2xl">
                     <LightingSelector
                       value={config.lighting}
                       onChange={(lighting) => setConfig({ ...config, lighting })}
                     />
                   </div>
+                )}
 
-                  <div className="p-3 rounded-lg bg-white/5 border border-white/10 space-y-3">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">🕐</span>
-                      <Label className="text-slate-300 font-medium">Temporalité</Label>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Label className="text-slate-400 text-xs w-16">Moment</Label>
-                      <Select
-                        value={config.time_of_day}
-                        onValueChange={(v) => setConfig({ ...config, time_of_day: v as TimeOfDayCinematic })}
-                      >
-                        <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs flex-1">
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent className="bg-[#1a2e44] border-white/10">
-                          {TIME_OF_DAY_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-
-                    <div className="flex items-center gap-2">
-                      <Label className="text-slate-400 text-xs w-16">Météo</Label>
-                      <Select
-                        value={config.weather || '_none'}
-                        onValueChange={(v) => setConfig({ ...config, weather: v === '_none' ? undefined : v as Weather })}
-                      >
-                        <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs flex-1">
-                          <SelectValue placeholder="Optionnel" />
-                        </SelectTrigger>
-                        <SelectContent className="bg-[#1a2e44] border-white/10">
-                          <SelectItem value="_none" className="text-xs text-slate-500">-</SelectItem>
-                          {WEATHER_OPTIONS.map((opt) => (
-                            <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                              {opt.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Column 2: Camera + Color Grade */}
-                <div className="space-y-4">
-                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                {activeTab === 'camera' && (
+                  <div className="max-w-2xl">
                     <CameraSelector
                       value={config.camera}
                       onChange={(camera) => setConfig({ ...config, camera })}
                     />
                   </div>
+                )}
 
-                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                    <ColorGradeSelector
-                      value={config.color_grade}
-                      onChange={(color_grade) => setConfig({ ...config, color_grade })}
-                    />
-                  </div>
-                </div>
-
-                {/* Column 3: Tone */}
-                <div className="space-y-4">
-                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                {activeTab === 'tone' && (
+                  <div className="max-w-2xl">
                     <ToneSelector
                       value={config.tone}
                       onChange={(tone) => setConfig({ ...config, tone })}
                     />
                   </div>
-                </div>
+                )}
+
+                {activeTab === 'color' && (
+                  <div className="max-w-2xl">
+                    <ColorGradeSelector
+                      value={config.color_grade}
+                      onChange={(color_grade) => setConfig({ ...config, color_grade })}
+                    />
+                  </div>
+                )}
               </div>
             </>
           ) : (
