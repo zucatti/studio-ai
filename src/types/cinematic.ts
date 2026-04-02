@@ -26,7 +26,7 @@ export type ColorSaturation = 'vibrant' | 'natural' | 'desaturated' | 'monochrom
 export type ColorContrast = 'low' | 'medium' | 'high';
 export type ColorStyle = 'cinematic' | 'vintage' | 'modern' | 'noir' | 'pastel' | 'teal_orange';
 
-export type ToneGenre = 'thriller' | 'drama' | 'comedy' | 'action' | 'horror' | 'romance' | 'sci_fi' | 'documentary';
+export type ToneGenre = 'action' | 'comedy' | 'documentary' | 'horror' | 'intimate' | 'spectacle' | 'suspense' | 'western';
 export type ToneMood = 'tense' | 'intimate' | 'epic' | 'melancholic' | 'joyful' | 'mysterious' | 'peaceful';
 export type TonePacing = 'slow' | 'moderate' | 'fast' | 'frenetic';
 
@@ -50,9 +50,6 @@ export interface CinematicHeaderConfig {
   // Camera
   camera: {
     type: CameraTypeCinematic;
-    lens: LensType;
-    aperture: ApertureStyle;
-    focus?: FocusStyle;
   };
 
   // Color Grading
@@ -64,11 +61,9 @@ export interface CinematicHeaderConfig {
     lut_reference?: string; // LUT name: "Kodak 2383", "ARRI LogC", etc.
   };
 
-  // Tone & Mood
+  // Tone & Mood (mood and pacing derived from genre)
   tone: {
     genre: ToneGenre;
-    mood: ToneMood;
-    pacing: TonePacing;
   };
 
   // Cast (auto-detected from short's characters)
@@ -361,24 +356,24 @@ export const COLOR_STYLE_OPTIONS: ColorStyleOption[] = [
 ];
 
 export const GENRE_OPTIONS: { value: ToneGenre; label: string }[] = [
-  { value: 'thriller', label: 'Thriller' },
-  { value: 'drama', label: 'Drama' },
-  { value: 'comedy', label: 'Comedy' },
   { value: 'action', label: 'Action' },
-  { value: 'horror', label: 'Horror' },
-  { value: 'romance', label: 'Romance' },
-  { value: 'sci_fi', label: 'Sci-Fi' },
+  { value: 'comedy', label: 'Comedy' },
   { value: 'documentary', label: 'Documentary' },
+  { value: 'horror', label: 'Horror' },
+  { value: 'intimate', label: 'Intimate' },
+  { value: 'spectacle', label: 'Spectacle' },
+  { value: 'suspense', label: 'Suspense' },
+  { value: 'western', label: 'Western' },
 ];
 
 export const MOOD_OPTIONS: ToneOption[] = [
-  { value: 'tense', label: 'Tense', forGenres: ['thriller', 'horror', 'action'] },
-  { value: 'intimate', label: 'Intimate', forGenres: ['drama', 'romance'] },
-  { value: 'epic', label: 'Epic', forGenres: ['action', 'sci_fi'] },
-  { value: 'melancholic', label: 'Melancholic', forGenres: ['drama', 'romance'] },
-  { value: 'joyful', label: 'Joyful', forGenres: ['comedy', 'romance'] },
-  { value: 'mysterious', label: 'Mysterious', forGenres: ['thriller', 'horror', 'sci_fi'] },
-  { value: 'peaceful', label: 'Peaceful', forGenres: ['drama', 'documentary'] },
+  { value: 'tense', label: 'Tense', forGenres: ['suspense', 'horror', 'action'] },
+  { value: 'intimate', label: 'Intimate', forGenres: ['intimate', 'western'] },
+  { value: 'epic', label: 'Epic', forGenres: ['action', 'spectacle', 'western'] },
+  { value: 'melancholic', label: 'Melancholic', forGenres: ['intimate', 'western'] },
+  { value: 'joyful', label: 'Joyful', forGenres: ['comedy', 'intimate'] },
+  { value: 'mysterious', label: 'Mysterious', forGenres: ['suspense', 'horror', 'spectacle'] },
+  { value: 'peaceful', label: 'Peaceful', forGenres: ['intimate', 'western'] },
 ];
 
 export const TIME_OF_DAY_OPTIONS: { value: TimeOfDayCinematic; label: string }[] = [

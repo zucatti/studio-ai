@@ -132,14 +132,14 @@ const COLOR_STYLE_TEXT: Record<ColorStyle, string> = {
 };
 
 const GENRE_TEXT: Record<ToneGenre, string> = {
-  thriller: 'thriller',
-  drama: 'drama',
-  comedy: 'comedy',
   action: 'action',
-  horror: 'horror',
-  romance: 'romance',
-  sci_fi: 'science fiction',
+  comedy: 'comedy',
   documentary: 'documentary',
+  horror: 'horror',
+  intimate: 'intimate drama',
+  spectacle: 'epic spectacle',
+  suspense: 'suspense thriller',
+  western: 'western',
 };
 
 const MOOD_TEXT: Record<ToneMood, string> = {
@@ -212,18 +212,7 @@ export function cinematicHeaderToPrompt(config: CinematicHeaderConfig): string {
 
   // Build CAMERA section
   if (config.camera) {
-    const { type, lens, aperture, focus } = config.camera;
-    const cameraLines: string[] = [];
-
-    cameraLines.push(CAMERA_TYPE_TEXT[type]);
-    cameraLines.push(LENS_TYPE_TEXT[lens]);
-    cameraLines.push(APERTURE_TEXT[aperture]);
-
-    if (focus) {
-      cameraLines.push(FOCUS_TEXT[focus]);
-    }
-
-    sections.push(`CAMERA: ${cameraLines.join(', ')}.`);
+    sections.push(`CAMERA: ${CAMERA_TYPE_TEXT[config.camera.type]}.`);
   }
 
   // Build COLOR GRADE section
@@ -248,9 +237,7 @@ export function cinematicHeaderToPrompt(config: CinematicHeaderConfig): string {
 
   // Build TONE section
   if (config.tone) {
-    const { genre, mood, pacing } = config.tone;
-    const toneDesc = `${MOOD_TEXT[mood]}, ${GENRE_TEXT[genre]} atmosphere, ${PACING_TEXT[pacing]}.`;
-    sections.push(`TONE: ${toneDesc}`);
+    sections.push(`TONE: ${GENRE_TEXT[config.tone.genre]} atmosphere.`);
   }
 
   // Build CAST section (if provided)
@@ -283,15 +270,12 @@ export function cinematicHeaderToPrompt(config: CinematicHeaderConfig): string {
 export function createDefaultCinematicHeader(): CinematicHeaderConfig {
   return {
     lighting: {
-      type: 'mixed',
-      style: 'dramatic',
-      source: 'practical',
+      type: 'natural',
+      style: 'soft',
     },
-    time_of_day: 'night',
+    time_of_day: 'morning',
     camera: {
-      type: 'handheld',
-      lens: 'standard',
-      aperture: 'shallow_dof',
+      type: 'tripod',
     },
     color_grade: {
       temperature: 'cold',
@@ -300,9 +284,7 @@ export function createDefaultCinematicHeader(): CinematicHeaderConfig {
       style: 'cinematic',
     },
     tone: {
-      genre: 'drama',
-      mood: 'tense',
-      pacing: 'moderate',
+      genre: 'intimate',
     },
   };
 }
@@ -314,80 +296,80 @@ export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
   const base = createDefaultCinematicHeader();
 
   switch (genre) {
-    case 'thriller':
+    case 'action':
       return {
         ...base,
-        lighting: { type: 'artificial', style: 'low_key', source: 'single_source' },
-        time_of_day: 'night',
-        color_grade: { temperature: 'cold', saturation: 'desaturated', contrast: 'high', style: 'teal_orange' },
-        tone: { genre: 'thriller', mood: 'tense', pacing: 'moderate' },
-      };
-
-    case 'drama':
-      return {
-        ...base,
-        lighting: { type: 'natural', style: 'soft', source: 'ambient' },
-        time_of_day: 'golden_hour',
-        color_grade: { temperature: 'warm', saturation: 'natural', contrast: 'medium', style: 'cinematic' },
-        tone: { genre: 'drama', mood: 'intimate', pacing: 'slow' },
+        lighting: { type: 'mixed', style: 'dramatic' },
+        time_of_day: 'afternoon',
+        camera: { type: 'handheld' },
+        color_grade: { temperature: 'neutral', saturation: 'vibrant', contrast: 'high', style: 'teal_orange' },
+        tone: { genre: 'action' },
       };
 
     case 'comedy':
       return {
         ...base,
-        lighting: { type: 'natural', style: 'high_key', source: 'three_point' },
+        lighting: { type: 'natural', style: 'high_key' },
         time_of_day: 'morning',
         color_grade: { temperature: 'warm', saturation: 'vibrant', contrast: 'low', style: 'modern' },
-        tone: { genre: 'comedy', mood: 'joyful', pacing: 'fast' },
-      };
-
-    case 'action':
-      return {
-        ...base,
-        lighting: { type: 'mixed', style: 'dramatic', source: 'practical' },
-        time_of_day: 'afternoon',
-        camera: { type: 'handheld', lens: 'wide', aperture: 'medium_dof' },
-        color_grade: { temperature: 'neutral', saturation: 'vibrant', contrast: 'high', style: 'teal_orange' },
-        tone: { genre: 'action', mood: 'epic', pacing: 'frenetic' },
+        tone: { genre: 'comedy' },
       };
 
     case 'horror':
       return {
         ...base,
-        lighting: { type: 'artificial', style: 'low_key', source: 'single_source' },
+        lighting: { type: 'artificial', style: 'low_key' },
         time_of_day: 'night',
         weather: 'fog',
         color_grade: { temperature: 'cold', saturation: 'desaturated', contrast: 'high', style: 'noir' },
-        tone: { genre: 'horror', mood: 'mysterious', pacing: 'slow' },
+        tone: { genre: 'horror' },
       };
 
-    case 'romance':
+    case 'intimate':
       return {
         ...base,
-        lighting: { type: 'natural', style: 'soft', source: 'ambient', modifiers: ['diffused'] },
+        lighting: { type: 'natural', style: 'soft' },
         time_of_day: 'golden_hour',
         color_grade: { temperature: 'warm', saturation: 'natural', contrast: 'low', style: 'pastel' },
-        tone: { genre: 'romance', mood: 'intimate', pacing: 'slow' },
+        tone: { genre: 'intimate' },
       };
 
-    case 'sci_fi':
+    case 'spectacle':
       return {
         ...base,
-        lighting: { type: 'artificial', style: 'dramatic', source: 'practical', modifiers: ['colored'] },
+        lighting: { type: 'artificial', style: 'dramatic' },
         time_of_day: 'night',
-        camera: { type: 'steadicam', lens: 'anamorphic', aperture: 'shallow_dof' },
+        camera: { type: 'steadicam' },
         color_grade: { temperature: 'cold', saturation: 'vibrant', contrast: 'high', style: 'teal_orange' },
-        tone: { genre: 'sci_fi', mood: 'epic', pacing: 'moderate' },
+        tone: { genre: 'spectacle' },
+      };
+
+    case 'suspense':
+      return {
+        ...base,
+        lighting: { type: 'artificial', style: 'low_key' },
+        time_of_day: 'night',
+        color_grade: { temperature: 'cold', saturation: 'desaturated', contrast: 'high', style: 'teal_orange' },
+        tone: { genre: 'suspense' },
+      };
+
+    case 'western':
+      return {
+        ...base,
+        lighting: { type: 'natural', style: 'harsh' },
+        time_of_day: 'golden_hour',
+        color_grade: { temperature: 'warm', saturation: 'natural', contrast: 'high', style: 'cinematic' },
+        tone: { genre: 'western' },
       };
 
     case 'documentary':
       return {
         ...base,
-        lighting: { type: 'natural', style: 'soft', source: 'ambient' },
+        lighting: { type: 'natural', style: 'soft' },
         time_of_day: 'afternoon',
-        camera: { type: 'handheld', lens: 'standard', aperture: 'medium_dof' },
+        camera: { type: 'handheld' },
         color_grade: { temperature: 'neutral', saturation: 'natural', contrast: 'medium', style: 'modern' },
-        tone: { genre: 'documentary', mood: 'peaceful', pacing: 'moderate' },
+        tone: { genre: 'documentary' },
       };
 
     default:

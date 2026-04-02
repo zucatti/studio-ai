@@ -371,13 +371,11 @@ export function CinematicHeaderWizard({
               </div>
 
               {/* Tab Content - Fixed height to prevent resize on tab change */}
-              <div className="h-[320px] overflow-y-auto p-6">
+              <div className="h-[450px] overflow-y-auto p-6">
                 {activeTab === 'time' && (
                   <div className="space-y-6">
                     {/* Time of Day */}
-                    <div className="space-y-3">
-                      <Label className="text-slate-300 font-medium text-sm">Moment de la journée</Label>
-                      <div className="grid grid-cols-4 gap-3">
+                    <div className="grid grid-cols-4 gap-3">
                         {[
                           { value: 'dawn', label: 'Aube', icon: Sunrise, color: 'text-orange-300' },
                           { value: 'morning', label: 'Matin', icon: CloudSun, color: 'text-yellow-300' },
@@ -407,13 +405,10 @@ export function CinematicHeaderWizard({
                             </span>
                           </button>
                         ))}
-                      </div>
                     </div>
 
                     {/* Weather */}
-                    <div className="space-y-3">
-                      <Label className="text-slate-300 font-medium text-sm">Météo</Label>
-                      <div className="grid grid-cols-7 gap-2">
+                    <div className="grid grid-cols-7 gap-2">
                         {[
                           { value: undefined, label: 'Aucune', icon: CircleDot, color: 'text-slate-500' },
                           { value: 'clear', label: 'Clair', icon: Sun, color: 'text-yellow-400' },
@@ -445,7 +440,6 @@ export function CinematicHeaderWizard({
                             </span>
                           </button>
                         ))}
-                      </div>
                     </div>
                   </div>
                 )}

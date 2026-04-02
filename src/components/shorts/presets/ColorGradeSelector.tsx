@@ -51,11 +51,6 @@ const CONTRAST_OPTIONS: { value: ColorContrast; label: string }[] = [
 export function ColorGradeSelector({ value, onChange }: ColorGradeSelectorProps) {
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="text-lg">🎨</span>
-        <Label className="text-slate-300 font-medium">Colorimétrie</Label>
-      </div>
-
       {/* Temperature */}
       <div className="flex items-center gap-2">
         <Label className="text-slate-400 text-xs w-16">Temp.</Label>
