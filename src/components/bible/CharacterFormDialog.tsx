@@ -247,7 +247,7 @@ export function CharacterFormDialog({
   const [selectedModel, setSelectedModel] = useState<ModelType>('fal-ai/nano-banana-2');
   const [resolution, setResolution] = useState<'1K' | '2K' | '4K'>('2K');
   const [aspectRatio, setAspectRatio] = useState<AspectRatioType>('2:3');
-  const [useQueue, setUseQueue] = useState(true); // Queue mode enabled
+  const useQueue = true; // Always use queue mode
 
   // Tab state
   const [activeTab, setActiveTab] = useState<TabType>('references');
@@ -1567,21 +1567,6 @@ export function CharacterFormDialog({
                   </SelectContent>
                 </Select>
                 {/* Queue toggle - only on references tab */}
-                {activeTab === 'references' && (
-                  <button
-                    onClick={() => setUseQueue(!useQueue)}
-                    className={cn(
-                      'px-3 py-1.5 text-xs font-medium rounded-md border transition-all flex items-center gap-1.5',
-                      useQueue
-                        ? 'bg-green-500/20 border-green-500/30 text-green-400'
-                        : 'bg-white/5 border-white/10 text-slate-400 hover:text-white'
-                    )}
-                    title={useQueue ? 'Mode file d\'attente activé' : 'Mode synchrone'}
-                  >
-                    <Clock className="w-3.5 h-3.5" />
-                    {useQueue ? 'File' : 'Sync'}
-                  </button>
-                )}
               </div>
             )}
 
