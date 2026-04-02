@@ -87,6 +87,7 @@ export function PlanEditor({
   videoGenerationProgress,
   onGenerateImage,
   isGeneratingImage,
+  locations = [],
 }: PlanEditorModalProps) {
   const config = MODE_CONFIG[mode];
   const ratioConfig = ASPECT_RATIO_CONFIG[aspectRatio] || ASPECT_RATIO_CONFIG['16:9'];
@@ -1216,6 +1217,7 @@ export function PlanEditor({
       onChange={handleCinematicStyleChange}
       projectId={projectId}
       segments={plan.segments || []}
+      locations={locations}
     />
   </>
   );

@@ -12,6 +12,7 @@ import { formatDuration } from '@/components/shorts/DurationPicker';
 import { CinematicHeaderWizard } from '@/components/shorts/CinematicHeaderWizard';
 import { useShortsStore, type Plan } from '@/store/shorts-store';
 import { useJobsStore } from '@/store/jobs-store';
+import { useBibleStore } from '@/store/bible-store';
 import type { AspectRatio } from '@/types/database';
 import type { CinematicHeaderConfig } from '@/types/cinematic';
 import {
@@ -51,6 +52,9 @@ export default function ShortDetailPage() {
 
   // Jobs store for QueuePanel integration
   const { jobs, fetchJobs, startPolling } = useJobsStore();
+
+  // Bible store for locations
+  const { projectAssets, fetchProjectAssets } = useBibleStore();
 
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -95,6 +99,22 @@ export default function ShortDetailPage() {
       fetchShorts(projectId);
     }
   }, [projectId, shorts.length, fetchShorts]);
+
+  // Fetch project assets for Bible locations
+  useEffect(() => {
+    fetchProjectAssets(projectId);
+  }, [projectId, fetchProjectAssets]);
+
+  // Extract locations from project assets
+  const locations = useMemo(() => {
+    return projectAssets
+      .filter((asset) => asset.asset_type === 'location')
+      .map((asset) => ({
+        id: asset.id,
+        name: asset.name,
+        description: (asset.data as { description?: string })?.description,
+      }));
+  }, [projectAssets]);
 
   const short = getShortById(shortId);
 
@@ -962,6 +982,7 @@ export default function ShortDetailPage() {
           } : null}
           projectId={projectId}
           aspectRatio={aspectRatio}
+          locations={locations}
           onUpdate={(updates: Partial<PlanData>) => {
             // Convert PlanData (null | undefined) to Plan (undefined only)
             const planUpdates: Partial<Plan> = {};

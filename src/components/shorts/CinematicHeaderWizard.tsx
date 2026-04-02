@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { MentionInput } from '@/components/ui/mention-input';
 import { LightingSelector } from './presets/LightingSelector';
 import { CameraSelector } from './presets/CameraSelector';
 import { ColorGradeSelector } from './presets/ColorGradeSelector';
@@ -514,11 +515,13 @@ export function CinematicHeaderWizard({
               <div className="px-6 py-3 border-t border-white/10 flex-shrink-0">
                 <div className="flex items-start gap-3">
                   <MessageSquare className="w-4 h-4 text-slate-500 mt-2 flex-shrink-0" />
-                  <Textarea
+                  <MentionInput
                     value={config.additional_notes || ''}
-                    onChange={(e) => setConfig({ ...config, additional_notes: e.target.value || undefined })}
-                    placeholder="Notes additionnelles... (ex: ambiance Blade Runner, style Wes Anderson, néons roses)"
-                    className="bg-white/5 border-white/10 text-white text-sm resize-none h-16 placeholder:text-slate-500"
+                    onChange={(v) => setConfig({ ...config, additional_notes: v || undefined })}
+                    placeholder="Notes additionnelles... @character, #lieu, !look (ex: ambiance Blade Runner)"
+                    projectId={projectId}
+                    minHeight="60px"
+                    className="bg-white/5 border-white/10 flex-1"
                   />
                 </div>
               </div>

@@ -103,6 +103,9 @@ export interface PlanEditorProps {
   projectId: string;
   aspectRatio: AspectRatio;
 
+  // Bible data for cinematic wizard
+  locations?: Array<{ id: string; name: string; description?: string }>;
+
   // Callbacks
   onUpdate: (updates: Partial<PlanData>) => void;
   onClose?: () => void;

@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { MentionInput } from '@/components/ui/mention-input';
 import {
   Select,
   SelectContent,
@@ -597,7 +598,7 @@ export function SegmentEditor({
             {viewMode === 'edit' ? (
               <div className="h-full flex">
                 {/* Left Panel - Camera Preview */}
-                <div className="w-[55%] flex-shrink-0 p-6 border-r border-white/10 flex flex-col gap-5">
+                <div className="w-[40%] flex-shrink-0 p-6 border-r border-white/10 flex flex-col gap-5">
                   {/* Camera Preview - Large */}
                   <div className="flex-1 min-h-0">
                     <CameraPreview
@@ -670,15 +671,21 @@ export function SegmentEditor({
 
                 {/* Right Panel - Description & Beats */}
                 <div className="flex-1 overflow-y-auto p-5 space-y-5">
-                  {/* Description */}
+                  {/* Description with mentions (@character, #location, !look, &in, &out) */}
                   <div className="space-y-1.5">
-                    <Label className="text-slate-300 text-xs">Description</Label>
-                    <Textarea
+                    <Label className="text-slate-300 text-xs flex items-center gap-2">
+                      Description
+                      <span className="text-[10px] text-slate-500 font-normal">
+                        @character · #location · !look · &in · &out
+                      </span>
+                    </Label>
+                    <MentionInput
                       value={formData.description || ''}
-                      onChange={(e) => updateField('description', e.target.value)}
-                      placeholder="Visual setup: framing, atmosphere, what's in frame..."
-                      rows={3}
-                      className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm"
+                      onChange={(v) => updateField('description', v)}
+                      placeholder="Visual setup: @Morgana enters frame, #Kitchen in background..."
+                      projectId={projectId}
+                      minHeight="80px"
+                      className="bg-slate-800/50 border-white/10"
                     />
                   </div>
 
