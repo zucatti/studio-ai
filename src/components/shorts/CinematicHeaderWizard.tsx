@@ -366,8 +366,8 @@ export function CinematicHeaderWizard({
                 </div>
               </div>
 
-              {/* Tab Content */}
-              <div className="flex-1 overflow-y-auto p-6">
+              {/* Tab Content - Fixed height to prevent resize on tab change */}
+              <div className="h-[320px] overflow-y-auto p-6">
                 {activeTab === 'time' && (
                   <div className="max-w-md space-y-4">
                     <div className="space-y-3">
