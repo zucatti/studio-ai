@@ -1,14 +1,48 @@
 'use client';
 
 import { cn } from '@/lib/utils';
-import type { CameraTypeCinematic } from '@/types/cinematic';
+import type { CameraTypeCinematic, ApertureStyle } from '@/types/cinematic';
 
 interface CameraSelectorProps {
   value: {
     type: CameraTypeCinematic;
+    depth_of_field?: ApertureStyle;
   };
   onChange: (value: CameraSelectorProps['value']) => void;
 }
+
+// Depth of field options
+const DEPTH_OF_FIELD_OPTIONS: {
+  value: ApertureStyle | undefined;
+  label: string;
+  description: string;
+  visual: string; // CSS blur representation
+}[] = [
+  {
+    value: undefined,
+    label: 'Auto',
+    description: 'Non spécifié',
+    visual: '',
+  },
+  {
+    value: 'shallow_dof',
+    label: 'Faible',
+    description: 'Arrière-plan flou, intime',
+    visual: 'blur-lg',
+  },
+  {
+    value: 'medium_dof',
+    label: 'Moyenne',
+    description: 'Équilibré',
+    visual: 'blur-sm',
+  },
+  {
+    value: 'deep_dof',
+    label: 'Grande',
+    description: 'Tout net, paysage',
+    visual: '',
+  },
+];
 
 // SVG Icons for each camera type
 const TripodIcon = ({ className }: { className?: string }) => (
@@ -230,7 +264,7 @@ export function CameraSelector({ value, onChange }: CameraSelectorProps) {
           return (
             <button
               key={cam.value}
-              onClick={() => onChange({ type: cam.value })}
+              onClick={() => onChange({ ...value, type: cam.value })}
               className={cn(
                 'group flex flex-col items-center gap-2 p-3 rounded-xl border transition-all text-center',
                 isSelected
@@ -276,6 +310,60 @@ export function CameraSelector({ value, onChange }: CameraSelectorProps) {
             </button>
           );
         })}
+      </div>
+
+      {/* Depth of Field */}
+      <div className="pt-4 border-t border-white/10">
+        <div className="text-xs text-slate-400 mb-3">Profondeur de champ</div>
+        <div className="grid grid-cols-4 gap-2">
+          {DEPTH_OF_FIELD_OPTIONS.map((dof) => {
+            const isSelected = value.depth_of_field === dof.value;
+
+            return (
+              <button
+                key={dof.value || 'auto'}
+                onClick={() => onChange({ ...value, depth_of_field: dof.value })}
+                className={cn(
+                  'group flex flex-col items-center gap-2 p-3 rounded-xl border transition-all text-center',
+                  isSelected
+                    ? 'bg-blue-500/20 border-blue-500/50'
+                    : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
+                )}
+              >
+                {/* Visual representation */}
+                <div className="relative w-12 h-8 rounded overflow-hidden bg-gradient-to-r from-slate-600 to-slate-700">
+                  {/* Subject (always sharp) */}
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-blue-400" />
+                  {/* Background (blurred based on DoF) */}
+                  <div className={cn(
+                    'absolute inset-0 bg-gradient-to-br from-slate-500/50 to-slate-600/50',
+                    dof.visual
+                  )} />
+                  {/* Foreground blur for shallow */}
+                  {dof.value === 'shallow_dof' && (
+                    <div className="absolute bottom-0 left-0 right-0 h-2 bg-slate-500/30 blur-sm" />
+                  )}
+                </div>
+
+                {/* Label */}
+                <div>
+                  <div className={cn(
+                    'text-xs font-medium',
+                    isSelected ? 'text-blue-300' : 'text-slate-300'
+                  )}>
+                    {dof.label}
+                  </div>
+                  <div className={cn(
+                    'text-[10px]',
+                    isSelected ? 'text-blue-400/70' : 'text-slate-500'
+                  )}>
+                    {dof.description}
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

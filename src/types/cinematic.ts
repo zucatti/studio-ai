@@ -50,6 +50,7 @@ export interface CinematicHeaderConfig {
   // Camera
   camera: {
     type: CameraTypeCinematic;
+    depth_of_field?: ApertureStyle;
   };
 
   // Color Grading

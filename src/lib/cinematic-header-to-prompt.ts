@@ -74,6 +74,12 @@ const CAMERA_TYPE_TEXT: Record<CameraTypeCinematic, string> = {
   dolly: 'dolly shot',
 };
 
+const DEPTH_OF_FIELD_TEXT: Record<string, string> = {
+  shallow_dof: 'shallow depth of field',
+  medium_dof: 'medium depth of field',
+  deep_dof: 'deep depth of field',
+};
+
 const COLOR_STYLE_TEXT: Record<ColorStyle, string> = {
   cinematic: 'cinematic color grading',
   vintage: 'vintage film look',
@@ -149,7 +155,11 @@ export function cinematicHeaderToPrompt(config: CinematicHeaderConfig): string {
 
   // Build CAMERA section
   if (config.camera) {
-    sections.push(`CAMERA: ${CAMERA_TYPE_TEXT[config.camera.type]}.`);
+    let cameraDesc = CAMERA_TYPE_TEXT[config.camera.type];
+    if (config.camera.depth_of_field) {
+      cameraDesc += `, ${DEPTH_OF_FIELD_TEXT[config.camera.depth_of_field]}`;
+    }
+    sections.push(`CAMERA: ${cameraDesc}.`);
   }
 
   // Build COLOR GRADE section
