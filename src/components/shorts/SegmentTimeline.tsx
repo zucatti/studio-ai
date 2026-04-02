@@ -433,7 +433,7 @@ export function SegmentTimeline({
   }, [segments.length, planDuration]);
 
   return (
-    <div className={cn('space-y-2', className)}>
+    <div className={cn('space-y-2 select-none', className)}>
       {/* Timeline header */}
       <div className="flex items-center justify-between text-xs text-slate-400">
         <span>0s</span>
@@ -444,7 +444,7 @@ export function SegmentTimeline({
       {/* Timeline track */}
       <div
         ref={containerRef}
-        className="relative h-16 bg-slate-900/50 rounded-lg border border-white/10 overflow-hidden"
+        className="relative h-16 bg-slate-900/50 rounded-lg border border-white/10 overflow-hidden select-none"
       >
         {/* Time markers */}
         {Array.from({ length: Math.ceil(planDuration) + 1 }).map((_, i) => (
