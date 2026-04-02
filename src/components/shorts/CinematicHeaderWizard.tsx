@@ -9,13 +9,14 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { LightingSelector } from './presets/LightingSelector';
 import { CameraSelector } from './presets/CameraSelector';
 import { ColorGradeSelector } from './presets/ColorGradeSelector';
 import { ToneSelector } from './presets/ToneSelector';
 import { cinematicHeaderToPrompt, createDefaultCinematicHeader } from '@/lib/cinematic-header-to-prompt';
 import {
-  Sparkles, Pencil, FileText, Copy, Check,
+  Sparkles, Pencil, FileText, Copy, Check, MessageSquare,
   Clock, Sun, Camera, Heart, Palette,
   Sunrise, Sunset, Moon, CloudSun, Cloud, CloudFog, CloudRain, CloudLightning, CircleDot
 } from 'lucide-react';
@@ -200,7 +201,7 @@ export function CinematicHeaderWizard({
               </div>
 
               {/* Tab Content - Fixed height to prevent resize on tab change */}
-              <div className="h-[450px] overflow-y-auto p-6">
+              <div className="h-[380px] overflow-y-auto p-6">
                 {activeTab === 'time' && (
                   <div className="space-y-6">
                     {/* Time of Day */}
@@ -308,6 +309,19 @@ export function CinematicHeaderWizard({
                     />
                   </div>
                 )}
+              </div>
+
+              {/* Notes - Common to all tabs */}
+              <div className="px-6 py-3 border-t border-white/10 flex-shrink-0">
+                <div className="flex items-start gap-3">
+                  <MessageSquare className="w-4 h-4 text-slate-500 mt-2 flex-shrink-0" />
+                  <Textarea
+                    value={config.additional_notes || ''}
+                    onChange={(e) => setConfig({ ...config, additional_notes: e.target.value || undefined })}
+                    placeholder="Notes additionnelles... (ex: ambiance Blade Runner, style Wes Anderson, néons roses)"
+                    className="bg-white/5 border-white/10 text-white text-sm resize-none h-16 placeholder:text-slate-500"
+                  />
+                </div>
               </div>
             </>
           ) : (
