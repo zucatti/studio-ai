@@ -24,7 +24,7 @@ export type FocusStyle = 'rack_focus' | 'pull_focus' | 'soft_focus' | 'sharp';
 export type ColorTemperature = 'warm' | 'neutral' | 'cold';
 export type ColorSaturation = 'vibrant' | 'natural' | 'desaturated' | 'monochrome';
 export type ColorContrast = 'low' | 'medium' | 'high';
-export type ColorStyle = 'cinematic' | 'vintage' | 'modern' | 'noir' | 'pastel' | 'teal_orange';
+export type ColorStyle = 'cinematic' | 'vintage' | 'modern' | 'noir' | 'pastel' | 'teal_orange' | 'black_white' | 'saturated';
 
 export type ToneGenre = 'action' | 'comedy' | 'documentary' | 'horror' | 'intimate' | 'spectacle' | 'suspense' | 'western';
 export type ToneMood = 'tense' | 'intimate' | 'epic' | 'melancholic' | 'joyful' | 'mysterious' | 'peaceful';
@@ -54,11 +54,7 @@ export interface CinematicHeaderConfig {
 
   // Color Grading
   color_grade: {
-    temperature: ColorTemperature;
-    saturation: ColorSaturation;
-    contrast: ColorContrast;
-    style?: ColorStyle;
-    lut_reference?: string; // LUT name: "Kodak 2383", "ARRI LogC", etc.
+    style: ColorStyle;
   };
 
   // Tone & Mood (mood and pacing derived from genre)
@@ -347,12 +343,14 @@ export const CAMERA_TYPE_OPTIONS: CameraOption[] = [
 ];
 
 export const COLOR_STYLE_OPTIONS: ColorStyleOption[] = [
-  { value: 'cinematic', label: 'Cinematic', description: 'Classic film look with controlled colors' },
+  { value: 'cinematic', label: 'Cinematic', description: 'Classic film look' },
   { value: 'vintage', label: 'Vintage', description: 'Warm, faded look' },
-  { value: 'modern', label: 'Modern', description: 'Clean, contemporary colors' },
-  { value: 'noir', label: 'Noir', description: 'High contrast black and white or muted colors' },
+  { value: 'modern', label: 'Modern', description: 'Clean, contemporary' },
+  { value: 'noir', label: 'Noir', description: 'Dark, moody tones' },
   { value: 'pastel', label: 'Pastel', description: 'Soft, muted tones' },
-  { value: 'teal_orange', label: 'Teal & Orange', description: 'Popular cinema color grading' },
+  { value: 'teal_orange', label: 'Teal & Orange', description: 'Hollywood blockbuster' },
+  { value: 'black_white', label: 'Noir & Blanc', description: 'Classic monochrome' },
+  { value: 'saturated', label: 'Saturé', description: 'Hyper-vivid colors' },
 ];
 
 export const GENRE_OPTIONS: { value: ToneGenre; label: string }[] = [

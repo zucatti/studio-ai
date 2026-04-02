@@ -13,16 +13,8 @@ import type {
   TimeOfDayCinematic,
   Weather,
   CameraTypeCinematic,
-  LensType,
-  ApertureStyle,
-  FocusStyle,
-  ColorTemperature,
-  ColorSaturation,
-  ColorContrast,
   ColorStyle,
   ToneGenre,
-  ToneMood,
-  TonePacing,
 } from '@/types/cinematic';
 
 // ============================================================================
@@ -82,46 +74,6 @@ const CAMERA_TYPE_TEXT: Record<CameraTypeCinematic, string> = {
   dolly: 'dolly shot',
 };
 
-const LENS_TYPE_TEXT: Record<LensType, string> = {
-  wide: 'wide angle lens',
-  standard: 'standard lens (35-50mm)',
-  telephoto: 'telephoto lens',
-  macro: 'macro lens',
-  anamorphic: 'anamorphic lens',
-};
-
-const APERTURE_TEXT: Record<ApertureStyle, string> = {
-  shallow_dof: 'shallow depth of field',
-  medium_dof: 'medium depth of field',
-  deep_dof: 'deep depth of field',
-};
-
-const FOCUS_TEXT: Record<FocusStyle, string> = {
-  rack_focus: 'rack focus',
-  pull_focus: 'pull focus',
-  soft_focus: 'soft focus',
-  sharp: 'sharp focus',
-};
-
-const TEMPERATURE_TEXT: Record<ColorTemperature, string> = {
-  warm: 'warm tones',
-  neutral: 'neutral color temperature',
-  cold: 'cold blue-green tones',
-};
-
-const SATURATION_TEXT: Record<ColorSaturation, string> = {
-  vibrant: 'vibrant, saturated colors',
-  natural: 'natural color saturation',
-  desaturated: 'desaturated colors',
-  monochrome: 'monochrome',
-};
-
-const CONTRAST_TEXT: Record<ColorContrast, string> = {
-  low: 'low contrast',
-  medium: 'medium contrast',
-  high: 'high contrast',
-};
-
 const COLOR_STYLE_TEXT: Record<ColorStyle, string> = {
   cinematic: 'cinematic color grading',
   vintage: 'vintage film look',
@@ -129,6 +81,8 @@ const COLOR_STYLE_TEXT: Record<ColorStyle, string> = {
   noir: 'film noir style',
   pastel: 'pastel color palette',
   teal_orange: 'teal and orange color grading',
+  black_white: 'black and white cinematography',
+  saturated: 'highly saturated vivid colors',
 };
 
 const GENRE_TEXT: Record<ToneGenre, string> = {
@@ -140,23 +94,6 @@ const GENRE_TEXT: Record<ToneGenre, string> = {
   spectacle: 'epic spectacle',
   suspense: 'suspense thriller',
   western: 'western',
-};
-
-const MOOD_TEXT: Record<ToneMood, string> = {
-  tense: 'tense',
-  intimate: 'intimate',
-  epic: 'epic',
-  melancholic: 'melancholic',
-  joyful: 'joyful',
-  mysterious: 'mysterious',
-  peaceful: 'peaceful',
-};
-
-const PACING_TEXT: Record<TonePacing, string> = {
-  slow: 'slow pacing',
-  moderate: 'moderate pacing',
-  fast: 'fast pacing',
-  frenetic: 'frenetic pacing',
 };
 
 // ============================================================================
@@ -217,22 +154,7 @@ export function cinematicHeaderToPrompt(config: CinematicHeaderConfig): string {
 
   // Build COLOR GRADE section
   if (config.color_grade) {
-    const { temperature, saturation, contrast, style, lut_reference } = config.color_grade;
-    const colorLines: string[] = [];
-
-    colorLines.push(TEMPERATURE_TEXT[temperature]);
-    colorLines.push(SATURATION_TEXT[saturation]);
-    colorLines.push(CONTRAST_TEXT[contrast]);
-
-    if (style) {
-      colorLines.push(COLOR_STYLE_TEXT[style]);
-    }
-
-    if (lut_reference) {
-      colorLines.push(`${lut_reference} LUT`);
-    }
-
-    sections.push(`COLOR GRADE: ${colorLines.join(', ')}.`);
+    sections.push(`COLOR GRADE: ${COLOR_STYLE_TEXT[config.color_grade.style]}.`);
   }
 
   // Build TONE section
@@ -278,9 +200,6 @@ export function createDefaultCinematicHeader(): CinematicHeaderConfig {
       type: 'tripod',
     },
     color_grade: {
-      temperature: 'cold',
-      saturation: 'desaturated',
-      contrast: 'medium',
       style: 'cinematic',
     },
     tone: {
@@ -302,7 +221,7 @@ export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
         lighting: { type: 'mixed', style: 'dramatic' },
         time_of_day: 'afternoon',
         camera: { type: 'handheld' },
-        color_grade: { temperature: 'neutral', saturation: 'vibrant', contrast: 'high', style: 'teal_orange' },
+        color_grade: { style: 'teal_orange' },
         tone: { genre: 'action' },
       };
 
@@ -311,7 +230,7 @@ export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
         ...base,
         lighting: { type: 'natural', style: 'high_key' },
         time_of_day: 'morning',
-        color_grade: { temperature: 'warm', saturation: 'vibrant', contrast: 'low', style: 'modern' },
+        color_grade: { style: 'modern' },
         tone: { genre: 'comedy' },
       };
 
@@ -321,7 +240,7 @@ export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
         lighting: { type: 'artificial', style: 'low_key' },
         time_of_day: 'night',
         weather: 'fog',
-        color_grade: { temperature: 'cold', saturation: 'desaturated', contrast: 'high', style: 'noir' },
+        color_grade: { style: 'noir' },
         tone: { genre: 'horror' },
       };
 
@@ -330,7 +249,7 @@ export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
         ...base,
         lighting: { type: 'natural', style: 'soft' },
         time_of_day: 'golden_hour',
-        color_grade: { temperature: 'warm', saturation: 'natural', contrast: 'low', style: 'pastel' },
+        color_grade: { style: 'pastel' },
         tone: { genre: 'intimate' },
       };
 
@@ -340,7 +259,7 @@ export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
         lighting: { type: 'artificial', style: 'dramatic' },
         time_of_day: 'night',
         camera: { type: 'steadicam' },
-        color_grade: { temperature: 'cold', saturation: 'vibrant', contrast: 'high', style: 'teal_orange' },
+        color_grade: { style: 'saturated' },
         tone: { genre: 'spectacle' },
       };
 
@@ -349,7 +268,7 @@ export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
         ...base,
         lighting: { type: 'artificial', style: 'low_key' },
         time_of_day: 'night',
-        color_grade: { temperature: 'cold', saturation: 'desaturated', contrast: 'high', style: 'teal_orange' },
+        color_grade: { style: 'teal_orange' },
         tone: { genre: 'suspense' },
       };
 
@@ -358,7 +277,7 @@ export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
         ...base,
         lighting: { type: 'natural', style: 'harsh' },
         time_of_day: 'golden_hour',
-        color_grade: { temperature: 'warm', saturation: 'natural', contrast: 'high', style: 'cinematic' },
+        color_grade: { style: 'cinematic' },
         tone: { genre: 'western' },
       };
 
@@ -368,7 +287,7 @@ export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
         lighting: { type: 'natural', style: 'soft' },
         time_of_day: 'afternoon',
         camera: { type: 'handheld' },
-        color_grade: { temperature: 'neutral', saturation: 'natural', contrast: 'medium', style: 'modern' },
+        color_grade: { style: 'modern' },
         tone: { genre: 'documentary' },
       };
 
