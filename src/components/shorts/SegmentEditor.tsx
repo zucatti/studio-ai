@@ -34,7 +34,6 @@ import {
   Eye,
   Zap,
   Heart,
-  Clock,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -431,11 +430,6 @@ export function SegmentEditor({
   const framingSuggestions = currentPreset?.suggestedFraming || FRAMING_BY_SHOT_TYPE[currentShotType] || [];
   const actionSuggestions = currentPreset?.suggestedActions || [];
 
-  // Duration display
-  const duration = formData.end_time && formData.start_time
-    ? (formData.end_time - formData.start_time).toFixed(1)
-    : '0.0';
-
   if (!segment) return null;
 
   return (
@@ -485,42 +479,6 @@ export function SegmentEditor({
                 </div>
               </div>
 
-              {/* Timing Row */}
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-slate-300 flex items-center gap-1">
-                    <Clock className="w-3.5 h-3.5" />
-                    Start
-                  </Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    min={0}
-                    max={formData.end_time ? formData.end_time - 0.5 : planDuration}
-                    value={formData.start_time || 0}
-                    onChange={(e) => updateField('start_time', parseFloat(e.target.value) || 0)}
-                    className="bg-slate-800/50 border-white/10 text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-slate-300">End</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    min={formData.start_time ? formData.start_time + 0.5 : 0.5}
-                    max={planDuration}
-                    value={formData.end_time || 0}
-                    onChange={(e) => updateField('end_time', parseFloat(e.target.value) || 0)}
-                    className="bg-slate-800/50 border-white/10 text-white"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-slate-300">Duration</Label>
-                  <div className="h-9 flex items-center px-3 bg-slate-800/30 border border-white/5 rounded-md text-slate-400 font-mono">
-                    {duration}s
-                  </div>
-                </div>
-              </div>
 
               {/* Shot Type & Camera Movement */}
               <div className="grid grid-cols-2 gap-4">
