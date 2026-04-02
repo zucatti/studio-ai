@@ -447,8 +447,8 @@ export function SegmentEditor({
                 Shot {segmentIndex + 1}
               </DialogTitle>
 
-              {/* View Mode Toggle */}
-              <div className="inline-flex rounded-lg bg-slate-800/50 p-0.5">
+              {/* View Mode Toggle - mr-8 to avoid X close button */}
+              <div className="inline-flex rounded-lg bg-slate-800/50 p-0.5 mr-8">
                 <button
                   onClick={() => setViewMode('edit')}
                   className={cn(
