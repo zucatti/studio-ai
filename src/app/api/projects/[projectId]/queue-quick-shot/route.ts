@@ -251,6 +251,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       aspectRatio = '16:9',
       resolution = '2K',
       shotId, // Optional - if updating an existing shot
+      model, // Optional - model to use (fal-ai/nano-banana-2, seedream-5, kling-o1)
     } = body;
 
     if (!prompt?.trim()) {
@@ -371,9 +372,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         prompt: prompt.trim(),
         aspectRatio: aspectRatio as AspectRatio,
         resolution,
+        model, // Pass the selected model to the worker
         referenceImages: finalReferences,
       });
-      console.log(`[QueueQuickShot] Job ${job.id} enqueued with ${finalReferences.length} references`);
+      console.log(`[QueueQuickShot] Job ${job.id} enqueued with ${finalReferences.length} references, model: ${model || 'auto'}`);
     } catch (queueError) {
       console.error('[QueueQuickShot] Failed to enqueue:', queueError);
 

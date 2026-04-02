@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server';
 import { logElevenLabsUsage } from '@/lib/ai/log-api-usage';
 
 const ELEVENLABS_API_KEY = process.env.AI_ELEVEN_LABS;
-const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
+const ELEVENLABS_API_URL_V1 = 'https://api.elevenlabs.io/v1';
+const ELEVENLABS_API_URL_V2 = 'https://api.elevenlabs.io/v2';
 
 export async function GET(request: Request) {
   if (!ELEVENLABS_API_KEY) {
@@ -13,26 +14,46 @@ export async function GET(request: Request) {
   const search = searchParams.get('search') || '';
 
   try {
-    // Fetch all voices
-    const response = await fetch(`${ELEVENLABS_API_URL}/voices`, {
-      headers: {
-        'xi-api-key': ELEVENLABS_API_KEY,
-      },
-    });
+    // Fetch all voices with pagination
+    let allVoices: Array<{
+      voice_id: string;
+      name: string;
+      labels?: Record<string, string>;
+      preview_url?: string;
+      category?: string;
+    }> = [];
+    let nextPageToken: string | null = null;
 
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('ElevenLabs API error:', error);
-      return NextResponse.json({ error: 'Failed to fetch voices' }, { status: response.status });
-    }
+    do {
+      const url = new URL(`${ELEVENLABS_API_URL_V2}/voices`);
+      url.searchParams.set('page_size', '100'); // Max allowed
+      if (nextPageToken) {
+        url.searchParams.set('next_page_token', nextPageToken);
+      }
 
-    const data = await response.json();
-    let voices = data.voices || [];
+      const response = await fetch(url.toString(), {
+        headers: {
+          'xi-api-key': ELEVENLABS_API_KEY,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error('ElevenLabs API error:', error);
+        return NextResponse.json({ error: 'Failed to fetch voices' }, { status: response.status });
+      }
+
+      const data = await response.json();
+      allVoices = allVoices.concat(data.voices || []);
+      nextPageToken = data.next_page_token || null;
+    } while (nextPageToken);
+
+    let voices = allVoices;
 
     // Filter by search term if provided
     if (search) {
       const searchLower = search.toLowerCase();
-      voices = voices.filter((voice: { name: string; labels?: Record<string, string> }) =>
+      voices = voices.filter((voice) =>
         voice.name.toLowerCase().includes(searchLower) ||
         Object.values(voice.labels || {}).some(label =>
           label.toLowerCase().includes(searchLower)
@@ -41,13 +62,7 @@ export async function GET(request: Request) {
     }
 
     // Map to simplified format
-    const simplifiedVoices = voices.map((voice: {
-      voice_id: string;
-      name: string;
-      labels?: Record<string, string>;
-      preview_url?: string;
-      category?: string;
-    }) => ({
+    const simplifiedVoices = voices.map((voice) => ({
       id: voice.voice_id,
       name: voice.name,
       labels: voice.labels || {},
@@ -75,7 +90,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'voiceId and text are required' }, { status: 400 });
     }
 
-    const response = await fetch(`${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`, {
+    const response = await fetch(`${ELEVENLABS_API_URL_V1}/text-to-speech/${voiceId}`, {
       method: 'POST',
       headers: {
         'xi-api-key': ELEVENLABS_API_KEY,

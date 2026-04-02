@@ -158,7 +158,10 @@ export async function withBillingTracking<T>(
 
 async function getFalBalance(): Promise<number | undefined> {
   const apiKey = process.env.AI_FAL_KEY || process.env.AI_FAL_ADMIN_KEY;
-  if (!apiKey) return undefined;
+  if (!apiKey) {
+    console.log('[BillingSnapshot] fal: No API key');
+    return undefined;
+  }
 
   const res = await fetch('https://api.fal.ai/v1/account/billing?expand=credits', {
     headers: { Authorization: `Key ${apiKey}` },
@@ -169,12 +172,26 @@ async function getFalBalance(): Promise<number | undefined> {
   }
 
   const data = await res.json();
-  return data.credits?.current_balance;
+
+  // Debug: log the full response structure
+  console.log('[BillingSnapshot] fal raw response:', JSON.stringify(data, null, 2));
+
+  // Try multiple paths to find the balance
+  const balance = data.credits?.current_balance
+    ?? data.credits?.balance
+    ?? data.balance
+    ?? data.current_balance;
+
+  console.log(`[BillingSnapshot] fal balance: ${balance}`);
+  return balance;
 }
 
 async function getRunwayBalance(): Promise<number | undefined> {
   const apiKey = process.env.AI_RUNWAY_ML;
-  if (!apiKey) return undefined;
+  if (!apiKey) {
+    console.log('[BillingSnapshot] runway: No API key');
+    return undefined;
+  }
 
   const res = await fetch('https://api.dev.runwayml.com/v1/organization', {
     headers: {
@@ -188,14 +205,24 @@ async function getRunwayBalance(): Promise<number | undefined> {
   }
 
   const data = await res.json();
+
+  // Debug: log the full response structure
+  console.log('[BillingSnapshot] runway raw response:', JSON.stringify(data, null, 2));
+
   // Runway returns credits, 1 credit = $0.01
-  const creditBalance = data.creditBalance;
-  return typeof creditBalance === 'number' ? creditBalance * 0.01 : undefined;
+  const creditBalance = data.creditBalance ?? data.credits ?? data.balance;
+  const balanceInDollars = typeof creditBalance === 'number' ? creditBalance * 0.01 : undefined;
+
+  console.log(`[BillingSnapshot] runway creditBalance: ${creditBalance}, in dollars: ${balanceInDollars}`);
+  return balanceInDollars;
 }
 
 async function getElevenLabsCharacterCount(): Promise<number | undefined> {
   const apiKey = process.env.AI_ELEVEN_LABS;
-  if (!apiKey) return undefined;
+  if (!apiKey) {
+    console.log('[BillingSnapshot] elevenlabs: No API key');
+    return undefined;
+  }
 
   const res = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
     headers: { 'xi-api-key': apiKey },
@@ -206,5 +233,10 @@ async function getElevenLabsCharacterCount(): Promise<number | undefined> {
   }
 
   const data = await res.json();
+
+  // Debug: log the full response structure
+  console.log('[BillingSnapshot] elevenlabs raw response:', JSON.stringify(data, null, 2));
+  console.log(`[BillingSnapshot] elevenlabs character_count: ${data.character_count}, limit: ${data.character_limit}`);
+
   return data.character_count;
 }

@@ -1,8 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
 import {
   Select,
   SelectContent,
@@ -11,9 +10,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { StorageImg } from '@/components/ui/storage-image';
-import { Loader2, Check, AlertCircle, Mic, User, Sparkles } from 'lucide-react';
+import { Check, AlertCircle, Mic, User, Sparkles } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
 import type { CharacterMapping } from '@/types/cinematic';
 import type { ProjectAssetFlat } from '@/types/database';
 import type { Plan } from '@/store/shorts-store';
@@ -23,7 +21,6 @@ interface CharacterMappingPanelProps {
   characters: ProjectAssetFlat[];
   mappings: CharacterMapping[] | null;
   onMappingsChange: (mappings: CharacterMapping[]) => void;
-  projectId: string;
 }
 
 interface CharacterInfo {
@@ -40,9 +37,7 @@ export function CharacterMappingPanel({
   characters,
   mappings,
   onMappingsChange,
-  projectId,
 }: CharacterMappingPanelProps) {
-  const [creatingVoiceFor, setCreatingVoiceFor] = useState<string | null>(null);
 
   // Extract unique character IDs from plans with dialogue
   const dialogueCharacterIds = useMemo(() => {
@@ -130,32 +125,6 @@ export function CharacterMappingPanel({
     onMappingsChange(newMappings);
   };
 
-  // Create fal.ai voice for a character
-  const createFalVoice = async (charId: string) => {
-    setCreatingVoiceFor(charId);
-    try {
-      const res = await fetch(`/api/global-assets/${charId}/create-fal-voice`, {
-        method: 'POST',
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to create voice');
-      }
-
-      toast.success('Voix fal.ai créée avec succès');
-
-      // Refresh the page or trigger a re-fetch of characters
-      window.location.reload();
-    } catch (error) {
-      console.error('Error creating fal voice:', error);
-      toast.error(error instanceof Error ? error.message : 'Erreur lors de la création de la voix');
-    } finally {
-      setCreatingVoiceFor(null);
-    }
-  };
-
   if (characterInfo.length === 0) {
     return (
       <div className="p-4 rounded-lg bg-white/5 border border-white/10 text-center">
@@ -232,26 +201,13 @@ export function CharacterMappingPanel({
                       {char.hasFalVoice ? (
                         <span className="flex items-center gap-1 text-xs text-purple-400">
                           <Check className="w-3 h-3" />
-                          fal.ai
+                          Kling
                         </span>
                       ) : (
-                        <button
-                          onClick={() => createFalVoice(char.id)}
-                          disabled={creatingVoiceFor === char.id}
-                          className={cn(
-                            "flex items-center gap-1 text-xs transition-colors",
-                            creatingVoiceFor === char.id
-                              ? "text-slate-500"
-                              : "text-amber-400 hover:text-amber-300"
-                          )}
-                        >
-                          {creatingVoiceFor === char.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <AlertCircle className="w-3 h-3" />
-                          )}
-                          {creatingVoiceFor === char.id ? 'Création...' : 'Créer fal.ai'}
-                        </button>
+                        <span className="flex items-center gap-1 text-xs text-amber-400">
+                          <AlertCircle className="w-3 h-3" />
+                          Kling manquant
+                        </span>
                       )}
                     </>
                   )}

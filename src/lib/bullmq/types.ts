@@ -121,6 +121,8 @@ export interface QuickShotGenJobData extends BaseJobData {
   prompt: string;
   aspectRatio: AspectRatio;
   resolution: '1K' | '2K' | '4K';
+  // Model to use (optional - if not provided, auto-selects based on references)
+  model?: 'fal-ai/nano-banana-2' | 'seedream-5' | 'kling-o1';
   // Reference images with metadata for consistency
   referenceImages: ReferenceImageData[];
 }

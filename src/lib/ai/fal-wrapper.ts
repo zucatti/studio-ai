@@ -13,16 +13,31 @@ import { fal, type QueueStatus } from '@fal-ai/client';
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   createCreditService,
-  calculateFalCost,
   ensureCredit,
 } from '@/lib/credits';
 import { isCreditError, formatCreditError } from './credit-error';
-import { captureSnapshot, calculateConsumption } from './billing-snapshot';
+import { calculateCost as calculatePricingCost, getPriceOrDefault } from '@/lib/pricing-service';
 
 // Configure fal.ai client
 fal.config({
   credentials: process.env.AI_FAL_KEY,
 });
+
+/**
+ * Upload a file to fal.ai storage
+ * Returns a URL that is accessible by fal.ai servers
+ */
+export async function uploadToFalStorage(data: Blob | Buffer | ArrayBuffer): Promise<string> {
+  let blob: Blob;
+  if (data instanceof Blob) {
+    blob = data;
+  } else if (Buffer.isBuffer(data)) {
+    blob = new Blob([data]);
+  } else {
+    blob = new Blob([data]);
+  }
+  return fal.storage.upload(blob);
+}
 
 export interface FalWrapperOptions {
   userId: string;
@@ -64,15 +79,15 @@ export class FalWrapper {
 
   /**
    * Subscribe to a fal.ai endpoint with automatic credit management
-   * Uses billing snapshots to calculate real consumption
+   * Uses pricing database for cost calculation
    */
   async subscribe<TInput extends Record<string, unknown>, TOutput>(
     options: FalSubscribeOptions<TInput>
   ): Promise<FalWrapperResult<TOutput>> {
     const { endpoint, input, logs, onQueueUpdate } = options;
 
-    // Step 1: Estimate cost before the call (for budget check)
-    const estimatedCost = calculateFalCost(endpoint, 1);
+    // Step 1: Get cost from pricing database
+    const cost = await calculatePricingCost('fal', endpoint, { count: 1 });
 
     // Step 2: Check budget
     try {
@@ -80,7 +95,7 @@ export class FalWrapper {
         this.creditService,
         this.userId,
         'fal',
-        estimatedCost
+        cost
       );
     } catch (error) {
       // Log the blocked call
@@ -90,7 +105,7 @@ export class FalWrapper {
           endpoint,
           operation: this.operation,
           project_id: this.projectId,
-          estimated_cost: estimatedCost,
+          estimated_cost: cost,
           status: 'blocked',
           error_message: formatCreditError(error),
         });
@@ -98,10 +113,7 @@ export class FalWrapper {
       throw error;
     }
 
-    // Step 3: Capture billing snapshot BEFORE the call
-    const snapshotBefore = await captureSnapshot('fal');
-
-    // Step 4: Make the API call
+    // Step 3: Make the API call
     let result: { data: TOutput; requestId: string };
     try {
       result = await fal.subscribe(endpoint, {
@@ -123,50 +135,38 @@ export class FalWrapper {
       throw error;
     }
 
-    // Step 5: Small delay then capture billing snapshot AFTER the call
-    await new Promise(resolve => setTimeout(resolve, 500));
-    const snapshotAfter = await captureSnapshot('fal');
+    console.log(`[fal.ai] ${endpoint} cost: $${cost.toFixed(4)}`);
 
-    // Step 6: Calculate actual cost from delta
-    const consumption = calculateConsumption(snapshotBefore, snapshotAfter);
-    const actualCost = (consumption?.reliable && consumption.cost > 0)
-      ? consumption.cost
-      : estimatedCost;
-
-    console.log(`[fal.ai] Billing delta: $${consumption?.cost?.toFixed(4) || 'N/A'} (reliable: ${consumption?.reliable}), using: $${actualCost.toFixed(4)}`);
-
-    // Step 7: Log successful usage with actual cost
+    // Step 4: Log successful usage with cost from DB
     await this.creditService.logUsage(this.userId, {
       provider: 'fal',
       endpoint,
       operation: this.operation,
       project_id: this.projectId,
-      estimated_cost: actualCost,
+      estimated_cost: cost,
       status: 'success',
       metadata: {
         requestId: result.requestId,
-        billingDelta: consumption?.cost,
-        billingReliable: consumption?.reliable,
       },
     });
 
     return {
       result: result.data,
-      cost: actualCost,
+      cost,
       requestId: result.requestId,
     };
   }
 
   /**
    * Run a fal.ai endpoint directly (non-queued) with credit management
-   * Uses billing snapshots to calculate real consumption
+   * Uses pricing database for cost calculation
    */
   async run<TInput extends Record<string, unknown>, TOutput>(
     endpoint: string,
     input: TInput
   ): Promise<FalWrapperResult<TOutput>> {
-    // Step 1: Estimate cost
-    const estimatedCost = calculateFalCost(endpoint, 1);
+    // Step 1: Get cost from pricing database
+    const cost = await calculatePricingCost('fal', endpoint, { count: 1 });
 
     // Step 2: Check budget
     try {
@@ -174,7 +174,7 @@ export class FalWrapper {
         this.creditService,
         this.userId,
         'fal',
-        estimatedCost
+        cost
       );
     } catch (error) {
       if (isCreditError(error)) {
@@ -183,7 +183,7 @@ export class FalWrapper {
           endpoint,
           operation: this.operation,
           project_id: this.projectId,
-          estimated_cost: estimatedCost,
+          estimated_cost: cost,
           status: 'blocked',
           error_message: formatCreditError(error),
         });
@@ -191,10 +191,7 @@ export class FalWrapper {
       throw error;
     }
 
-    // Step 3: Capture billing snapshot BEFORE the call
-    const snapshotBefore = await captureSnapshot('fal');
-
-    // Step 4: Make the API call
+    // Step 3: Make the API call
     let result: TOutput;
     try {
       const response = await fal.run(endpoint, { input });
@@ -212,35 +209,21 @@ export class FalWrapper {
       throw error;
     }
 
-    // Step 5: Small delay then capture billing snapshot AFTER the call
-    await new Promise(resolve => setTimeout(resolve, 500));
-    const snapshotAfter = await captureSnapshot('fal');
+    console.log(`[fal.ai] ${endpoint} cost: $${cost.toFixed(4)}`);
 
-    // Step 6: Calculate actual cost from delta
-    const consumption = calculateConsumption(snapshotBefore, snapshotAfter);
-    const actualCost = (consumption?.reliable && consumption.cost > 0)
-      ? consumption.cost
-      : estimatedCost;
-
-    console.log(`[fal.ai] Billing delta: $${consumption?.cost?.toFixed(4) || 'N/A'} (reliable: ${consumption?.reliable}), using: $${actualCost.toFixed(4)}`);
-
-    // Step 7: Log success with actual cost
+    // Step 4: Log success with cost from DB
     await this.creditService.logUsage(this.userId, {
       provider: 'fal',
       endpoint,
       operation: this.operation,
       project_id: this.projectId,
-      estimated_cost: actualCost,
+      estimated_cost: cost,
       status: 'success',
-      metadata: {
-        billingDelta: consumption?.cost,
-        billingReliable: consumption?.reliable,
-      },
     });
 
     return {
       result,
-      cost: actualCost,
+      cost,
     };
   }
 
@@ -251,14 +234,14 @@ export class FalWrapper {
     endpoint: string,
     input: TInput
   ): Promise<{ requestId: string; cost: number }> {
-    const estimatedCost = calculateFalCost(endpoint, 1);
+    const cost = await calculatePricingCost('fal', endpoint, { count: 1 });
 
     try {
       await ensureCredit(
         this.creditService,
         this.userId,
         'fal',
-        estimatedCost
+        cost
       );
     } catch (error) {
       if (isCreditError(error)) {
@@ -267,7 +250,7 @@ export class FalWrapper {
           endpoint,
           operation: this.operation,
           project_id: this.projectId,
-          estimated_cost: estimatedCost,
+          estimated_cost: cost,
           status: 'blocked',
           error_message: formatCreditError(error),
         });
@@ -292,13 +275,15 @@ export class FalWrapper {
       throw error;
     }
 
-    // Log the queued request (cost will be finalized when result is fetched)
+    console.log(`[fal.ai] ${endpoint} queued, cost: $${cost.toFixed(4)}`);
+
+    // Log the queued request
     await this.creditService.logUsage(this.userId, {
       provider: 'fal',
       endpoint,
       operation: this.operation,
       project_id: this.projectId,
-      estimated_cost: estimatedCost,
+      estimated_cost: cost,
       status: 'success',
       metadata: {
         requestId,
@@ -306,7 +291,7 @@ export class FalWrapper {
       },
     });
 
-    return { requestId, cost: estimatedCost };
+    return { requestId, cost };
   }
 
   /**
@@ -821,7 +806,7 @@ export async function generateVeo31VideoFal(
 export const FAL_KLING_CREATE_VOICE = 'fal-ai/kling-video/create-voice';
 
 export interface KlingCreateVoiceInput extends Record<string, unknown> {
-  audio_url: string; // 5-30 seconds audio sample
+  voice_url: string; // 5-30 seconds audio sample (.mp3, .wav, .mp4, .mov)
 }
 
 export interface KlingCreateVoiceOutput {
@@ -833,20 +818,20 @@ export interface KlingCreateVoiceOutput {
  * Used for cinematic mode to enable voice sync with Kling Omni
  *
  * @param wrapper - FalWrapper instance
- * @param audioUrl - URL to audio sample (5-30 seconds)
+ * @param voiceUrl - URL to voice audio (5-30s, .mp3/.wav/.mp4/.mov)
  * @returns voice_id for use with <<<voice_1>>> syntax
  */
 export async function createKlingVoiceFal(
   wrapper: FalWrapper,
-  audioUrl: string
+  voiceUrl: string
 ): Promise<{ voiceId: string; cost: number }> {
   console.log(`[fal.ai] Creating Kling voice from audio sample...`);
-  console.log(`[fal.ai] Audio URL: ${audioUrl.substring(0, 60)}...`);
+  console.log(`[fal.ai] Voice URL: ${voiceUrl.substring(0, 80)}...`);
 
   const result = await wrapper.subscribe<KlingCreateVoiceInput, KlingCreateVoiceOutput>({
     endpoint: FAL_KLING_CREATE_VOICE,
     input: {
-      audio_url: audioUrl,
+      voice_url: voiceUrl,
     },
     logs: true,
   });

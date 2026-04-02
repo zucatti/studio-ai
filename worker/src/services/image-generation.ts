@@ -33,12 +33,16 @@ export interface ReferenceImage {
 // Progress callback type
 export type ProgressCallback = (progress: number, message: string) => Promise<void>;
 
+// Supported models
+export type ImageModel = 'fal-ai/nano-banana-2' | 'seedream-5' | 'kling-o1';
+
 // Generation options
 export interface GenerationOptions {
   prompt: string;
   aspectRatio: AspectRatio;
   resolution?: Resolution;
   referenceImages?: ReferenceImage[];
+  model?: ImageModel; // User-selected model (if not provided, auto-selects)
   numImages?: number;
   onProgress?: ProgressCallback;
 }
@@ -115,9 +119,10 @@ function buildKlingPrompt(
 }
 
 /**
- * Generate an image using the best available model
+ * Generate an image using the specified or best available model
  *
- * Automatically selects:
+ * If model is specified, uses that model.
+ * Otherwise, automatically selects:
  * - Kling O1 when reference images are provided (best for consistency)
  * - Nano Banana 2 for text-to-image when no references
  */
@@ -127,6 +132,7 @@ export async function generateImage(options: GenerationOptions): Promise<Generat
     aspectRatio,
     resolution = '2K',
     referenceImages = [],
+    model,
     numImages = 1,
     onProgress,
   } = options;
@@ -136,8 +142,22 @@ export async function generateImage(options: GenerationOptions): Promise<Generat
   console.log(`[ImageGen] Generating image:`);
   console.log(`[ImageGen]   Prompt: ${prompt.substring(0, 100)}...`);
   console.log(`[ImageGen]   Aspect: ${aspectRatio}, Resolution: ${resolution}`);
-  console.log(`[ImageGen]   References: ${referenceImages.length}`);
+  console.log(`[ImageGen]   Model: ${model || 'auto'}, References: ${referenceImages.length}`);
 
+  // If user specified a model, use it
+  if (model) {
+    switch (model) {
+      case 'kling-o1':
+        return generateWithKlingO1(prompt, aspectRatio, resolution, referenceImages, numImages, onProgress);
+      case 'seedream-5':
+        return generateWithSeedream5(prompt, aspectRatio, resolution, numImages, onProgress);
+      case 'fal-ai/nano-banana-2':
+      default:
+        return generateWithNanoBanana2(prompt, aspectRatio, resolution, numImages, onProgress);
+    }
+  }
+
+  // Auto-select based on references
   if (hasReferences) {
     // Use Kling O1 for reference-based generation
     return generateWithKlingO1(prompt, aspectRatio, resolution, referenceImages, numImages, onProgress);
@@ -207,6 +227,56 @@ async function generateWithKlingO1(
     };
   } catch (error) {
     console.error(`[ImageGen] Kling O1 failed:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Generate with Seedream 5 (text-to-image)
+ */
+async function generateWithSeedream5(
+  prompt: string,
+  aspectRatio: AspectRatio,
+  resolution: Resolution,
+  numImages: number,
+  onProgress?: ProgressCallback
+): Promise<GenerationResult> {
+  console.log(`[ImageGen] Using Seedream 5 text-to-image`);
+
+  const input = {
+    prompt,
+    aspect_ratio: aspectRatio,
+    num_images: numImages,
+  };
+
+  try {
+    const result = await fal.subscribe('fal-ai/seedream-5', {
+      input,
+      logs: true,
+      onQueueUpdate: async (update) => {
+        if (onProgress && update.status === 'IN_PROGRESS') {
+          await onProgress(50, 'Seedream 5: Génération en cours...');
+        } else if (onProgress && update.status === 'IN_QUEUE') {
+          await onProgress(25, 'En file d\'attente...');
+        }
+      },
+    });
+
+    const imageUrl = (result.data as any)?.images?.[0]?.url;
+
+    if (!imageUrl) {
+      throw new Error('Seedream 5 returned no image');
+    }
+
+    console.log(`[ImageGen] Seedream 5 success`);
+
+    return {
+      imageUrl,
+      model: 'seedream-5',
+      usedReferences: false,
+    };
+  } catch (error) {
+    console.error(`[ImageGen] Seedream 5 failed:`, error);
     throw error;
   }
 }

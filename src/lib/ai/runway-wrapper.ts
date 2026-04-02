@@ -8,11 +8,10 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   createCreditService,
-  calculateRunwayCost,
   ensureCredit,
 } from '@/lib/credits';
 import { isCreditError, formatCreditError } from './credit-error';
-import { captureSnapshot, calculateConsumption } from './billing-snapshot';
+import { calculateCost as calculatePricingCost } from '@/lib/pricing-service';
 
 export interface RunwayWrapperOptions {
   userId: string;
@@ -82,12 +81,14 @@ export class RunwayWrapper {
 
   /**
    * Generate video from image (Gen-4, Gen-4.5)
+   * Uses pricing database for cost calculation
    */
   async generateVideo(input: VideoGenerationInput): Promise<RunwayWrapperResult<RunwayTaskResult>> {
-    const estimatedCost = calculateRunwayCost(input.model, input.duration || 5);
+    const duration = input.duration || 5;
+    const cost = await calculatePricingCost('runway', input.model, { durationSeconds: duration });
 
     try {
-      await ensureCredit(this.creditService, this.userId, 'runway', estimatedCost);
+      await ensureCredit(this.creditService, this.userId, 'runway', cost);
     } catch (error) {
       if (isCreditError(error)) {
         await this.creditService.logUsage(this.userId, {
@@ -95,17 +96,14 @@ export class RunwayWrapper {
           model: input.model,
           operation: this.operation,
           project_id: this.projectId,
-          video_duration: input.duration || 5,
-          estimated_cost: estimatedCost,
+          video_duration: duration,
+          estimated_cost: cost,
           status: 'blocked',
           error_message: formatCreditError(error),
         });
       }
       throw error;
     }
-
-    // Capture billing snapshot before API call
-    const snapshotBefore = await captureSnapshot('runway');
 
     let result: RunwayTaskResult;
     try {
@@ -115,7 +113,7 @@ export class RunwayWrapper {
         model: input.model,
         promptText: input.prompt,
         ratio: input.ratio || '1280:720',
-        duration: input.duration || 5,
+        duration,
         watermark: input.watermark ?? false,
       };
 
@@ -165,7 +163,7 @@ export class RunwayWrapper {
         model: input.model,
         operation: this.operation,
         project_id: this.projectId,
-        video_duration: input.duration || 5,
+        video_duration: duration,
         estimated_cost: 0,
         status: 'failed',
         error_message: error instanceof Error ? error.message : 'Unknown error',
@@ -173,47 +171,33 @@ export class RunwayWrapper {
       throw error;
     }
 
-    // Allow billing to update
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Capture billing snapshot after API call
-    const snapshotAfter = await captureSnapshot('runway');
-    const consumption = calculateConsumption(snapshotBefore, snapshotAfter);
-
-    // Use actual cost if available, otherwise fall back to estimate
-    const actualCost = (consumption?.reliable && consumption.cost > 0)
-      ? consumption.cost
-      : estimatedCost;
-
-    console.log(`[Runway] Billing: estimated=${estimatedCost}, actual=${actualCost}, reliable=${consumption?.reliable}`);
+    console.log(`[Runway] ${input.model} ${duration}s, cost: $${cost.toFixed(4)}`);
 
     await this.creditService.logUsage(this.userId, {
       provider: 'runway',
       model: input.model,
       operation: this.operation,
       project_id: this.projectId,
-      video_duration: input.duration || 5,
-      estimated_cost: actualCost,
+      video_duration: duration,
+      estimated_cost: cost,
       status: 'success',
       metadata: {
         taskId: result.task_id,
-        billingReliable: consumption?.reliable,
-        estimatedCost,
-        actualCost,
       },
     });
 
-    return { result, cost: actualCost, taskId: result.task_id };
+    return { result, cost, taskId: result.task_id };
   }
 
   /**
    * Generate image (Gen-4 Image)
+   * Uses pricing database for cost calculation
    */
   async generateImage(input: ImageGenerationInput): Promise<RunwayWrapperResult<RunwayTaskResult>> {
-    const estimatedCost = calculateRunwayCost('gen4-image', 1);
+    const cost = await calculatePricingCost('runway', 'gen4-image', { count: 1 });
 
     try {
-      await ensureCredit(this.creditService, this.userId, 'runway', estimatedCost);
+      await ensureCredit(this.creditService, this.userId, 'runway', cost);
     } catch (error) {
       if (isCreditError(error)) {
         await this.creditService.logUsage(this.userId, {
@@ -222,16 +206,13 @@ export class RunwayWrapper {
           operation: this.operation,
           project_id: this.projectId,
           images_count: 1,
-          estimated_cost: estimatedCost,
+          estimated_cost: cost,
           status: 'blocked',
           error_message: formatCreditError(error),
         });
       }
       throw error;
     }
-
-    // Capture billing snapshot before API call
-    const snapshotBefore = await captureSnapshot('runway');
 
     let result: RunwayTaskResult;
     try {
@@ -274,19 +255,7 @@ export class RunwayWrapper {
       throw error;
     }
 
-    // Allow billing to update
-    await new Promise(resolve => setTimeout(resolve, 500));
-
-    // Capture billing snapshot after API call
-    const snapshotAfter = await captureSnapshot('runway');
-    const consumption = calculateConsumption(snapshotBefore, snapshotAfter);
-
-    // Use actual cost if available, otherwise fall back to estimate
-    const actualCost = (consumption?.reliable && consumption.cost > 0)
-      ? consumption.cost
-      : estimatedCost;
-
-    console.log(`[Runway] Image billing: estimated=${estimatedCost}, actual=${actualCost}, reliable=${consumption?.reliable}`);
+    console.log(`[Runway] gen4-image cost: $${cost.toFixed(4)}`);
 
     await this.creditService.logUsage(this.userId, {
       provider: 'runway',
@@ -294,17 +263,14 @@ export class RunwayWrapper {
       operation: this.operation,
       project_id: this.projectId,
       images_count: 1,
-      estimated_cost: actualCost,
+      estimated_cost: cost,
       status: 'success',
       metadata: {
         taskId: result.task_id,
-        billingReliable: consumption?.reliable,
-        estimatedCost,
-        actualCost,
       },
     });
 
-    return { result, cost: actualCost, taskId: result.task_id };
+    return { result, cost, taskId: result.task_id };
   }
 
   /**

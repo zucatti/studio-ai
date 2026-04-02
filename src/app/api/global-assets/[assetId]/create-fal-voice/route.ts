@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
-import { createFalWrapper, createKlingVoiceFal } from '@/lib/ai/fal-wrapper';
+import { createFalWrapper, createKlingVoiceFal, uploadToFalStorage } from '@/lib/ai/fal-wrapper';
+import { uploadFile, downloadFile, parseStorageUrl } from '@/lib/storage';
 
 interface RouteParams {
   params: Promise<{ assetId: string }>;
@@ -65,6 +66,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     // Get or generate a voice sample
     // Option 1: Use existing sample if stored
     let sampleAudioUrl = charData?.fal_voice_sample_url as string | undefined;
+    let audioBuffer: ArrayBuffer | null = null;
 
     // Option 2: Generate a new sample via ElevenLabs
     if (!sampleAudioUrl) {
@@ -97,28 +99,20 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
 
         // Get audio buffer
-        const audioBuffer = await elevenLabsResponse.arrayBuffer();
+        audioBuffer = await elevenLabsResponse.arrayBuffer();
 
-        // Upload to B2 storage
-        const uploadRes = await fetch(
-          `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/storage/upload`,
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'audio/mpeg',
-              'X-File-Name': `character-${assetId}-voice-sample.mp3`,
-              'X-File-Path': `voice-samples/${session.user.sub}`,
-            },
-            body: audioBuffer,
-          }
+        // Upload to B2 storage for long-term storage
+        const sanitizedUserId = session.user.sub.replace(/[|]/g, '_');
+        const timestamp = Date.now();
+        const storageKey = `voice-samples/${sanitizedUserId}/character-${assetId}-${timestamp}.mp3`;
+
+        const uploadResult = await uploadFile(
+          storageKey,
+          Buffer.from(audioBuffer),
+          'audio/mpeg'
         );
 
-        if (!uploadRes.ok) {
-          throw new Error('Failed to upload voice sample');
-        }
-
-        const uploadData = await uploadRes.json();
-        sampleAudioUrl = uploadData.url;
+        sampleAudioUrl = uploadResult.url;
 
         // Store the sample URL
         const updatedData = {
@@ -138,29 +132,38 @@ export async function POST(request: Request, { params }: RouteParams) {
           details: elevenLabsError instanceof Error ? elevenLabsError.message : 'Unknown error',
         }, { status: 500 });
       }
+    } else {
+      // Download existing sample from B2
+      if (sampleAudioUrl.startsWith('b2://')) {
+        const parsed = parseStorageUrl(sampleAudioUrl);
+        if (parsed) {
+          try {
+            const buffer = await downloadFile(parsed.key);
+            audioBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+          } catch (downloadError) {
+            console.error('Failed to download existing sample:', downloadError);
+          }
+        }
+      }
     }
 
-    if (!sampleAudioUrl) {
+    if (!audioBuffer) {
       return NextResponse.json({
-        error: 'No voice sample available',
+        error: 'No voice sample audio available',
       }, { status: 400 });
     }
 
-    // Sign the sample URL if it's a B2 URL
-    let signedSampleUrl = sampleAudioUrl;
-    if (sampleAudioUrl.startsWith('b2://')) {
-      const signRes = await fetch(
-        `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/storage/sign`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ urls: [sampleAudioUrl] }),
-        }
-      );
-      if (signRes.ok) {
-        const signData = await signRes.json();
-        signedSampleUrl = signData.signedUrls?.[sampleAudioUrl] || sampleAudioUrl;
-      }
+    // Upload to fal.ai storage (required for fal.ai to access the file)
+    let falAudioUrl: string;
+    try {
+      falAudioUrl = await uploadToFalStorage(audioBuffer);
+      console.log(`[fal.ai] Uploaded audio to fal storage: ${falAudioUrl}`);
+    } catch (falUploadError) {
+      console.error('Failed to upload to fal.ai storage:', falUploadError);
+      return NextResponse.json({
+        error: 'Failed to upload audio to fal.ai storage',
+        details: falUploadError instanceof Error ? falUploadError.message : 'Unknown error',
+      }, { status: 500 });
     }
 
     // Create fal.ai voice
@@ -170,7 +173,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       operation: 'create-kling-voice',
     });
 
-    const { voiceId, cost } = await createKlingVoiceFal(falWrapper, signedSampleUrl);
+    const { voiceId, cost } = await createKlingVoiceFal(falWrapper, falAudioUrl);
 
     // Update character with fal_voice_id
     const finalData = {
@@ -192,6 +195,7 @@ export async function POST(request: Request, { params }: RouteParams) {
     return NextResponse.json({
       success: true,
       voice_id: voiceId,
+      sample_url: sampleAudioUrl,
       cost,
       message: 'fal.ai voice created successfully',
     });

@@ -20,6 +20,7 @@ export interface QuickShotGenJobData {
   prompt: string;
   aspectRatio: '16:9' | '9:16' | '1:1' | '4:5' | '2:3' | '21:9';
   resolution: '1K' | '2K' | '4K';
+  model?: 'fal-ai/nano-banana-2' | 'seedream-5' | 'kling-o1';
   referenceImages: {
     url: string;
     label: string;
@@ -41,11 +42,12 @@ export async function processQuickShotGenJob(job: Job<QuickShotGenJobData>): Pro
     prompt,
     aspectRatio,
     resolution,
+    model,
     referenceImages,
   } = data;
 
   console.log(`[QuickShotGen] Processing job ${jobId}`);
-  console.log(`[QuickShotGen] Aspect: ${aspectRatio}, Resolution: ${resolution}`);
+  console.log(`[QuickShotGen] Aspect: ${aspectRatio}, Resolution: ${resolution}, Model: ${model || 'auto'}`);
   console.log(`[QuickShotGen] Reference images: ${referenceImages?.length || 0}`);
   console.log(`[QuickShotGen] Prompt: ${prompt.substring(0, 150)}...`);
 
@@ -68,6 +70,7 @@ export async function processQuickShotGenJob(job: Job<QuickShotGenJobData>): Pro
       prompt,
       aspectRatio: aspectRatio as AspectRatio,
       resolution,
+      model, // Pass the user-selected model
       referenceImages: refs,
     });
 

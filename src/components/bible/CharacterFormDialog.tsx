@@ -46,6 +46,7 @@ import {
   Shirt,
   Mic,
   Play,
+  Square,
   Search,
   Volume2,
   Pause,
@@ -54,6 +55,7 @@ import {
   Clock,
   Circle,
   CheckCircle2,
+  AlertCircle,
 } from 'lucide-react';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { MultiImageGenerator } from '@/components/ui/multi-image-generator';
@@ -281,12 +283,17 @@ export function CharacterFormDialog({
   // Audio state
   const [voiceId, setVoiceId] = useState((character?.data as CharacterData)?.voice_id || '');
   const [voiceName, setVoiceName] = useState((character?.data as CharacterData)?.voice_name || '');
+  const [falVoiceId, setFalVoiceId] = useState((character?.data as CharacterData)?.fal_voice_id || '');
+  const [falVoiceSampleUrl, setFalVoiceSampleUrl] = useState((character?.data as CharacterData)?.fal_voice_sample_url || '');
+  const [creatingFalVoice, setCreatingFalVoice] = useState(false);
+  const [playingSample, setPlayingSample] = useState(false);
   const [voices, setVoices] = useState<ElevenLabsVoice[]>([]);
   const [voiceSearch, setVoiceSearch] = useState('');
   const [loadingVoices, setLoadingVoices] = useState(false);
   const [playingPreview, setPlayingPreview] = useState<string | null>(null);
   const [generatingPreview, setGeneratingPreview] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const sampleAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
   const lookFileInputRef = useRef<HTMLInputElement>(null);
@@ -395,6 +402,8 @@ export function CharacterFormDialog({
       setLooks(data?.looks || []);
       setVoiceId(data?.voice_id || '');
       setVoiceName(data?.voice_name || '');
+      setFalVoiceId(data?.fal_voice_id || '');
+      setFalVoiceSampleUrl(data?.fal_voice_sample_url || '');
     } else {
       setName('');
       setDescription('');
@@ -407,6 +416,7 @@ export function CharacterFormDialog({
       setLooks([]);
       setVoiceId('');
       setVoiceName('');
+      setFalVoiceId('');
     }
     setStyle('photorealistic');
     setActiveTab('references');
@@ -968,10 +978,102 @@ export function CharacterFormDialog({
     }
   };
 
-  // Select a voice
-  const selectVoice = (voice: ElevenLabsVoice) => {
+  // Create fal.ai voice from ElevenLabs voice
+  const createFalVoice = async (characterId: string) => {
+    setCreatingFalVoice(true);
+    try {
+      const res = await fetch(`/api/global-assets/${characterId}/create-fal-voice`, {
+        method: 'POST',
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create fal.ai voice');
+      }
+
+      setFalVoiceId(data.voice_id);
+      if (data.sample_url) {
+        setFalVoiceSampleUrl(data.sample_url);
+      }
+      toast.success('Voix Kling créée avec succès');
+    } catch (error) {
+      console.error('Error creating fal voice:', error);
+      toast.error(error instanceof Error ? error.message : 'Erreur lors de la création de la voix Kling');
+    } finally {
+      setCreatingFalVoice(false);
+    }
+  };
+
+  // Play voice sample
+  const playVoiceSample = async () => {
+    if (!falVoiceSampleUrl) return;
+
+    if (playingSample && sampleAudioRef.current) {
+      sampleAudioRef.current.pause();
+      sampleAudioRef.current.currentTime = 0;
+      setPlayingSample(false);
+      return;
+    }
+
+    try {
+      // Get signed URL if it's a B2 URL
+      let audioUrl = falVoiceSampleUrl;
+      if (falVoiceSampleUrl.startsWith('b2://')) {
+        const signRes = await fetch('/api/storage/sign', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ urls: [falVoiceSampleUrl] }),
+        });
+        if (signRes.ok) {
+          const signData = await signRes.json();
+          audioUrl = signData.signedUrls?.[falVoiceSampleUrl] || falVoiceSampleUrl;
+        }
+      }
+
+      if (sampleAudioRef.current) {
+        sampleAudioRef.current.pause();
+      }
+      sampleAudioRef.current = new Audio(audioUrl);
+      sampleAudioRef.current.onended = () => setPlayingSample(false);
+      sampleAudioRef.current.onerror = () => {
+        setPlayingSample(false);
+        toast.error('Erreur de lecture audio');
+      };
+      setPlayingSample(true);
+      await sampleAudioRef.current.play();
+    } catch (error) {
+      console.error('Error playing sample:', error);
+      setPlayingSample(false);
+    }
+  };
+
+  // Select a voice and automatically create fal.ai voice
+  const selectVoice = async (voice: ElevenLabsVoice) => {
     setVoiceId(voice.id);
     setVoiceName(voice.name);
+    setFalVoiceId(''); // Reset fal voice since we're changing ElevenLabs voice
+    setFalVoiceSampleUrl(''); // Reset sample URL
+
+    // Auto-create fal.ai voice if character is already saved
+    const characterId = character?.id || savedCharacterId;
+    if (characterId) {
+      // First save the voice to the character, then create fal voice
+      try {
+        const existingData = (character?.data as CharacterData) || {};
+        await updateCharacter(characterId, {
+          data: {
+            ...existingData,
+            voice_id: voice.id,
+            voice_name: voice.name,
+          },
+        });
+        // Now create fal voice
+        await createFalVoice(characterId);
+      } catch (error) {
+        console.error('Error saving voice:', error);
+      }
+    }
   };
 
   // Submit form
@@ -989,6 +1091,8 @@ export function CharacterFormDialog({
       looks: looks.length > 0 ? looks : undefined,
       voice_id: voiceId || undefined,
       voice_name: voiceName || undefined,
+      fal_voice_id: falVoiceId || undefined,
+      fal_voice_sample_url: falVoiceSampleUrl || undefined,
     };
 
     const tagArray = tags
@@ -1039,12 +1143,15 @@ export function CharacterFormDialog({
     : null;
   const selectedViewType = selectedSourceImage?.type || 'front';
 
-  // Filter voices based on search
+  // Normalize string for accent-insensitive search
+  const normalize = (str: string) => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  // Filter voices based on search (accent-insensitive)
   const filteredVoices = voiceSearch
     ? voices.filter(
         (v) =>
-          v.name.toLowerCase().includes(voiceSearch.toLowerCase()) ||
-          Object.values(v.labels).some((l) => l.toLowerCase().includes(voiceSearch.toLowerCase()))
+          normalize(v.name).includes(normalize(voiceSearch)) ||
+          Object.values(v.labels).some((l) => normalize(l).includes(normalize(voiceSearch)))
       )
     : voices;
 
@@ -1960,30 +2067,91 @@ export function CharacterFormDialog({
                     </p>
                   </div>
 
-                  {/* Selected voice */}
+                  {/* Selected voice - compact single block */}
                   {voiceId && (
-                    <div className="bg-green-500/10 border border-green-500/30 rounded-xl p-4 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-lg bg-green-500/20">
-                          <Volume2 className="w-5 h-5 text-green-400" />
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium text-white">{voiceName}</p>
-                          <p className="text-xs text-slate-400">Voix sélectionnée</p>
+                    <div className="bg-white/5 border border-white/10 rounded-xl p-3 flex items-center gap-3">
+                      {/* Voice icon */}
+                      <div className="p-2 rounded-lg bg-green-500/20 flex-shrink-0">
+                        <Volume2 className="w-4 h-4 text-green-400" />
+                      </div>
+
+                      {/* Voice info */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{voiceName}</p>
+                        <div className="flex items-center gap-2 mt-0.5">
+                          <span className="text-xs text-green-400">ElevenLabs</span>
+                          <span className="text-slate-600">•</span>
+                          {creatingFalVoice ? (
+                            <span className="flex items-center gap-1 text-xs text-amber-400">
+                              <Loader2 className="w-3 h-3 animate-spin" />
+                              Création Kling...
+                            </span>
+                          ) : falVoiceId ? (
+                            <span className="flex items-center gap-1 text-xs text-purple-400">
+                              <Check className="w-3 h-3" />
+                              Kling
+                            </span>
+                          ) : (
+                            <span className="flex items-center gap-1 text-xs text-amber-400">
+                              <AlertCircle className="w-3 h-3" />
+                              Kling manquant
+                            </span>
+                          )}
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setVoiceId('');
-                          setVoiceName('');
-                        }}
-                        className="text-red-400 hover:text-red-300 hover:bg-red-500/10"
-                      >
-                        <X className="w-4 h-4 mr-1" />
-                        Retirer
-                      </Button>
+
+                      {/* Actions */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {/* Play sample */}
+                        {falVoiceSampleUrl && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={playVoiceSample}
+                            className="h-8 w-8 text-slate-400 hover:text-white"
+                            title="Écouter l'échantillon"
+                          >
+                            {playingSample ? (
+                              <Square className="w-4 h-4 fill-current" />
+                            ) : (
+                              <Play className="w-4 h-4" />
+                            )}
+                          </Button>
+                        )}
+
+                        {/* Create Kling voice */}
+                        {!falVoiceId && !creatingFalVoice && (character?.id || savedCharacterId) && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => createFalVoice((character?.id || savedCharacterId)!)}
+                            className="h-8 w-8 text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+                            title="Créer voix Kling"
+                          >
+                            <Wand2 className="w-4 h-4" />
+                          </Button>
+                        )}
+
+                        {/* Remove voice */}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setVoiceId('');
+                            setVoiceName('');
+                            setFalVoiceId('');
+                            setFalVoiceSampleUrl('');
+                            if (sampleAudioRef.current) {
+                              sampleAudioRef.current.pause();
+                              setPlayingSample(false);
+                            }
+                          }}
+                          className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                          title="Retirer la voix"
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
                     </div>
                   )}
 

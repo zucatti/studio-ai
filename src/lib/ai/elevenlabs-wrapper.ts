@@ -12,12 +12,10 @@
 import { SupabaseClient } from '@supabase/supabase-js';
 import {
   createCreditService,
-  calculateElevenLabsCost,
   ensureCredit,
-  ELEVENLABS_PRICES,
 } from '@/lib/credits';
 import { isCreditError, formatCreditError } from './credit-error';
-import { captureSnapshot, calculateConsumption } from './billing-snapshot';
+import { calculateCost as calculatePricingCost } from '@/lib/pricing-service';
 
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
 
@@ -77,6 +75,7 @@ export class ElevenLabsWrapper {
 
   /**
    * Generate speech from text with automatic credit management
+   * Uses pricing database for cost calculation
    */
   async textToSpeech(options: TextToSpeechOptions): Promise<ElevenLabsWrapperResult> {
     const {
@@ -92,8 +91,8 @@ export class ElevenLabsWrapper {
 
     const characters = text.length;
 
-    // Step 1: Estimate cost before the call
-    const estimatedCost = calculateElevenLabsCost(modelId, characters);
+    // Step 1: Get cost from pricing database
+    const cost = await calculatePricingCost('elevenlabs', modelId, { characters });
 
     // Step 2: Check budget
     try {
@@ -101,7 +100,7 @@ export class ElevenLabsWrapper {
         this.creditService,
         this.userId,
         'elevenlabs',
-        estimatedCost
+        cost
       );
     } catch (error) {
       if (isCreditError(error)) {
@@ -111,7 +110,7 @@ export class ElevenLabsWrapper {
           operation: this.operation,
           project_id: this.projectId,
           characters,
-          estimated_cost: estimatedCost,
+          estimated_cost: cost,
           status: 'blocked',
           error_message: formatCreditError(error),
         });
@@ -119,10 +118,7 @@ export class ElevenLabsWrapper {
       throw error;
     }
 
-    // Step 3: Capture billing snapshot before API call
-    const snapshotBefore = await captureSnapshot('elevenlabs');
-
-    // Step 4: Make the API call
+    // Step 3: Make the API call
     let audioBuffer: ArrayBuffer;
     try {
       const response = await fetch(
@@ -166,42 +162,26 @@ export class ElevenLabsWrapper {
       throw error;
     }
 
-    // Step 5: Allow billing to update
-    await new Promise(resolve => setTimeout(resolve, 500));
+    console.log(`[ElevenLabs] ${modelId} ${characters} chars, cost: $${cost.toFixed(4)}`);
 
-    // Step 6: Capture billing snapshot after API call
-    const snapshotAfter = await captureSnapshot('elevenlabs');
-    const consumption = calculateConsumption(snapshotBefore, snapshotAfter);
-
-    // Use actual cost if available, otherwise fall back to estimate
-    const actualCost = (consumption?.reliable && consumption.cost > 0)
-      ? consumption.cost
-      : estimatedCost;
-
-    console.log(`[ElevenLabs] Billing: estimated=${estimatedCost}, actual=${actualCost}, chars=${consumption?.rawDelta}, reliable=${consumption?.reliable}`);
-
-    // Step 7: Log successful usage
+    // Step 4: Log successful usage with cost from DB
     await this.creditService.logUsage(this.userId, {
       provider: 'elevenlabs',
       model: modelId,
       operation: this.operation,
       project_id: this.projectId,
       characters,
-      estimated_cost: actualCost,
+      estimated_cost: cost,
       status: 'success',
       metadata: {
         voiceId,
         outputFormat,
-        billingReliable: consumption?.reliable,
-        estimatedCost,
-        actualCost,
-        actualCharacters: consumption?.rawDelta,
       },
     });
 
     return {
       audio: audioBuffer,
-      cost: actualCost,
+      cost,
       characters,
     };
   }

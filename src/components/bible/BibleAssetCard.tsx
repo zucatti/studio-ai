@@ -124,8 +124,18 @@ export function BibleAssetCard({
   const hasVisualDescription = !!(data.visual_description as string)?.trim();
   const canGenerate = asset.asset_type === 'character' && hasFaceImage && hasVisualDescription && onGenerate;
 
+  // Check if character has voice configured
+  const hasVoice = asset.asset_type === 'character' && !!(data.voice_id as string);
+
+  // Character gender for icon color
+  const characterGender = asset.asset_type === 'character' ? (data.gender as string)?.toLowerCase() : null;
+  const isFemale = characterGender === 'female' || characterGender === 'femme' || characterGender === 'f';
+
   const Icon = ASSET_ICONS[asset.asset_type];
-  const colorClass = ASSET_COLORS[asset.asset_type];
+  // Use pink for female characters, default colors otherwise
+  const colorClass = asset.asset_type === 'character' && isFemale
+    ? 'bg-pink-500/20 text-pink-400 border-pink-500/30'
+    : ASSET_COLORS[asset.asset_type];
 
   const description = (data.description as string) || (data.visual_description as string) || '';
 
@@ -228,6 +238,7 @@ export function BibleAssetCard({
             prefix === '@' ? 'text-blue-400/70' : 'text-green-400/70'
           )}>{referenceName}</span>
         </div>
+        {hasVoice && <Volume2 className="w-3 h-3 text-green-400 flex-shrink-0" />}
         {isInProject && <Check className="w-3 h-3 text-green-400" />}
       </button>
     );
@@ -642,6 +653,15 @@ export function BibleAssetCard({
           <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 border border-green-500/30">
             Dans le projet
           </span>
+        </div>
+      )}
+
+      {/* Voice indicator */}
+      {hasVoice && (
+        <div className="absolute bottom-2 right-2">
+          <div className="p-1 rounded bg-green-500/20 border border-green-500/30">
+            <Volume2 className="w-3 h-3 text-green-400" />
+          </div>
         </div>
       )}
     </div>

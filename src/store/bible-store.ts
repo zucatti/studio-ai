@@ -47,6 +47,8 @@ export interface CharacterData {
   looks?: LookVariation[];
   voice_id?: string;
   voice_name?: string;
+  fal_voice_id?: string; // fal.ai voice_id for Kling Omni video generation
+  fal_voice_sample_url?: string; // B2 URL of the voice sample
 }
 
 // Audio types
