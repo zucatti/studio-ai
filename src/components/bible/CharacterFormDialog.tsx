@@ -78,6 +78,7 @@ interface ElevenLabsVoice {
   labels: Record<string, string>;
   previewUrl?: string;
   category: string;
+  isLibrary?: boolean;
 }
 
 type TabType = 'references' | 'looks' | 'audio';
@@ -439,6 +440,22 @@ export function CharacterFormDialog({
       fetchVoices();
     }
   }, [activeTab]);
+
+  // Debounced search for voices (includes Voice Library when searching)
+  useEffect(() => {
+    if (activeTab !== 'audio') return;
+
+    // Only search server-side when we have at least 2 characters
+    if (voiceSearch.length >= 2) {
+      const timeoutId = setTimeout(() => {
+        fetchVoices(voiceSearch);
+      }, 300);
+      return () => clearTimeout(timeoutId);
+    } else if (voiceSearch.length === 0) {
+      // Reset to all personal voices when search is cleared
+      fetchVoices();
+    }
+  }, [voiceSearch, activeTab]);
 
   const fetchVoices = async (search?: string) => {
     setLoadingVoices(true);
@@ -1050,6 +1067,14 @@ export function CharacterFormDialog({
 
   // Select a voice and automatically create fal.ai voice
   const selectVoice = async (voice: ElevenLabsVoice) => {
+    // Warn user if selecting a library voice
+    if (voice.isLibrary) {
+      toast.warning(
+        'Cette voix provient de la Voice Library. Vous devez d\'abord l\'ajouter à votre collection sur elevenlabs.io avant de pouvoir l\'utiliser.',
+        { duration: 5000 }
+      );
+    }
+
     setVoiceId(voice.id);
     setVoiceName(voice.name);
     setFalVoiceId(''); // Reset fal voice since we're changing ElevenLabs voice
@@ -1147,7 +1172,9 @@ export function CharacterFormDialog({
   const normalize = (str: string) => str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
   // Filter voices based on search (accent-insensitive)
-  const filteredVoices = voiceSearch
+  // Note: When search >= 2 chars, server already filters including Voice Library
+  // Only do client-side filtering for very short searches (1 char)
+  const filteredVoices = voiceSearch && voiceSearch.length < 2
     ? voices.filter(
         (v) =>
           normalize(v.name).includes(normalize(voiceSearch)) ||
@@ -2186,9 +2213,16 @@ export function CharacterFormDialog({
                         >
                           <div className="flex items-start justify-between">
                             <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-white truncate">
-                                {voice.name}
-                              </p>
+                              <div className="flex items-center gap-2">
+                                <p className="text-sm font-medium text-white truncate">
+                                  {voice.name}
+                                </p>
+                                {voice.isLibrary && (
+                                  <span className="text-[9px] px-1.5 py-0.5 bg-amber-500/20 text-amber-400 rounded font-medium">
+                                    Library
+                                  </span>
+                                )}
+                              </div>
                               <div className="flex flex-wrap gap-1 mt-1">
                                 {Object.entries(voice.labels).slice(0, 3).map(([key, value]) => (
                                   <span

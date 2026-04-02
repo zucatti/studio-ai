@@ -4,6 +4,19 @@ import { logElevenLabsUsage } from '@/lib/ai/log-api-usage';
 const ELEVENLABS_API_KEY = process.env.AI_ELEVEN_LABS;
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
 
+// Helper for accent-insensitive search
+const normalize = (str: string) =>
+  str.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+interface SimplifiedVoice {
+  id: string;
+  name: string;
+  labels: Record<string, string>;
+  previewUrl?: string;
+  category: string;
+  isLibrary?: boolean;
+}
+
 export async function GET(request: Request) {
   if (!ELEVENLABS_API_KEY) {
     return NextResponse.json({ error: 'ElevenLabs API key not configured' }, { status: 500 });
@@ -11,51 +24,115 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const search = searchParams.get('search') || '';
+  const includeLibrary = searchParams.get('includeLibrary') !== 'false'; // Default true
 
   try {
-    // Fetch all voices - v1 API returns all voices including personal ones
-    const response = await fetch(`${ELEVENLABS_API_URL}/voices`, {
+    // 1. Fetch user's personal voices (always)
+    const personalResponse = await fetch(`${ELEVENLABS_API_URL}/voices`, {
       headers: {
         'xi-api-key': ELEVENLABS_API_KEY,
       },
     });
 
-    if (!response.ok) {
-      const error = await response.text();
+    if (!personalResponse.ok) {
+      const error = await personalResponse.text();
       console.error('ElevenLabs API error:', error);
-      return NextResponse.json({ error: 'Failed to fetch voices' }, { status: response.status });
+      return NextResponse.json({ error: 'Failed to fetch voices' }, { status: personalResponse.status });
     }
 
-    const data = await response.json();
-    let voices: Array<{
+    const personalData = await personalResponse.json();
+    let personalVoices: Array<{
       voice_id: string;
       name: string;
       labels?: Record<string, string>;
       preview_url?: string;
       category?: string;
-    }> = data.voices || [];
+    }> = personalData.voices || [];
 
-    // Filter by search term if provided
+    // Filter personal voices by search term if provided
     if (search) {
-      const searchLower = search.toLowerCase();
-      voices = voices.filter((voice) =>
-        voice.name.toLowerCase().includes(searchLower) ||
+      const searchNorm = normalize(search);
+      personalVoices = personalVoices.filter((voice) =>
+        normalize(voice.name).includes(searchNorm) ||
         Object.values(voice.labels || {}).some(label =>
-          label.toLowerCase().includes(searchLower)
+          normalize(label).includes(searchNorm)
         )
       );
     }
 
-    // Map to simplified format
-    const simplifiedVoices = voices.map((voice) => ({
+    // Map personal voices to simplified format
+    const simplifiedPersonal: SimplifiedVoice[] = personalVoices.map((voice) => ({
       id: voice.voice_id,
       name: voice.name,
       labels: voice.labels || {},
       previewUrl: voice.preview_url,
       category: voice.category || 'custom',
+      isLibrary: false,
     }));
 
-    return NextResponse.json({ voices: simplifiedVoices });
+    // 2. If search provided and includeLibrary, also search the Voice Library
+    let libraryVoices: SimplifiedVoice[] = [];
+
+    if (search && includeLibrary && search.length >= 2) {
+      try {
+        const libraryUrl = new URL(`${ELEVENLABS_API_URL}/shared-voices`);
+        libraryUrl.searchParams.set('search', search);
+        libraryUrl.searchParams.set('page_size', '50');
+
+        const libraryResponse = await fetch(libraryUrl.toString(), {
+          headers: {
+            'xi-api-key': ELEVENLABS_API_KEY,
+          },
+        });
+
+        if (libraryResponse.ok) {
+          const libraryData = await libraryResponse.json();
+          const sharedVoices: Array<{
+            public_owner_id: string;
+            voice_id: string;
+            name: string;
+            accent?: string;
+            gender?: string;
+            age?: string;
+            descriptive?: string;
+            use_case?: string;
+            category?: string;
+            preview_url?: string;
+          }> = libraryData.voices || [];
+
+          // Map library voices, excluding any already in personal collection
+          const personalIds = new Set(simplifiedPersonal.map(v => v.id));
+
+          libraryVoices = sharedVoices
+            .filter(v => !personalIds.has(v.voice_id))
+            .map((voice) => ({
+              id: voice.voice_id,
+              name: voice.name,
+              labels: {
+                ...(voice.accent && { accent: voice.accent }),
+                ...(voice.gender && { gender: voice.gender }),
+                ...(voice.age && { age: voice.age }),
+                ...(voice.descriptive && { descriptive: voice.descriptive }),
+                ...(voice.use_case && { use_case: voice.use_case }),
+              },
+              previewUrl: voice.preview_url,
+              category: voice.category || 'library',
+              isLibrary: true,
+            }));
+        }
+      } catch (libraryError) {
+        console.error('Error fetching library voices:', libraryError);
+        // Continue with personal voices only
+      }
+    }
+
+    // Combine: personal voices first, then library voices
+    const allVoices = [...simplifiedPersonal, ...libraryVoices];
+
+    return NextResponse.json({
+      voices: allVoices,
+      hasLibraryResults: libraryVoices.length > 0,
+    });
   } catch (error) {
     console.error('Error fetching ElevenLabs voices:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
