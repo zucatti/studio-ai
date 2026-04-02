@@ -214,7 +214,7 @@ export function SegmentEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0 [&>button]:hidden">
         <div className="flex flex-col h-full max-h-[90vh]">
           {/* Header */}
           <DialogHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">
@@ -224,8 +224,8 @@ export function SegmentEditor({
                 Shot {segmentIndex + 1}
               </DialogTitle>
 
-              {/* View Mode Toggle - mr-8 to avoid X close button */}
-              <div className="inline-flex rounded-lg bg-slate-800/50 p-0.5 mr-8">
+              {/* View Mode Toggle */}
+              <div className="inline-flex rounded-lg bg-slate-800/50 p-0.5">
                 <button
                   onClick={() => setViewMode('edit')}
                   className={cn(
