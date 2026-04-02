@@ -128,24 +128,26 @@ export function CinematicHeaderWizard({
         // Render beats
         if (segment.beats?.length) {
           for (const beat of segment.beats) {
-            if (!beat.action && !beat.dialogue) continue;
+            if (!beat.content) continue;
 
             let beatLine = '';
-            if (beat.character_name && beat.action && beat.dialogue) {
+            if (beat.type === 'dialogue') {
               const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
-              beatLine = `${beat.character_name} ${beat.action} and says${tone}:\n"${beat.dialogue}"`;
-            } else if (beat.character_name && beat.dialogue) {
-              const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
-              beatLine = `${beat.character_name} says${tone}:\n"${beat.dialogue}"`;
-            } else if (beat.action && beat.dialogue) {
-              const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
-              beatLine = `${beat.action}. Says${tone}: "${beat.dialogue}"`;
-            } else if (beat.character_name && beat.action) {
-              beatLine = `${beat.character_name} ${beat.action}.`;
-            } else if (beat.action) {
-              beatLine = beat.action + '.';
-            } else if (beat.dialogue) {
-              beatLine = `"${beat.dialogue}"`;
+              if (beat.character_name) {
+                beatLine = `${beat.character_name} says${tone}:\n"${beat.content}"`;
+              } else {
+                beatLine = `Says${tone}: "${beat.content}"`;
+              }
+            } else {
+              // Action beat
+              if (beat.character_name) {
+                beatLine = `${beat.character_name} ${beat.content}`;
+              } else {
+                beatLine = beat.content;
+              }
+              if (beatLine && !/[.!?]$/.test(beatLine)) {
+                beatLine += '.';
+              }
             }
 
             if (beatLine) {

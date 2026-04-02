@@ -176,13 +176,15 @@ export interface SegmentDialogue {
 // Shot Beat (action/dialogue moment within a segment)
 // ============================================================================
 
+export type BeatType = 'action' | 'dialogue';
+
 export interface ShotBeat {
   id: string;
   character_id?: string;
   character_name?: string;
-  action?: string;        // "swallows hard", "holds up the phone"
-  dialogue?: string;      // The spoken text
-  tone?: DialogueTone;    // coldly, flatly, whispers, etc.
+  type: BeatType;
+  content: string;        // The action description or dialogue text
+  tone?: DialogueTone;    // Only for dialogue: coldly, flatly, whispers, etc.
 }
 
 // ============================================================================
@@ -521,9 +523,11 @@ export const DIALOGUE_LANGUAGE_OPTIONS: { value: DialogueLanguage; label: string
 // Helper: Create default beat
 // ============================================================================
 
-export function createDefaultBeat(): ShotBeat {
+export function createDefaultBeat(type: BeatType = 'action'): ShotBeat {
   return {
     id: crypto.randomUUID(),
+    type,
+    content: '',
   };
 }
 

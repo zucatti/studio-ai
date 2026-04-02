@@ -31,11 +31,11 @@ import {
   Plus,
   Trash2,
   GripVertical,
-  Play,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import type { Segment, ShotFraming, ShotComposition, CameraMovement, DialogueTone, ShotBeat } from '@/types/cinematic';
+import type { Segment, ShotFraming, ShotComposition, CameraMovement, DialogueTone, ShotBeat, BeatType } from '@/types/cinematic';
 import {
   SHOT_FRAMING_OPTIONS,
   SHOT_COMPOSITION_OPTIONS,
@@ -58,8 +58,6 @@ interface BeatEditorProps {
 }
 
 function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: BeatEditorProps) {
-  const selectedCharacter = characters.find(c => c.id === beat.character_id);
-
   const handleCharacterChange = (characterId: string) => {
     const character = characters.find(c => c.id === characterId);
     onChange({
@@ -69,23 +67,33 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
     });
   };
 
+  const handleTypeChange = (type: BeatType) => {
+    onChange({
+      ...beat,
+      type,
+      // Clear tone if switching to action
+      tone: type === 'action' ? undefined : beat.tone,
+    });
+  };
+
   return (
     <div className="relative p-3 bg-slate-800/30 rounded-lg border border-white/5 space-y-3">
-      {/* Header with character select and delete */}
+      {/* Header row: index, character, type toggle, delete */}
       <div className="flex items-center gap-2">
-        <GripVertical className="w-4 h-4 text-slate-600 cursor-grab" />
-        <span className="text-[10px] text-slate-500 font-mono">#{index + 1}</span>
+        <GripVertical className="w-4 h-4 text-slate-600 cursor-grab flex-shrink-0" />
+        <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">#{index + 1}</span>
 
+        {/* Character select */}
         <Select
           value={beat.character_id || '_none'}
           onValueChange={handleCharacterChange}
         >
-          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-7 text-xs flex-1 max-w-[150px]">
+          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-7 text-xs w-[130px]">
             <SelectValue placeholder="Character" />
           </SelectTrigger>
           <SelectContent className="bg-slate-800 border-white/10">
             <SelectItem value="_none" className="text-slate-400 text-xs">
-              No character
+              —
             </SelectItem>
             {characters.map((char) => (
               <SelectItem key={char.id} value={char.id} className="text-white text-xs">
@@ -95,6 +103,55 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
           </SelectContent>
         </Select>
 
+        {/* Type toggle group */}
+        <div className="inline-flex rounded-md bg-slate-800/50 p-0.5 border border-white/10">
+          <button
+            type="button"
+            onClick={() => handleTypeChange('action')}
+            className={cn(
+              'px-2.5 py-1 text-[11px] font-medium rounded transition-all flex items-center gap-1',
+              beat.type === 'action'
+                ? 'bg-amber-600/80 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            )}
+          >
+            <Zap className="w-3 h-3" />
+            Action
+          </button>
+          <button
+            type="button"
+            onClick={() => handleTypeChange('dialogue')}
+            className={cn(
+              'px-2.5 py-1 text-[11px] font-medium rounded transition-all flex items-center gap-1',
+              beat.type === 'dialogue'
+                ? 'bg-indigo-600/80 text-white'
+                : 'text-slate-400 hover:text-slate-200'
+            )}
+          >
+            <MessageSquare className="w-3 h-3" />
+            Dialogue
+          </button>
+        </div>
+
+        {/* Tone select (only for dialogue) */}
+        {beat.type === 'dialogue' && (
+          <Select
+            value={beat.tone || 'neutral'}
+            onValueChange={(v) => onChange({ ...beat, tone: v as DialogueTone })}
+          >
+            <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-7 text-[10px] w-[90px]">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-white/10">
+              {DIALOGUE_TONE_OPTIONS.map((opt) => (
+                <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
+                  {opt.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
         <div className="flex-1" />
 
         {canDelete && (
@@ -102,60 +159,24 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
             variant="ghost"
             size="sm"
             onClick={onDelete}
-            className="h-6 w-6 p-0 text-slate-500 hover:text-red-400"
+            className="h-6 w-6 p-0 text-slate-500 hover:text-red-400 flex-shrink-0"
           >
             <Trash2 className="w-3.5 h-3.5" />
           </Button>
         )}
       </div>
 
-      {/* Action field */}
-      <div className="space-y-1">
-        <Label className="text-slate-500 text-[10px] flex items-center gap-1">
-          <Play className="w-3 h-3" />
-          Action
-        </Label>
-        <Input
-          value={beat.action || ''}
-          onChange={(e) => onChange({ ...beat, action: e.target.value || undefined })}
-          placeholder="swallows hard, holds up the phone, turns away..."
-          className="bg-slate-800/50 border-white/10 text-white h-8 text-xs placeholder:text-slate-600"
-        />
-      </div>
-
-      {/* Dialogue fields */}
-      <div className="space-y-2">
-        <div className="flex items-center gap-2">
-          <Label className="text-slate-500 text-[10px] flex items-center gap-1">
-            <MessageSquare className="w-3 h-3" />
-            Dialogue
-          </Label>
-          {beat.dialogue && (
-            <Select
-              value={beat.tone || 'neutral'}
-              onValueChange={(v) => onChange({ ...beat, tone: v as DialogueTone })}
-            >
-              <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-6 text-[10px] w-24">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-white/10">
-                {DIALOGUE_TONE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-        </div>
-        <Textarea
-          value={beat.dialogue || ''}
-          onChange={(e) => onChange({ ...beat, dialogue: e.target.value || undefined })}
-          placeholder='"What did you find?"'
-          rows={2}
-          className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm"
-        />
-      </div>
+      {/* Content textarea */}
+      <Textarea
+        value={beat.content || ''}
+        onChange={(e) => onChange({ ...beat, content: e.target.value })}
+        placeholder={beat.type === 'dialogue'
+          ? "What did you find in my phone?"
+          : "approaches slowly, hands clenched..."
+        }
+        rows={2}
+        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm"
+      />
     </div>
   );
 }
@@ -209,15 +230,16 @@ export function SegmentEditor({
   useEffect(() => {
     if (segment) {
       // Migrate old dialogue to beats if needed
-      const beats = segment.beats || [];
+      let beats = segment.beats || [];
       if (beats.length === 0 && segment.dialogue) {
-        beats.push({
+        beats = [{
           id: crypto.randomUUID(),
           character_id: segment.dialogue.character_id,
           character_name: segment.dialogue.character_name,
-          dialogue: segment.dialogue.text,
+          type: 'dialogue' as const,
+          content: segment.dialogue.text,
           tone: segment.dialogue.tone,
-        });
+        }];
       }
       setFormData({ ...segment, beats });
     } else {
@@ -310,31 +332,29 @@ export function SegmentEditor({
     // Beats
     const beatsToRender = formData.beats || [];
     for (const beat of beatsToRender) {
-      if (!beat.action && !beat.dialogue) continue;
+      if (!beat.content) continue;
 
       let beatLine = '';
 
-      if (beat.character_name && beat.action && beat.dialogue) {
-        // Full: "Sarah swallows hard and says coldly: "text""
+      if (beat.type === 'dialogue') {
+        // Dialogue beat
         const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
-        beatLine = `${beat.character_name} ${beat.action} and says${tone}:\n"${beat.dialogue}"`;
-      } else if (beat.character_name && beat.dialogue) {
-        // Character + dialogue: "Mark responds coldly: "text""
-        const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
-        beatLine = `${beat.character_name} says${tone}:\n"${beat.dialogue}"`;
-      } else if (beat.action && beat.dialogue) {
-        // Action + dialogue (no specific character)
-        const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
-        beatLine = `${beat.action}. Says${tone}: "${beat.dialogue}"`;
-      } else if (beat.character_name && beat.action) {
-        // Character + action only
-        beatLine = `${beat.character_name} ${beat.action}.`;
-      } else if (beat.action) {
-        // Action only
-        beatLine = beat.action + '.';
-      } else if (beat.dialogue) {
-        // Dialogue only
-        beatLine = `"${beat.dialogue}"`;
+        if (beat.character_name) {
+          beatLine = `${beat.character_name} says${tone}:\n"${beat.content}"`;
+        } else {
+          beatLine = `Says${tone}: "${beat.content}"`;
+        }
+      } else {
+        // Action beat
+        if (beat.character_name) {
+          beatLine = `${beat.character_name} ${beat.content}`;
+        } else {
+          beatLine = beat.content;
+        }
+        // Add period if not already ending with punctuation
+        if (beatLine && !/[.!?]$/.test(beatLine)) {
+          beatLine += '.';
+        }
       }
 
       if (beatLine) {
