@@ -8,6 +8,9 @@
 // Cinematic Header Configuration (Wizard-based)
 // ============================================================================
 
+// Scene setting (INT/EXT)
+export type SceneSetting = 'int' | 'ext' | 'int_ext';
+
 export type LightingType = 'natural' | 'artificial' | 'mixed';
 export type LightingStyle = 'high_key' | 'low_key' | 'dramatic' | 'soft' | 'harsh' | 'silhouette';
 export type LightingSource = 'single_source' | 'three_point' | 'practical' | 'ambient';
@@ -34,6 +37,13 @@ export interface CinematicHeaderConfig {
   // Preset ID for reuse
   preset_id?: string;
   preset_name?: string;
+
+  // Scene (slugline)
+  scene?: {
+    setting: SceneSetting;           // INT / EXT / INT-EXT
+    location_id?: string;            // Reference to Bible location
+    location_custom?: string;        // Or custom text like "Dark, moody kitchen"
+  };
 
   // Lighting
   lighting: {

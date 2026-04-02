@@ -7,6 +7,7 @@
 
 import type {
   CinematicHeaderConfig,
+  SceneSetting,
   LightingStyle,
   LightingSource,
   LightingModifier,
@@ -16,6 +17,27 @@ import type {
   ColorStyle,
   ToneGenre,
 } from '@/types/cinematic';
+
+// ============================================================================
+// Scene setting mappings
+// ============================================================================
+
+const SCENE_SETTING_TEXT: Record<SceneSetting, string> = {
+  int: 'INT.',
+  ext: 'EXT.',
+  int_ext: 'INT./EXT.',
+};
+
+const TIME_FOR_SLUGLINE: Record<TimeOfDayCinematic, string> = {
+  dawn: 'DAWN',
+  morning: 'DAY',
+  midday: 'DAY',
+  afternoon: 'DAY',
+  golden_hour: 'GOLDEN HOUR',
+  dusk: 'DUSK',
+  night: 'NIGHT',
+  blue_hour: 'BLUE HOUR',
+};
 
 // ============================================================================
 // Text mappings for each option
@@ -109,8 +131,16 @@ const GENRE_TEXT: Record<ToneGenre, string> = {
 /**
  * Convert a CinematicHeaderConfig into a formatted text prompt
  */
-export function cinematicHeaderToPrompt(config: CinematicHeaderConfig): string {
+export function cinematicHeaderToPrompt(config: CinematicHeaderConfig, locationName?: string): string {
   const sections: string[] = [];
+
+  // Build SCENE slugline (INT. LOCATION - TIME)
+  if (config.scene?.setting) {
+    const setting = SCENE_SETTING_TEXT[config.scene.setting];
+    const location = locationName || config.scene.location_custom || 'LOCATION';
+    const time = TIME_FOR_SLUGLINE[config.time_of_day] || 'DAY';
+    sections.push(`${setting} ${location.toUpperCase()} - ${time}`);
+  }
 
   // Build CINEMATIC STYLE section
   const styleLines: string[] = [];
