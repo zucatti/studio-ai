@@ -265,6 +265,7 @@ export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating
         locations={locations}
         planDuration={plan.duration}
         segmentIndex={editingSegmentIndex}
+        projectId={projectId}
       />
 
       {/* Description */}

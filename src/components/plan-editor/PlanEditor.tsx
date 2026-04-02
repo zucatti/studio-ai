@@ -1064,6 +1064,7 @@ export function PlanEditor({
           onSave={handleSaveSegment}
           characters={segmentCharacters}
           planDuration={plan.duration}
+          projectId={projectId}
         />
 
         {/* Gallery Picker */}

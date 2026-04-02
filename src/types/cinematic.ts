@@ -174,11 +174,14 @@ export interface Segment {
 
   // Identification
   shot_type: ShotType;
-  subject: string;  // "@Morgana", "the knife", "both characters"
+  subject?: string;  // Extracted from description: first @mention or #mention
 
-  // Description (all optional)
+  // Description with mentions (@Character #Location !Prop)
+  description?: string;
+
+  // Additional details (all optional)
   framing?: string;
-  action?: string;
+  action?: string;  // @deprecated - use description instead
   dialogue?: SegmentDialogue;
   environment?: string;
   camera_movement?: CameraMovement;

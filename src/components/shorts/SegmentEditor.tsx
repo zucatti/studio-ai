@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { MentionInput } from '@/components/ui/mention-input';
 import {
   Select,
   SelectContent,
@@ -27,7 +28,6 @@ import {
   Sparkles,
   Copy,
   Check,
-  User,
   MapPin,
   Camera,
   Move,
@@ -214,16 +214,6 @@ const FRAMING_BY_SHOT_TYPE: Record<ShotType, string[]> = {
 };
 
 // ============================================================================
-// Action verbs for quick suggestions
-// ============================================================================
-
-const ACTION_VERBS = [
-  'stands', 'sits', 'walks', 'runs', 'turns', 'looks', 'reaches', 'holds',
-  'speaks', 'whispers', 'shouts', 'smiles', 'cries', 'laughs', 'freezes',
-  'enters', 'exits', 'approaches', 'retreats', 'touches', 'grabs', 'drops',
-];
-
-// ============================================================================
 // Component
 // ============================================================================
 
@@ -236,6 +226,13 @@ interface SegmentEditorProps {
   locations?: Array<{ id: string; name: string }>;
   planDuration: number;
   segmentIndex?: number; // For prompt preview (SHOT 1, SHOT 2, etc.)
+  projectId: string;
+}
+
+// Extract subject from description (first @mention or #mention)
+function extractSubject(description: string): string {
+  const match = description.match(/[@#!][A-Za-z][A-Za-z0-9_]*/);
+  return match ? match[0] : 'subject';
 }
 
 export function SegmentEditor({
@@ -247,6 +244,7 @@ export function SegmentEditor({
   locations = [],
   planDuration,
   segmentIndex = 0,
+  projectId,
 }: SegmentEditorProps) {
   // Local form state
   const [formData, setFormData] = useState<Partial<Segment>>({});
@@ -282,7 +280,7 @@ export function SegmentEditor({
   }, []);
 
   // Add suggestion to field
-  const addToField = useCallback((field: 'framing' | 'action' | 'environment', text: string) => {
+  const addToField = useCallback((field: 'framing' | 'environment', text: string) => {
     setFormData((prev) => {
       const current = prev[field] || '';
       const newValue = current ? `${current} ${text}` : text;
@@ -345,22 +343,6 @@ export function SegmentEditor({
     [characters]
   );
 
-  // Set subject from character
-  const setSubjectFromCharacter = useCallback((name: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      subject: `@${name}`,
-    }));
-  }, []);
-
-  // Set subject from location
-  const setSubjectFromLocation = useCallback((name: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      subject: `#${name}`,
-    }));
-  }, []);
-
   // Handle save
   const handleSave = useCallback(() => {
     if (!segment) return;
@@ -389,7 +371,7 @@ export function SegmentEditor({
     const endTime = formatTime(formData.end_time || 0);
 
     const shotType = SHOT_TYPE_OPTIONS.find(o => o.value === formData.shot_type)?.label.toUpperCase() || 'MEDIUM';
-    const subject = formData.subject || 'subject';
+    const subject = formData.description ? extractSubject(formData.description) : 'subject';
 
     const lines: string[] = [];
     lines.push(`SHOT ${shotNum} (${startTime}–${endTime}) — ${shotType}, ${subject}:`);
@@ -398,8 +380,8 @@ export function SegmentEditor({
       lines.push(formData.framing + '.');
     }
 
-    if (formData.action) {
-      lines.push(formData.action + '.');
+    if (formData.description) {
+      lines.push(formData.description + '.');
     }
 
     if (formData.dialogue?.text && formData.dialogue?.character_name) {
@@ -431,7 +413,6 @@ export function SegmentEditor({
   const currentShotType = formData.shot_type || 'medium';
   const currentPreset = SHOT_PRESETS.find(p => p.id === activePreset);
   const framingSuggestions = currentPreset?.suggestedFraming || FRAMING_BY_SHOT_TYPE[currentShotType] || [];
-  const actionSuggestions = currentPreset?.suggestedActions || [];
 
   if (!segment) return null;
 
@@ -558,39 +539,6 @@ export function SegmentEditor({
                       </div>
                     </div>
 
-                    {/* Subject */}
-                    <div className="space-y-1.5">
-                      <Label className="text-slate-300 text-xs">Subject</Label>
-                      <Input
-                        value={formData.subject || ''}
-                        onChange={(e) => updateField('subject', e.target.value)}
-                        placeholder="@Character, object, scene..."
-                        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 h-9"
-                      />
-                      <div className="flex flex-wrap gap-1">
-                        {characters.slice(0, 3).map((char) => (
-                          <button
-                            key={char.id}
-                            onClick={() => setSubjectFromCharacter(char.name)}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30"
-                          >
-                            <User className="w-2.5 h-2.5" />
-                            {char.name}
-                          </button>
-                        ))}
-                        {locations.slice(0, 2).map((loc) => (
-                          <button
-                            key={loc.id}
-                            onClick={() => setSubjectFromLocation(loc.name)}
-                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-green-500/20 text-green-300 rounded hover:bg-green-500/30"
-                          >
-                            <MapPin className="w-2.5 h-2.5" />
-                            {loc.name}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
                     {/* Framing */}
                     <div className="space-y-1.5">
                       <Label className="text-slate-300 text-xs">Framing</Label>
@@ -616,27 +564,16 @@ export function SegmentEditor({
 
                   {/* Right Column - Content */}
                   <div className="space-y-5">
-                    {/* Action */}
+                    {/* Description with mentions */}
                     <div className="space-y-1.5">
-                      <Label className="text-slate-300 text-xs">Action</Label>
-                      <Textarea
-                        value={formData.action || ''}
-                        onChange={(e) => updateField('action', e.target.value)}
-                        placeholder="What happens in this shot..."
-                        rows={3}
-                        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none"
+                      <Label className="text-slate-300 text-xs">Description</Label>
+                      <MentionInput
+                        value={formData.description || ''}
+                        onChange={(value) => updateField('description', value)}
+                        placeholder="@Character #Location !Prop — describe what happens..."
+                        projectId={projectId}
+                        minHeight="100px"
                       />
-                      <div className="flex flex-wrap gap-1">
-                        {(actionSuggestions.length > 0 ? actionSuggestions : ACTION_VERBS.slice(0, 6)).map((suggestion, i) => (
-                          <button
-                            key={i}
-                            onClick={() => addToField('action', suggestion)}
-                            className="px-1.5 py-0.5 text-[10px] bg-slate-700/50 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300"
-                          >
-                            + {suggestion}
-                          </button>
-                        ))}
-                      </div>
                     </div>
 
                     {/* Environment */}
