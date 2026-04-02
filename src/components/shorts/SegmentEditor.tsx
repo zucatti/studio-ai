@@ -34,6 +34,8 @@ import {
   Eye,
   Zap,
   Heart,
+  FileText,
+  Pencil,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -250,6 +252,7 @@ export function SegmentEditor({
   const [formData, setFormData] = useState<Partial<Segment>>({});
   const [copied, setCopied] = useState(false);
   const [activePreset, setActivePreset] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
 
   // Reset form when segment changes
   useEffect(() => {
@@ -434,23 +437,54 @@ export function SegmentEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0">
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0">
         <div className="flex flex-col h-full max-h-[90vh]">
           {/* Header */}
           <DialogHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">
-            <DialogTitle className="flex items-center gap-2 text-white">
-              <Clapperboard className="w-5 h-5 text-indigo-400" />
-              Shot {segmentIndex + 1} Editor
-            </DialogTitle>
+            <div className="flex items-center justify-between">
+              <DialogTitle className="flex items-center gap-2 text-white">
+                <Clapperboard className="w-5 h-5 text-indigo-400" />
+                Shot {segmentIndex + 1}
+              </DialogTitle>
+
+              {/* View Mode Toggle */}
+              <div className="inline-flex rounded-lg bg-slate-800/50 p-0.5">
+                <button
+                  onClick={() => setViewMode('edit')}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5',
+                    viewMode === 'edit'
+                      ? 'bg-slate-700 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  )}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                  Edit
+                </button>
+                <button
+                  onClick={() => setViewMode('preview')}
+                  className={cn(
+                    'px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5',
+                    viewMode === 'preview'
+                      ? 'bg-slate-700 text-white shadow-sm'
+                      : 'text-slate-400 hover:text-slate-200'
+                  )}
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  Preview
+                </button>
+              </div>
+            </div>
             <DialogDescription className="text-slate-400">
-              Build your shot with presets and suggestions
+              {viewMode === 'edit' ? 'Build your shot with presets and suggestions' : 'Generated prompt preview'}
             </DialogDescription>
           </DialogHeader>
 
           {/* Content */}
-          <div className="flex flex-1 overflow-hidden">
-            {/* Left side - Form */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <div className="flex-1 overflow-hidden">
+            {viewMode === 'edit' ? (
+              /* Edit Mode - Form */
+              <div className="h-full overflow-y-auto p-6 space-y-6">
               {/* Presets */}
               <div className="space-y-2">
                 <Label className="text-slate-300 flex items-center gap-2">
@@ -710,33 +744,42 @@ export function SegmentEditor({
                 )}
               </div>
             </div>
-
-            {/* Right side - Prompt Preview */}
-            <div className="w-80 border-l border-white/10 bg-slate-950/50 flex flex-col">
-              <div className="p-4 border-b border-white/10 flex items-center justify-between">
-                <Label className="text-slate-300 flex items-center gap-2">
-                  <Clapperboard className="w-4 h-4 text-amber-400" />
-                  Prompt Preview
-                </Label>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={copyPrompt}
-                  className="text-slate-400 hover:text-white"
-                >
-                  {copied ? (
-                    <Check className="w-4 h-4 text-green-400" />
-                  ) : (
-                    <Copy className="w-4 h-4" />
-                  )}
-                </Button>
+            ) : (
+              /* Preview Mode */
+              <div className="h-full overflow-y-auto p-6">
+                <div className="max-w-2xl mx-auto">
+                  <div className="flex items-center justify-between mb-4">
+                    <Label className="text-slate-300 flex items-center gap-2">
+                      <Clapperboard className="w-4 h-4 text-amber-400" />
+                      Generated Prompt
+                    </Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={copyPrompt}
+                      className="border-white/10 text-slate-400 hover:text-white"
+                    >
+                      {copied ? (
+                        <>
+                          <Check className="w-4 h-4 mr-2 text-green-400" />
+                          Copied
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-4 h-4 mr-2" />
+                          Copy
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                  <div className="p-4 bg-slate-950/50 rounded-lg border border-white/10">
+                    <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
+                      {promptPreview}
+                    </pre>
+                  </div>
+                </div>
               </div>
-              <div className="flex-1 p-4 overflow-y-auto">
-                <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
-                  {promptPreview}
-                </pre>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* Footer */}
