@@ -177,6 +177,7 @@ export interface SegmentDialogue {
 // ============================================================================
 
 export type BeatType = 'action' | 'dialogue';
+export type DialoguePresence = 'on' | 'off';
 
 export interface ShotBeat {
   id: string;
@@ -185,6 +186,7 @@ export interface ShotBeat {
   type: BeatType;
   content: string;        // The action description or dialogue text
   tone?: DialogueTone;    // Only for dialogue: coldly, flatly, whispers, etc.
+  presence?: DialoguePresence; // Only for dialogue: on (on-screen) or off (off-screen/voice-over)
 }
 
 // ============================================================================

@@ -133,10 +133,11 @@ export function CinematicHeaderWizard({
             let beatLine = '';
             if (beat.type === 'dialogue') {
               const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+              const offScreen = beat.presence === 'off' ? ' (off)' : '';
               if (beat.character_name) {
-                beatLine = `${beat.character_name} says${tone}:\n"${beat.content}"`;
+                beatLine = `${beat.character_name}${offScreen} says${tone}:\n"${beat.content}"`;
               } else {
-                beatLine = `Says${tone}: "${beat.content}"`;
+                beatLine = `Says${offScreen}${tone}: "${beat.content}"`;
               }
             } else {
               // Action beat

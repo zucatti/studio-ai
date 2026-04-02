@@ -35,7 +35,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import type { Segment, ShotFraming, ShotComposition, CameraMovement, DialogueTone, ShotBeat, BeatType } from '@/types/cinematic';
+import type { Segment, ShotFraming, ShotComposition, CameraMovement, DialogueTone, ShotBeat, BeatType, DialoguePresence } from '@/types/cinematic';
 import {
   SHOT_FRAMING_OPTIONS,
   SHOT_COMPOSITION_OPTIONS,
@@ -71,8 +71,9 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
     onChange({
       ...beat,
       type,
-      // Clear tone if switching to action
+      // Clear dialogue-specific fields if switching to action
       tone: type === 'action' ? undefined : beat.tone,
+      presence: type === 'action' ? undefined : beat.presence,
     });
   };
 
@@ -133,23 +134,54 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
           </button>
         </div>
 
-        {/* Tone select (only for dialogue) */}
+        {/* Dialogue options: on/off toggle and tone */}
         {beat.type === 'dialogue' && (
-          <Select
-            value={beat.tone || 'neutral'}
-            onValueChange={(v) => onChange({ ...beat, tone: v as DialogueTone })}
-          >
-            <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-7 text-[10px] w-[90px]">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="bg-slate-800 border-white/10">
-              {DIALOGUE_TONE_OPTIONS.map((opt) => (
-                <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
-                  {opt.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <>
+            {/* On/Off toggle */}
+            <div className="inline-flex rounded-md bg-slate-800/50 p-0.5 border border-white/10">
+              <button
+                type="button"
+                onClick={() => onChange({ ...beat, presence: 'on' })}
+                className={cn(
+                  'px-2 py-1 text-[10px] font-medium rounded transition-all',
+                  (!beat.presence || beat.presence === 'on')
+                    ? 'bg-green-600/80 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                ON
+              </button>
+              <button
+                type="button"
+                onClick={() => onChange({ ...beat, presence: 'off' })}
+                className={cn(
+                  'px-2 py-1 text-[10px] font-medium rounded transition-all',
+                  beat.presence === 'off'
+                    ? 'bg-slate-600 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                OFF
+              </button>
+            </div>
+
+            {/* Tone select */}
+            <Select
+              value={beat.tone || 'neutral'}
+              onValueChange={(v) => onChange({ ...beat, tone: v as DialogueTone })}
+            >
+              <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-7 text-[10px] w-[90px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-white/10">
+                {DIALOGUE_TONE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
         )}
 
         <div className="flex-1" />
@@ -339,10 +371,11 @@ export function SegmentEditor({
       if (beat.type === 'dialogue') {
         // Dialogue beat
         const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+        const offScreen = beat.presence === 'off' ? ' (off)' : '';
         if (beat.character_name) {
-          beatLine = `${beat.character_name} says${tone}:\n"${beat.content}"`;
+          beatLine = `${beat.character_name}${offScreen} says${tone}:\n"${beat.content}"`;
         } else {
-          beatLine = `Says${tone}: "${beat.content}"`;
+          beatLine = `Says${offScreen}${tone}: "${beat.content}"`;
         }
       } else {
         // Action beat
