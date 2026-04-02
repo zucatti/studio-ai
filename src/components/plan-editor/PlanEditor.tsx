@@ -265,12 +265,24 @@ export function PlanEditor({
 
   // Frame dimensions - adapted for top/bottom layout
   const frameStyle = useMemo(() => {
-    // Leave space for prompt panel below (approx 40% of viewport height)
-    // Portrait frames are taller, landscape frames are wider
-    const maxHeight = ratioConfig.isPortrait ? 380 : 280;
+    // Larger frames that work for any aspect ratio
+    // Use a consistent max dimension and scale based on ratio
+    const maxDimension = 450;
     const ratio = ratioConfig.width / ratioConfig.height;
-    const height = maxHeight;
-    const width = height * ratio;
+
+    let width: number;
+    let height: number;
+
+    if (ratio >= 1) {
+      // Landscape or square: constrain by width
+      width = maxDimension;
+      height = width / ratio;
+    } else {
+      // Portrait: constrain by height
+      height = maxDimension;
+      width = height * ratio;
+    }
+
     return { width, height };
   }, [ratioConfig]);
 
