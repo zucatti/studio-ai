@@ -101,13 +101,61 @@ export function CinematicHeaderWizard({
         const endTime = `${endMins}:${endSecs.toString().padStart(2, '0')}`;
 
         const shotType = segment.shot_type?.toUpperCase() || 'MEDIUM';
-        const subject = segment.description?.match(/[@#!][A-Za-z][A-Za-z0-9_]*/)?.[0];
+
+        // Extract subject from description or first beat
+        let subject = segment.description?.match(/[@#!][A-Za-z][A-Za-z0-9_]*/)?.[0];
+        if (!subject && segment.beats?.length) {
+          const firstBeatWithChar = segment.beats.find(b => b.character_name);
+          if (firstBeatWithChar?.character_name) {
+            subject = `@${firstBeatWithChar.character_name}`;
+          }
+        }
 
         lines.push('');
         lines.push(`SHOT ${shotNum} (${startTime}–${endTime}) — ${shotType}${subject ? `, ${subject}` : ''}:`);
-        if (segment.description) lines.push(segment.description);
+        lines.push('');
+
+        if (segment.description) {
+          lines.push(segment.description);
+          lines.push('');
+        }
+
+        // Render beats
+        if (segment.beats?.length) {
+          for (const beat of segment.beats) {
+            if (!beat.action && !beat.dialogue) continue;
+
+            let beatLine = '';
+            if (beat.character_name && beat.action && beat.dialogue) {
+              const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+              beatLine = `${beat.character_name} ${beat.action} and says${tone}:\n"${beat.dialogue}"`;
+            } else if (beat.character_name && beat.dialogue) {
+              const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+              beatLine = `${beat.character_name} says${tone}:\n"${beat.dialogue}"`;
+            } else if (beat.action && beat.dialogue) {
+              const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+              beatLine = `${beat.action}. Says${tone}: "${beat.dialogue}"`;
+            } else if (beat.character_name && beat.action) {
+              beatLine = `${beat.character_name} ${beat.action}.`;
+            } else if (beat.action) {
+              beatLine = beat.action + '.';
+            } else if (beat.dialogue) {
+              beatLine = `"${beat.dialogue}"`;
+            }
+
+            if (beatLine) {
+              lines.push(beatLine);
+              lines.push('');
+            }
+          }
+        }
+
+        // Camera
         if (segment.camera_movement && segment.camera_movement !== 'static') {
-          lines.push(`Camera: ${segment.camera_movement.replace(/_/g, ' ')}`);
+          lines.push(`Camera: ${segment.camera_movement.replace(/_/g, ' ')}.`);
+        }
+        if (segment.camera_notes) {
+          lines.push(segment.camera_notes);
         }
       });
     }

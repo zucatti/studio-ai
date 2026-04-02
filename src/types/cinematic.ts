@@ -153,6 +153,19 @@ export interface SegmentDialogue {
 }
 
 // ============================================================================
+// Shot Beat (action/dialogue moment within a segment)
+// ============================================================================
+
+export interface ShotBeat {
+  id: string;
+  character_id?: string;
+  character_name?: string;
+  action?: string;        // "swallows hard", "holds up the phone"
+  dialogue?: string;      // The spoken text
+  tone?: DialogueTone;    // coldly, flatly, whispers, etc.
+}
+
+// ============================================================================
 // Segment (Shot within a Plan)
 // ============================================================================
 
@@ -165,18 +178,23 @@ export interface Segment {
 
   // Identification
   shot_type: ShotType;
-  subject?: string;  // Extracted from description: first @mention or #mention
+  subject?: string;  // Extracted from description or first beat character
 
-  // Description with mentions (@Character #Location !Prop)
+  // Visual description (framing, atmosphere, setup)
   description?: string;
 
-  // Additional details (all optional)
-  framing?: string;
-  action?: string;  // @deprecated - use description instead
-  dialogue?: SegmentDialogue;
-  environment?: string;
+  // Sequence of action/dialogue moments
+  beats?: ShotBeat[];
+
+  // Camera
   camera_movement?: CameraMovement;
-  camera_notes?: string;
+  camera_notes?: string;  // Free-form: "Slight push-in", "Subtle drift right"
+
+  // Legacy fields (for backward compatibility)
+  dialogue?: SegmentDialogue;
+  framing?: string;
+  action?: string;
+  environment?: string;
 
   // Override (for advanced users)
   custom_prompt?: string;
@@ -458,6 +476,16 @@ export const DIALOGUE_LANGUAGE_OPTIONS: { value: DialogueLanguage; label: string
 ];
 
 // ============================================================================
+// Helper: Create default beat
+// ============================================================================
+
+export function createDefaultBeat(): ShotBeat {
+  return {
+    id: crypto.randomUUID(),
+  };
+}
+
+// ============================================================================
 // Helper: Create default segment
 // ============================================================================
 
@@ -467,7 +495,7 @@ export function createDefaultSegment(startTime: number = 0, duration: number = 5
     start_time: startTime,
     end_time: startTime + duration,
     shot_type: 'medium',
-    subject: '',
+    beats: [],
   };
 }
 

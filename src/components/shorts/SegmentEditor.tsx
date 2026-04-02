@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { MentionInput } from '@/components/ui/mention-input';
+import { Input } from '@/components/ui/input';
 import {
   Select,
   SelectContent,
@@ -28,18 +28,139 @@ import {
   Check,
   FileText,
   Pencil,
+  Plus,
+  Trash2,
+  GripVertical,
+  Play,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import type { Segment, ShotType, CameraMovement, DialogueTone } from '@/types/cinematic';
+import type { Segment, ShotType, CameraMovement, DialogueTone, ShotBeat } from '@/types/cinematic';
 import {
   SHOT_TYPE_OPTIONS,
   CAMERA_MOVEMENT_OPTIONS,
   DIALOGUE_TONE_OPTIONS,
+  createDefaultBeat,
 } from '@/types/cinematic';
 
 // ============================================================================
-// Component
+// Beat Editor Component
+// ============================================================================
+
+interface BeatEditorProps {
+  beat: ShotBeat;
+  index: number;
+  characters: Array<{ id: string; name: string }>;
+  onChange: (beat: ShotBeat) => void;
+  onDelete: () => void;
+  canDelete: boolean;
+}
+
+function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: BeatEditorProps) {
+  const selectedCharacter = characters.find(c => c.id === beat.character_id);
+
+  const handleCharacterChange = (characterId: string) => {
+    const character = characters.find(c => c.id === characterId);
+    onChange({
+      ...beat,
+      character_id: characterId === '_none' ? undefined : characterId,
+      character_name: character?.name,
+    });
+  };
+
+  return (
+    <div className="relative p-3 bg-slate-800/30 rounded-lg border border-white/5 space-y-3">
+      {/* Header with character select and delete */}
+      <div className="flex items-center gap-2">
+        <GripVertical className="w-4 h-4 text-slate-600 cursor-grab" />
+        <span className="text-[10px] text-slate-500 font-mono">#{index + 1}</span>
+
+        <Select
+          value={beat.character_id || '_none'}
+          onValueChange={handleCharacterChange}
+        >
+          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-7 text-xs flex-1 max-w-[150px]">
+            <SelectValue placeholder="Character" />
+          </SelectTrigger>
+          <SelectContent className="bg-slate-800 border-white/10">
+            <SelectItem value="_none" className="text-slate-400 text-xs">
+              No character
+            </SelectItem>
+            {characters.map((char) => (
+              <SelectItem key={char.id} value={char.id} className="text-white text-xs">
+                @{char.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <div className="flex-1" />
+
+        {canDelete && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            className="h-6 w-6 p-0 text-slate-500 hover:text-red-400"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </Button>
+        )}
+      </div>
+
+      {/* Action field */}
+      <div className="space-y-1">
+        <Label className="text-slate-500 text-[10px] flex items-center gap-1">
+          <Play className="w-3 h-3" />
+          Action
+        </Label>
+        <Input
+          value={beat.action || ''}
+          onChange={(e) => onChange({ ...beat, action: e.target.value || undefined })}
+          placeholder="swallows hard, holds up the phone, turns away..."
+          className="bg-slate-800/50 border-white/10 text-white h-8 text-xs placeholder:text-slate-600"
+        />
+      </div>
+
+      {/* Dialogue fields */}
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <Label className="text-slate-500 text-[10px] flex items-center gap-1">
+            <MessageSquare className="w-3 h-3" />
+            Dialogue
+          </Label>
+          {beat.dialogue && (
+            <Select
+              value={beat.tone || 'neutral'}
+              onValueChange={(v) => onChange({ ...beat, tone: v as DialogueTone })}
+            >
+              <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-6 text-[10px] w-24">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="bg-slate-800 border-white/10">
+                {DIALOGUE_TONE_OPTIONS.map((opt) => (
+                  <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
+                    {opt.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
+        <Textarea
+          value={beat.dialogue || ''}
+          onChange={(e) => onChange({ ...beat, dialogue: e.target.value || undefined })}
+          placeholder='"What did you find?"'
+          rows={2}
+          className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm"
+        />
+      </div>
+    </div>
+  );
+}
+
+// ============================================================================
+// Main Component
 // ============================================================================
 
 interface SegmentEditorProps {
@@ -50,14 +171,23 @@ interface SegmentEditorProps {
   characters?: Array<{ id: string; name: string }>;
   locations?: Array<{ id: string; name: string }>;
   planDuration: number;
-  segmentIndex?: number; // For prompt preview (SHOT 1, SHOT 2, etc.)
+  segmentIndex?: number;
   projectId: string;
 }
 
-// Extract subject from description (first @mention or #mention)
-function extractSubject(description: string): string | null {
-  const match = description.match(/[@#!][A-Za-z][A-Za-z0-9_]*/);
-  return match ? match[0] : null;
+// Extract subject from description or first beat
+function extractSubject(segment: Partial<Segment>): string | null {
+  // First try description
+  if (segment.description) {
+    const match = segment.description.match(/[@#!][A-Za-z][A-Za-z0-9_]*/);
+    if (match) return match[0];
+  }
+  // Then try first beat with character
+  const firstBeatWithChar = segment.beats?.find(b => b.character_name);
+  if (firstBeatWithChar?.character_name) {
+    return `@${firstBeatWithChar.character_name}`;
+  }
+  return null;
 }
 
 export function SegmentEditor({
@@ -66,12 +196,10 @@ export function SegmentEditor({
   onOpenChange,
   onSave,
   characters = [],
-  locations = [],
   planDuration,
   segmentIndex = 0,
   projectId,
 }: SegmentEditorProps) {
-  // Local form state
   const [formData, setFormData] = useState<Partial<Segment>>({});
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
@@ -79,7 +207,18 @@ export function SegmentEditor({
   // Reset form when segment changes
   useEffect(() => {
     if (segment) {
-      setFormData({ ...segment });
+      // Migrate old dialogue to beats if needed
+      const beats = segment.beats || [];
+      if (beats.length === 0 && segment.dialogue) {
+        beats.push({
+          id: crypto.randomUUID(),
+          character_id: segment.dialogue.character_id,
+          character_name: segment.dialogue.character_name,
+          dialogue: segment.dialogue.text,
+          tone: segment.dialogue.tone,
+        });
+      }
+      setFormData({ ...segment, beats });
     } else {
       setFormData({});
     }
@@ -93,60 +232,30 @@ export function SegmentEditor({
     []
   );
 
-  // Handle dialogue toggle
-  const hasDialogue = !!formData.dialogue;
-  const toggleDialogue = useCallback(() => {
-    if (hasDialogue) {
-      setFormData((prev) => {
-        const { dialogue, ...rest } = prev;
-        return rest;
-      });
-    } else {
-      setFormData((prev) => ({
-        ...prev,
-        dialogue: {
-          character_id: characters[0]?.id || '',
-          character_name: characters[0]?.name || '',
-          tone: 'neutral' as DialogueTone,
-          text: '',
-        },
-      }));
-    }
-  }, [hasDialogue, characters]);
+  // Beat handlers
+  const beats = formData.beats || [];
 
-  // Update dialogue field
-  const updateDialogueField = useCallback(
-    (field: string, value: string) => {
-      setFormData((prev) => ({
-        ...prev,
-        dialogue: {
-          ...prev.dialogue,
-          character_id: prev.dialogue?.character_id || '',
-          character_name: prev.dialogue?.character_name || '',
-          text: prev.dialogue?.text || '',
-          [field]: value,
-        },
-      }));
-    },
-    []
-  );
+  const addBeat = useCallback(() => {
+    const newBeat = createDefaultBeat();
+    setFormData((prev) => ({
+      ...prev,
+      beats: [...(prev.beats || []), newBeat],
+    }));
+  }, []);
 
-  // Handle character selection
-  const handleCharacterSelect = useCallback(
-    (characterId: string) => {
-      const character = characters.find((c) => c.id === characterId);
-      setFormData((prev) => ({
-        ...prev,
-        dialogue: {
-          ...prev.dialogue,
-          character_id: characterId,
-          character_name: character?.name || '',
-          text: prev.dialogue?.text || '',
-        },
-      }));
-    },
-    [characters]
-  );
+  const updateBeat = useCallback((index: number, beat: ShotBeat) => {
+    setFormData((prev) => ({
+      ...prev,
+      beats: (prev.beats || []).map((b, i) => (i === index ? beat : b)),
+    }));
+  }, []);
+
+  const deleteBeat = useCallback((index: number) => {
+    setFormData((prev) => ({
+      ...prev,
+      beats: (prev.beats || []).filter((_, i) => i !== index),
+    }));
+  }, []);
 
   // Handle save
   const handleSave = useCallback(() => {
@@ -156,6 +265,8 @@ export function SegmentEditor({
       ...segment,
       ...formData,
       id: segment.id,
+      // Clear legacy dialogue field
+      dialogue: undefined,
     };
 
     onSave(updated);
@@ -176,33 +287,69 @@ export function SegmentEditor({
     const endTime = formatTime(formData.end_time || 0);
 
     const shotType = SHOT_TYPE_OPTIONS.find(o => o.value === formData.shot_type)?.label.toUpperCase() || 'MEDIUM';
-    const subject = formData.description ? extractSubject(formData.description) : null;
+    const subject = extractSubject(formData);
 
     const lines: string[] = [];
+
+    // Shot header
     lines.push(`SHOT ${shotNum} (${startTime}–${endTime}) — ${shotType}${subject ? `, ${subject}` : ''}:`);
+    lines.push('');
 
-    if (formData.framing) {
-      lines.push(formData.framing + '.');
-    }
-
+    // Description
     if (formData.description) {
-      lines.push(formData.description + '.');
+      lines.push(formData.description);
+      lines.push('');
     }
 
-    if (formData.dialogue?.text && formData.dialogue?.character_name) {
-      const tone = formData.dialogue.tone ? `, ${formData.dialogue.tone}` : '';
-      lines.push(`${formData.dialogue.character_name} says${tone}: "${formData.dialogue.text}"`);
+    // Beats
+    const beatsToRender = formData.beats || [];
+    for (const beat of beatsToRender) {
+      if (!beat.action && !beat.dialogue) continue;
+
+      let beatLine = '';
+
+      if (beat.character_name && beat.action && beat.dialogue) {
+        // Full: "Sarah swallows hard and says coldly: "text""
+        const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+        beatLine = `${beat.character_name} ${beat.action} and says${tone}:\n"${beat.dialogue}"`;
+      } else if (beat.character_name && beat.dialogue) {
+        // Character + dialogue: "Mark responds coldly: "text""
+        const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+        beatLine = `${beat.character_name} says${tone}:\n"${beat.dialogue}"`;
+      } else if (beat.action && beat.dialogue) {
+        // Action + dialogue (no specific character)
+        const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+        beatLine = `${beat.action}. Says${tone}: "${beat.dialogue}"`;
+      } else if (beat.character_name && beat.action) {
+        // Character + action only
+        beatLine = `${beat.character_name} ${beat.action}.`;
+      } else if (beat.action) {
+        // Action only
+        beatLine = beat.action + '.';
+      } else if (beat.dialogue) {
+        // Dialogue only
+        beatLine = `"${beat.dialogue}"`;
+      }
+
+      if (beatLine) {
+        lines.push(beatLine);
+        lines.push('');
+      }
     }
 
+    // Camera notes
     if (formData.camera_movement && formData.camera_movement !== 'static') {
       const movement = CAMERA_MOVEMENT_OPTIONS.find(o => o.value === formData.camera_movement)?.label || '';
       lines.push(`Camera: ${movement}.`);
     }
+    if (formData.camera_notes) {
+      lines.push(formData.camera_notes);
+    }
 
-    return lines.join('\n');
+    return lines.join('\n').trim();
   }, [formData, segmentIndex]);
 
-  // Copy prompt to clipboard
+  // Copy prompt
   const copyPrompt = useCallback(() => {
     navigator.clipboard.writeText(promptPreview);
     setCopied(true);
@@ -253,16 +400,15 @@ export function SegmentEditor({
               </div>
             </div>
             <DialogDescription className="text-slate-400">
-              {viewMode === 'edit' ? 'Build your shot with presets and suggestions' : 'Generated prompt preview'}
+              {viewMode === 'edit' ? 'Compose your shot with description and beats' : 'Generated prompt preview'}
             </DialogDescription>
           </DialogHeader>
 
-          {/* Content - Fixed height for consistent modal size */}
-          <div className="flex-1 overflow-hidden min-h-[350px]">
+          {/* Content */}
+          <div className="flex-1 overflow-hidden min-h-[400px]">
             {viewMode === 'edit' ? (
-              /* Edit Mode - Single Column Layout */
               <div className="h-full overflow-y-auto p-6 space-y-5">
-                {/* Shot Type & Camera - Top Row */}
+                {/* Shot Type & Camera Movement */}
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <Label className="text-slate-300 text-xs">Shot Type</Label>
@@ -283,7 +429,7 @@ export function SegmentEditor({
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-slate-300 text-xs">Camera</Label>
+                    <Label className="text-slate-300 text-xs">Camera Movement</Label>
                     <Select
                       value={formData.camera_movement || 'static'}
                       onValueChange={(v) => updateField('camera_movement', v as CameraMovement)}
@@ -302,96 +448,67 @@ export function SegmentEditor({
                   </div>
                 </div>
 
-                {/* Description - Full Width */}
+                {/* Description */}
                 <div className="space-y-1.5">
                   <Label className="text-slate-300 text-xs">Description</Label>
-                  <MentionInput
+                  <Textarea
                     value={formData.description || ''}
-                    onChange={(value) => updateField('description', value)}
-                    placeholder="@Character #Location !Prop — describe what happens..."
-                    projectId={projectId}
-                    minHeight="120px"
+                    onChange={(e) => updateField('description', e.target.value)}
+                    placeholder="Visual setup: framing, atmosphere, what's in frame..."
+                    rows={3}
+                    className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm"
                   />
                 </div>
 
-                {/* Dialogue Section - Full Width */}
+                {/* Beats Section */}
                 <div className="border-t border-white/10 pt-4">
                   <div className="flex items-center justify-between mb-3">
-                    <Label className="text-slate-300 text-xs flex items-center gap-1.5">
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      Dialogue
-                    </Label>
+                    <Label className="text-slate-300 text-xs">Beats</Label>
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={toggleDialogue}
-                      className={cn(
-                        'h-7 text-xs border-white/10',
-                        hasDialogue
-                          ? 'bg-green-500/20 border-green-500/30 text-green-400'
-                          : 'text-slate-400'
-                      )}
+                      onClick={addBeat}
+                      className="h-7 text-xs border-white/10 text-slate-400 hover:text-white"
                     >
-                      {hasDialogue ? 'Remove' : 'Add'}
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Beat
                     </Button>
                   </div>
 
-                  {hasDialogue && (
-                    <div className="space-y-3 p-3 bg-slate-800/30 rounded-lg border border-white/5">
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <Label className="text-slate-400 text-[10px]">Character</Label>
-                          <Select
-                            value={formData.dialogue?.character_id || ''}
-                            onValueChange={handleCharacterSelect}
-                          >
-                            <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-8 text-xs">
-                              <SelectValue placeholder="Select" />
-                            </SelectTrigger>
-                            <SelectContent className="bg-slate-800 border-white/10">
-                              {characters.map((char) => (
-                                <SelectItem key={char.id} value={char.id} className="text-white text-xs">
-                                  {char.name}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        <div className="space-y-1">
-                          <Label className="text-slate-400 text-[10px]">Tone</Label>
-                          <Select
-                            value={formData.dialogue?.tone || 'neutral'}
-                            onValueChange={(v) => updateDialogueField('tone', v)}
-                          >
-                            <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-8 text-xs">
-                              <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent className="bg-slate-800 border-white/10">
-                              {DIALOGUE_TONE_OPTIONS.map((opt) => (
-                                <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
-                                  {opt.label}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-                      </div>
-                      <div className="space-y-1">
-                        <Label className="text-slate-400 text-[10px]">Line</Label>
-                        <Textarea
-                          value={formData.dialogue?.text || ''}
-                          onChange={(e) => updateDialogueField('text', e.target.value)}
-                          placeholder='"Not in this life."'
-                          rows={2}
-                          className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none text-sm"
+                  {beats.length === 0 ? (
+                    <div className="text-center py-6 text-slate-500 text-sm border border-dashed border-white/10 rounded-lg">
+                      No beats yet. Add action or dialogue.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {beats.map((beat, index) => (
+                        <BeatEditor
+                          key={beat.id}
+                          beat={beat}
+                          index={index}
+                          characters={characters}
+                          onChange={(b) => updateBeat(index, b)}
+                          onDelete={() => deleteBeat(index)}
+                          canDelete={true}
                         />
-                      </div>
+                      ))}
                     </div>
                   )}
                 </div>
+
+                {/* Camera Notes */}
+                <div className="space-y-1.5">
+                  <Label className="text-slate-300 text-xs">Camera Notes (optional)</Label>
+                  <Input
+                    value={formData.camera_notes || ''}
+                    onChange={(e) => updateField('camera_notes', e.target.value || undefined)}
+                    placeholder="Slight push-in, subtle drift to the right..."
+                    className="bg-slate-800/50 border-white/10 text-white h-9 text-sm placeholder:text-slate-600"
+                  />
+                </div>
               </div>
             ) : (
-              /* Preview Mode - Same layout as Edit */
+              /* Preview Mode */
               <div className="h-full flex flex-col p-6 space-y-3">
                 <div className="flex items-center justify-between flex-shrink-0">
                   <Label className="text-slate-300 text-xs">Generated Prompt</Label>
