@@ -391,38 +391,33 @@ export function SegmentEditor({
                 </div>
               </div>
             ) : (
-              /* Preview Mode */
-              <div className="h-full overflow-y-auto p-6">
-                <div className="max-w-2xl mx-auto">
-                  <div className="flex items-center justify-between mb-4">
-                    <Label className="text-slate-300 flex items-center gap-2">
-                      <Clapperboard className="w-4 h-4 text-amber-400" />
-                      Generated Prompt
-                    </Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={copyPrompt}
-                      className="border-white/10 text-slate-400 hover:text-white"
-                    >
-                      {copied ? (
-                        <>
-                          <Check className="w-4 h-4 mr-2 text-green-400" />
-                          Copied
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-4 h-4 mr-2" />
-                          Copy
-                        </>
-                      )}
-                    </Button>
-                  </div>
-                  <div className="p-4 bg-slate-950/50 rounded-lg border border-white/10">
-                    <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
-                      {promptPreview}
-                    </pre>
-                  </div>
+              /* Preview Mode - Same layout as Edit */
+              <div className="h-full flex flex-col p-6 space-y-3">
+                <div className="flex items-center justify-between flex-shrink-0">
+                  <Label className="text-slate-300 text-xs">Generated Prompt</Label>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={copyPrompt}
+                    className="h-7 text-xs border-white/10 text-slate-400 hover:text-white"
+                  >
+                    {copied ? (
+                      <>
+                        <Check className="w-3.5 h-3.5 mr-1.5 text-green-400" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5 mr-1.5" />
+                        Copy
+                      </>
+                    )}
+                  </Button>
+                </div>
+                <div className="flex-1 p-4 bg-slate-950/50 rounded-lg border border-white/10 overflow-y-auto">
+                  <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
+                    {promptPreview}
+                  </pre>
                 </div>
               </div>
             )}
