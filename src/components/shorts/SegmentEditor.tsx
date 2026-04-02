@@ -60,10 +60,16 @@ interface BeatEditorProps {
 function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: BeatEditorProps) {
   const handleCharacterChange = (characterId: string) => {
     const character = characters.find(c => c.id === characterId);
+    const noCharacter = characterId === '_none';
     onChange({
       ...beat,
-      character_id: characterId === '_none' ? undefined : characterId,
+      character_id: noCharacter ? undefined : characterId,
       character_name: character?.name,
+      // Switch to action if removing character while in dialogue mode
+      type: noCharacter && beat.type === 'dialogue' ? 'action' : beat.type,
+      // Clear dialogue-specific fields if switching to action
+      tone: noCharacter && beat.type === 'dialogue' ? undefined : beat.tone,
+      presence: noCharacter && beat.type === 'dialogue' ? undefined : beat.presence,
     });
   };
 
@@ -122,11 +128,14 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
           <button
             type="button"
             onClick={() => handleTypeChange('dialogue')}
+            disabled={!beat.character_id}
             className={cn(
               'px-2.5 py-1 text-[11px] font-medium rounded transition-all flex items-center gap-1',
               beat.type === 'dialogue'
                 ? 'bg-indigo-600/80 text-white'
-                : 'text-slate-400 hover:text-slate-200'
+                : !beat.character_id
+                  ? 'text-slate-600 cursor-not-allowed'
+                  : 'text-slate-400 hover:text-slate-200'
             )}
           >
             <MessageSquare className="w-3 h-3" />
