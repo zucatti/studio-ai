@@ -35,14 +35,20 @@ export function BibleProps({ projectId, onInsertReference, showGlobalOnly = fals
     }
   };
 
-  const displayProps = showGlobalOnly
-    ? globalProps
-    : projectId
-    ? [
-        ...projectProps.map((pa) => ({ ...pa, isInProject: true, projectAssetId: pa.project_asset_id })),
-        ...globalProps.filter((ga) => !isAssetInProject(ga.id)),
-      ]
-    : globalProps;
+  // Sort helper
+  const sortByName = <T extends { name: string }>(arr: T[]): T[] =>
+    [...arr].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
+  const displayProps = sortByName(
+    showGlobalOnly
+      ? globalProps
+      : projectId
+      ? [
+          ...projectProps.map((pa) => ({ ...pa, isInProject: true, projectAssetId: pa.project_asset_id })),
+          ...globalProps.filter((ga) => !isAssetInProject(ga.id)),
+        ]
+      : globalProps
+  );
 
   if (displayProps.length === 0) {
     return (

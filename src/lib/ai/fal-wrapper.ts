@@ -32,9 +32,10 @@ export async function uploadToFalStorage(data: Blob | Buffer | ArrayBuffer): Pro
   if (data instanceof Blob) {
     blob = data;
   } else if (Buffer.isBuffer(data)) {
-    blob = new Blob([data]);
+    // Convert Buffer to Uint8Array for Blob compatibility
+    blob = new Blob([new Uint8Array(data)]);
   } else {
-    blob = new Blob([data]);
+    blob = new Blob([new Uint8Array(data)]);
   }
   return fal.storage.upload(blob);
 }

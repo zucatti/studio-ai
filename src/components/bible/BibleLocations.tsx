@@ -79,14 +79,20 @@ export function BibleLocations({ projectId, onInsertReference, showGlobalOnly = 
     }
   };
 
-  const displayLocations = showGlobalOnly
-    ? globalLocations
-    : projectId
-    ? [
-        ...projectLocations.map((pa) => ({ ...pa, isInProject: true, projectAssetId: pa.project_asset_id })),
-        ...globalLocations.filter((ga) => !isAssetInProject(ga.id)),
-      ]
-    : globalLocations;
+  // Sort helper
+  const sortByName = <T extends { name: string }>(arr: T[]): T[] =>
+    [...arr].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
+  const displayLocations = sortByName(
+    showGlobalOnly
+      ? globalLocations
+      : projectId
+      ? [
+          ...projectLocations.map((pa) => ({ ...pa, isInProject: true, projectAssetId: pa.project_asset_id })),
+          ...globalLocations.filter((ga) => !isAssetInProject(ga.id)),
+        ]
+      : globalLocations
+  );
 
   if (displayLocations.length === 0) {
     return (

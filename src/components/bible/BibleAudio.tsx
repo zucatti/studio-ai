@@ -87,6 +87,10 @@ export function BibleAudio({ projectId, onInsertReference, showGlobalOnly = fals
     await fetchGlobalAssets('');
   };
 
+  // Sort helper
+  const sortByName = <T extends { name: string }>(arr: T[]): T[] =>
+    [...arr].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
   // Combine project and global audio for display
   const displayAudio = showGlobalOnly
     ? filterByType(globalAudio)
@@ -97,9 +101,9 @@ export function BibleAudio({ projectId, onInsertReference, showGlobalOnly = fals
       ]
     : filterByType(globalAudio);
 
-  // Separate in-project and library audio
-  const inProjectAudio = displayAudio.filter((a) => 'isInProject' in a && a.isInProject);
-  const libraryAudio = displayAudio.filter((a) => !('isInProject' in a && a.isInProject));
+  // Separate in-project and library audio (sorted alphabetically)
+  const inProjectAudio = sortByName(displayAudio.filter((a) => 'isInProject' in a && a.isInProject));
+  const libraryAudio = sortByName(displayAudio.filter((a) => !('isInProject' in a && a.isInProject)));
 
   // Count total unfiltered for empty state
   const totalAudio = showGlobalOnly ? globalAudio.length : (projectAudio.length + globalAudio.length);

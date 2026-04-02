@@ -213,28 +213,40 @@ export function BibleCharacters({ projectId, onInsertReference, showGlobalOnly =
     }
   }, [globalCharacters, projectCharacters, preloadUrls]);
 
+  // Sort helper
+  const sortByName = <T extends { name: string }>(arr: T[]): T[] =>
+    [...arr].sort((a, b) => a.name.localeCompare(b.name, 'fr'));
+
   // Characters in project (custom)
-  const inProjectCharacters = projectCharacters.map((pa) => ({
-    ...pa,
-    isInProject: true,
-    projectAssetId: pa.project_asset_id,
-  }));
+  const inProjectCharacters = sortByName(
+    projectCharacters.map((pa) => ({
+      ...pa,
+      isInProject: true,
+      projectAssetId: pa.project_asset_id,
+    }))
+  );
 
   // Characters not in project (from library)
   // When no project is open, show ALL characters without filtering
-  const libraryCharacters = projectId
-    ? globalCharacters.filter((ga) => !isAssetInProject(ga.id))
-    : globalCharacters;
+  const libraryCharacters = sortByName(
+    projectId
+      ? globalCharacters.filter((ga) => !isAssetInProject(ga.id))
+      : globalCharacters
+  );
 
   // Generic characters in project
-  const genericInProject = projectId
-    ? GENERIC_CHARACTERS.filter((g) => isGenericAssetInProject(g.id))
-    : [];
+  const genericInProject = sortByName(
+    projectId
+      ? GENERIC_CHARACTERS.filter((g) => isGenericAssetInProject(g.id))
+      : []
+  );
   // Generic characters not in project
   // When no project is open, show ALL generic characters
-  const genericNotInProject = projectId
-    ? GENERIC_CHARACTERS.filter((g) => !isGenericAssetInProject(g.id))
-    : GENERIC_CHARACTERS;
+  const genericNotInProject = sortByName(
+    projectId
+      ? GENERIC_CHARACTERS.filter((g) => !isGenericAssetInProject(g.id))
+      : GENERIC_CHARACTERS
+  );
 
   const handleImport = async (globalAssetId: string) => {
     if (projectId) {

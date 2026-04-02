@@ -139,7 +139,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         if (parsed) {
           try {
             const buffer = await downloadFile(parsed.key);
-            audioBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+            // Convert Buffer to ArrayBuffer
+            audioBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
           } catch (downloadError) {
             console.error('Failed to download existing sample:', downloadError);
           }
