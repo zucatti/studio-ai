@@ -1215,6 +1215,7 @@ export function PlanEditor({
       value={plan.cinematic_header || null}
       onChange={handleCinematicStyleChange}
       projectId={projectId}
+      segments={plan.segments || []}
     />
   </>
   );

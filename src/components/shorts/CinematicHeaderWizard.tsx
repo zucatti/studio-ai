@@ -23,8 +23,9 @@ import { CameraSelector } from './presets/CameraSelector';
 import { ColorGradeSelector } from './presets/ColorGradeSelector';
 import { ToneSelector } from './presets/ToneSelector';
 import { cinematicHeaderToPrompt, createDefaultCinematicHeader, createGenrePreset } from '@/lib/cinematic-header-to-prompt';
-import { Loader2, Save, Sparkles, BookOpen } from 'lucide-react';
+import { Loader2, Save, Sparkles, BookOpen, Pencil, FileText, Copy, Check } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import type { Segment } from '@/types/cinematic';
 import { toast } from 'sonner';
 import type {
   CinematicHeaderConfig,
@@ -41,6 +42,7 @@ interface CinematicHeaderWizardProps {
   value: CinematicHeaderConfig | null;
   onChange: (config: CinematicHeaderConfig) => void;
   projectId: string;
+  segments?: Segment[];
 }
 
 const WEATHER_OPTIONS: { value: Weather; label: string }[] = [
@@ -69,11 +71,16 @@ export function CinematicHeaderWizard({
   value,
   onChange,
   projectId,
+  segments = [],
 }: CinematicHeaderWizardProps) {
   // Local state for editing - ensure we have valid defaults
   const [config, setConfig] = useState<CinematicHeaderConfig>(
     isValidConfig(value) ? value : createDefaultCinematicHeader()
   );
+
+  // View mode state
+  const [viewMode, setViewMode] = useState<'edit' | 'prompt'>('edit');
+  const [copied, setCopied] = useState(false);
 
   // Presets state
   const [presets, setPresets] = useState<CinematicPreset[]>([]);
@@ -111,10 +118,54 @@ export function CinematicHeaderWizard({
     }
   };
 
-  // Generate prompt preview
-  const promptPreview = useMemo(() => {
+  // Generate prompt preview (header only)
+  const headerPrompt = useMemo(() => {
     return cinematicHeaderToPrompt(config);
   }, [config]);
+
+  // Generate full prompt with segments
+  const fullPrompt = useMemo(() => {
+    const lines: string[] = [];
+
+    // Header
+    lines.push('=== CINEMATIC STYLE ===');
+    lines.push(headerPrompt);
+
+    // Segments
+    if (segments.length > 0) {
+      lines.push('');
+      lines.push('=== SHOTS ===');
+      segments.forEach((segment, index) => {
+        const shotNum = index + 1;
+        const startMins = Math.floor(segment.start_time / 60);
+        const startSecs = Math.floor(segment.start_time % 60);
+        const endMins = Math.floor(segment.end_time / 60);
+        const endSecs = Math.floor(segment.end_time % 60);
+        const startTime = `${startMins}:${startSecs.toString().padStart(2, '0')}`;
+        const endTime = `${endMins}:${endSecs.toString().padStart(2, '0')}`;
+
+        const shotType = segment.shot_type?.toUpperCase() || 'MEDIUM';
+        const subject = segment.description?.match(/[@#!][A-Za-z][A-Za-z0-9_]*/)?.[0] || 'subject';
+
+        lines.push('');
+        lines.push(`SHOT ${shotNum} (${startTime}–${endTime}) — ${shotType}, ${subject}:`);
+        if (segment.description) lines.push(segment.description);
+        if (segment.camera_movement && segment.camera_movement !== 'static') {
+          lines.push(`Camera: ${segment.camera_movement.replace(/_/g, ' ')}`);
+        }
+      });
+    }
+
+    return lines.join('\n');
+  }, [headerPrompt, segments]);
+
+  // Copy prompt to clipboard
+  const copyPrompt = () => {
+    navigator.clipboard.writeText(fullPrompt);
+    setCopied(true);
+    toast.success('Prompt copié !');
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   // Apply a preset
   const applyPreset = (preset: CinematicPreset) => {
@@ -183,193 +234,241 @@ export function CinematicHeaderWizard({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-4xl max-h-[90vh] bg-[#0f1419] border-white/10 overflow-hidden flex flex-col">
-        <DialogHeader>
-          <DialogTitle className="text-white flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-400" />
-            Composer le style cinématique
-          </DialogTitle>
+      <DialogContent className="max-w-6xl max-h-[90vh] bg-[#0f1419] border-white/10 overflow-hidden flex flex-col [&>button]:hidden">
+        <DialogHeader className="flex-shrink-0">
+          <div className="flex items-center justify-between">
+            <DialogTitle className="text-white flex items-center gap-2">
+              <Sparkles className="w-5 h-5 text-amber-400" />
+              Composer le style cinématique
+            </DialogTitle>
+
+            {/* Edit/Prompt Toggle */}
+            <div className="inline-flex rounded-lg bg-slate-800/50 p-0.5">
+              <button
+                onClick={() => setViewMode('edit')}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5',
+                  viewMode === 'edit'
+                    ? 'bg-slate-700 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit
+              </button>
+              <button
+                onClick={() => setViewMode('prompt')}
+                className={cn(
+                  'px-3 py-1.5 text-xs font-medium rounded-md transition-all flex items-center gap-1.5',
+                  viewMode === 'prompt'
+                    ? 'bg-slate-700 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-slate-200'
+                )}
+              >
+                <FileText className="w-3.5 h-3.5" />
+                Prompt
+              </button>
+            </div>
+          </div>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto">
-          {/* Presets Section */}
-          <div className="px-4 py-3 border-b border-white/10">
-            <div className="flex items-center justify-between mb-2">
-              <div className="flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-slate-400" />
-                <Label className="text-slate-300 text-sm">Presets sauvegardés</Label>
-              </div>
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-7 text-xs border-white/10"
-                onClick={() => setShowSaveDialog(true)}
-              >
-                <Save className="w-3 h-3 mr-1" />
-                Sauvegarder
-              </Button>
-            </div>
-
-            {isLoadingPresets ? (
-              <div className="flex items-center gap-2 py-2">
-                <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
-                <span className="text-xs text-slate-500">Chargement...</span>
-              </div>
-            ) : (
-              <div className="flex flex-wrap gap-2">
-                {/* Genre quick presets */}
-                {GENRE_OPTIONS.slice(0, 4).map((genre) => (
-                  <button
-                    key={genre.value}
-                    onClick={() => applyGenrePreset(genre.value)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
-                      "border-white/10 text-slate-400 hover:border-amber-500/30 hover:text-amber-400 hover:bg-amber-500/10"
-                    )}
+        <div className="flex-1 overflow-y-auto min-h-[500px]">
+          {viewMode === 'edit' ? (
+            <>
+              {/* Presets Section */}
+              <div className="px-4 py-3 border-b border-white/10">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="w-4 h-4 text-slate-400" />
+                    <Label className="text-slate-300 text-sm">Presets</Label>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-7 text-xs border-white/10"
+                    onClick={() => setShowSaveDialog(true)}
                   >
-                    {genre.label}
-                  </button>
-                ))}
+                    <Save className="w-3 h-3 mr-1" />
+                    Sauvegarder
+                  </Button>
+                </div>
 
-                {/* Saved presets */}
-                {presets.map((preset) => (
-                  <button
-                    key={preset.id}
-                    onClick={() => applyPreset(preset)}
-                    className={cn(
-                      "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
-                      config.preset_id === preset.id
-                        ? "border-blue-500/50 text-blue-400 bg-blue-500/10"
-                        : "border-white/10 text-slate-400 hover:border-blue-500/30 hover:text-blue-400"
+                {isLoadingPresets ? (
+                  <div className="flex items-center gap-2 py-2">
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-400" />
+                    <span className="text-xs text-slate-500">Chargement...</span>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {/* Genre quick presets */}
+                    {GENRE_OPTIONS.slice(0, 4).map((genre) => (
+                      <button
+                        key={genre.value}
+                        onClick={() => applyGenrePreset(genre.value)}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
+                          "border-white/10 text-slate-400 hover:border-amber-500/30 hover:text-amber-400 hover:bg-amber-500/10"
+                        )}
+                      >
+                        {genre.label}
+                      </button>
+                    ))}
+
+                    {/* Saved presets */}
+                    {presets.map((preset) => (
+                      <button
+                        key={preset.id}
+                        onClick={() => applyPreset(preset)}
+                        className={cn(
+                          "px-3 py-1.5 rounded-lg border text-xs font-medium transition-all",
+                          config.preset_id === preset.id
+                            ? "border-blue-500/50 text-blue-400 bg-blue-500/10"
+                            : "border-white/10 text-slate-400 hover:border-blue-500/30 hover:text-blue-400"
+                        )}
+                      >
+                        {preset.name}
+                      </button>
+                    ))}
+
+                    {presets.length === 0 && (
+                      <span className="text-xs text-slate-500 py-1">
+                        Aucun preset sauvegardé
+                      </span>
                     )}
-                  >
-                    {preset.name}
-                  </button>
-                ))}
-
-                {presets.length === 0 && (
-                  <span className="text-xs text-slate-500 py-1">
-                    Aucun preset sauvegardé
-                  </span>
+                  </div>
                 )}
               </div>
-            )}
-          </div>
 
-          {/* Main Configuration Grid */}
-          <div className="grid grid-cols-2 gap-4 p-4">
-            {/* Left Column */}
-            <div className="space-y-4">
-              {/* Lighting */}
-              <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                <LightingSelector
-                  value={config.lighting}
-                  onChange={(lighting) => setConfig({ ...config, lighting })}
-                />
+              {/* Main Configuration Grid - 3 columns */}
+              <div className="grid grid-cols-3 gap-4 p-4">
+                {/* Column 1: Lighting + Time/Weather */}
+                <div className="space-y-4">
+                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                    <LightingSelector
+                      value={config.lighting}
+                      onChange={(lighting) => setConfig({ ...config, lighting })}
+                    />
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-white/5 border border-white/10 space-y-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🕐</span>
+                      <Label className="text-slate-300 font-medium">Temporalité</Label>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Label className="text-slate-400 text-xs w-16">Moment</Label>
+                      <Select
+                        value={config.time_of_day}
+                        onValueChange={(v) => setConfig({ ...config, time_of_day: v as TimeOfDayCinematic })}
+                      >
+                        <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs flex-1">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[#1a2e44] border-white/10">
+                          {TIME_OF_DAY_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <Label className="text-slate-400 text-xs w-16">Météo</Label>
+                      <Select
+                        value={config.weather || '_none'}
+                        onValueChange={(v) => setConfig({ ...config, weather: v === '_none' ? undefined : v as Weather })}
+                      >
+                        <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs flex-1">
+                          <SelectValue placeholder="Optionnel" />
+                        </SelectTrigger>
+                        <SelectContent className="bg-[#1a2e44] border-white/10">
+                          <SelectItem value="_none" className="text-xs text-slate-500">-</SelectItem>
+                          {WEATHER_OPTIONS.map((opt) => (
+                            <SelectItem key={opt.value} value={opt.value} className="text-xs">
+                              {opt.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Column 2: Camera + Color Grade */}
+                <div className="space-y-4">
+                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                    <CameraSelector
+                      value={config.camera}
+                      onChange={(camera) => setConfig({ ...config, camera })}
+                    />
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                    <ColorGradeSelector
+                      value={config.color_grade}
+                      onChange={(color_grade) => setConfig({ ...config, color_grade })}
+                    />
+                  </div>
+                </div>
+
+                {/* Column 3: Tone + Notes */}
+                <div className="space-y-4">
+                  <div className="p-3 rounded-lg bg-white/5 border border-white/10">
+                    <ToneSelector
+                      value={config.tone}
+                      onChange={(tone) => setConfig({ ...config, tone })}
+                    />
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-white/5 border border-white/10 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">📝</span>
+                      <Label className="text-slate-300 font-medium">Notes</Label>
+                    </div>
+                    <Textarea
+                      value={config.additional_notes || ''}
+                      onChange={(e) => setConfig({ ...config, additional_notes: e.target.value || undefined })}
+                      placeholder="Détails supplémentaires..."
+                      className="bg-white/5 border-white/10 text-white text-xs min-h-[80px] resize-none"
+                    />
+                  </div>
+                </div>
               </div>
-
-              {/* Time & Weather */}
-              <div className="p-3 rounded-lg bg-white/5 border border-white/10 space-y-3">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">🕐</span>
-                  <Label className="text-slate-300 font-medium">Temporalité</Label>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Label className="text-slate-400 text-xs w-16">Moment</Label>
-                  <Select
-                    value={config.time_of_day}
-                    onValueChange={(v) => setConfig({ ...config, time_of_day: v as TimeOfDayCinematic })}
-                  >
-                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs flex-1">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#1a2e44] border-white/10">
-                      {TIME_OF_DAY_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <Label className="text-slate-400 text-xs w-16">Météo</Label>
-                  <Select
-                    value={config.weather || '_none'}
-                    onValueChange={(v) => setConfig({ ...config, weather: v === '_none' ? undefined : v as Weather })}
-                  >
-                    <SelectTrigger className="bg-white/5 border-white/10 text-white h-8 text-xs flex-1">
-                      <SelectValue placeholder="Optionnel" />
-                    </SelectTrigger>
-                    <SelectContent className="bg-[#1a2e44] border-white/10">
-                      <SelectItem value="_none" className="text-xs text-slate-500">-</SelectItem>
-                      {WEATHER_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value} className="text-xs">
-                          {opt.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+            </>
+          ) : (
+            /* Prompt View */
+            <div className="h-full flex flex-col p-4 space-y-3">
+              <div className="flex items-center justify-between flex-shrink-0">
+                <Label className="text-slate-300 text-sm">Prompt final (style + shots)</Label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={copyPrompt}
+                  className="h-7 text-xs border-white/10 text-slate-400 hover:text-white"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-3.5 h-3.5 mr-1.5 text-green-400" />
+                      Copié
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-3.5 h-3.5 mr-1.5" />
+                      Copier
+                    </>
+                  )}
+                </Button>
               </div>
-
-              {/* Camera */}
-              <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                <CameraSelector
-                  value={config.camera}
-                  onChange={(camera) => setConfig({ ...config, camera })}
-                />
+              <div className="flex-1 p-4 bg-slate-950/50 rounded-lg border border-white/10 overflow-y-auto">
+                <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
+                  {fullPrompt}
+                </pre>
               </div>
             </div>
-
-            {/* Right Column */}
-            <div className="space-y-4">
-              {/* Color Grade */}
-              <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                <ColorGradeSelector
-                  value={config.color_grade}
-                  onChange={(color_grade) => setConfig({ ...config, color_grade })}
-                />
-              </div>
-
-              {/* Tone */}
-              <div className="p-3 rounded-lg bg-white/5 border border-white/10">
-                <ToneSelector
-                  value={config.tone}
-                  onChange={(tone) => setConfig({ ...config, tone })}
-                />
-              </div>
-
-              {/* Additional Notes */}
-              <div className="p-3 rounded-lg bg-white/5 border border-white/10 space-y-2">
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">📝</span>
-                  <Label className="text-slate-300 font-medium">Notes additionnelles</Label>
-                </div>
-                <Textarea
-                  value={config.additional_notes || ''}
-                  onChange={(e) => setConfig({ ...config, additional_notes: e.target.value || undefined })}
-                  placeholder="Détails supplémentaires non couverts..."
-                  className="bg-white/5 border-white/10 text-white text-xs min-h-[60px] resize-none"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Prompt Preview */}
-          <div className="px-4 pb-4">
-            <div className="p-3 rounded-lg bg-slate-900 border border-blue-500/20">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-lg">📄</span>
-                <Label className="text-blue-400 text-sm font-medium">Aperçu du prompt généré</Label>
-              </div>
-              <pre className="text-xs text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
-                {promptPreview}
-              </pre>
-            </div>
-          </div>
+          )}
         </div>
 
         {/* Footer */}
