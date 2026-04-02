@@ -30,6 +30,13 @@ import type {
   Weather,
 } from '@/types/cinematic';
 import { Input } from '@/components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface CinematicHeaderWizardProps {
   open: boolean;
@@ -38,6 +45,7 @@ interface CinematicHeaderWizardProps {
   onChange: (config: CinematicHeaderConfig) => void;
   projectId: string;
   segments?: Segment[];
+  locations?: Array<{ id: string; name: string; description?: string }>;
 }
 
 // Check if a config has all required fields
@@ -58,6 +66,7 @@ export function CinematicHeaderWizard({
   onChange,
   projectId,
   segments = [],
+  locations = [],
 }: CinematicHeaderWizardProps) {
   // Local state for editing - ensure we have valid defaults
   const [config, setConfig] = useState<CinematicHeaderConfig>(
@@ -67,6 +76,11 @@ export function CinematicHeaderWizard({
   // View mode state
   const [viewMode, setViewMode] = useState<'edit' | 'prompt'>('edit');
   const [activeTab, setActiveTab] = useState<'tone' | 'time' | 'lighting' | 'camera' | 'color'>('tone');
+
+  // Location mode: 'custom' for free text, 'bible' for Bible locations
+  const [locationMode, setLocationMode] = useState<'custom' | 'bible'>(
+    config.scene?.location_id ? 'bible' : 'custom'
+  );
   const [copied, setCopied] = useState(false);
 
   // Sync with external value when dialog opens
@@ -290,19 +304,95 @@ export function CinematicHeaderWizard({
 
                     {/* Location */}
                     <div>
-                      <Label className="text-slate-400 text-xs mb-2 block">Lieu</Label>
-                      <Input
-                        value={config.scene?.location_custom || ''}
-                        onChange={(e) => setConfig({
-                          ...config,
-                          scene: { ...config.scene, setting: config.scene?.setting || 'int', location_custom: e.target.value }
-                        })}
-                        placeholder="Dark, moody kitchen lit by a single pendant light..."
-                        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
-                      />
-                      <p className="text-[10px] text-slate-500 mt-1">
-                        Décrivez le lieu et son ambiance. Ex: "Cramped apartment bathroom", "Rainy city rooftop"
-                      </p>
+                      <div className="flex items-center justify-between mb-2">
+                        <Label className="text-slate-400 text-xs">Lieu</Label>
+                        {/* Mode toggle */}
+                        <div className="inline-flex rounded-md bg-slate-800/50 p-0.5 border border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLocationMode('custom');
+                              setConfig({
+                                ...config,
+                                scene: { ...config.scene, setting: config.scene?.setting || 'int', location_id: undefined }
+                              });
+                            }}
+                            className={cn(
+                              'px-2.5 py-1 text-[10px] font-medium rounded transition-all',
+                              locationMode === 'custom'
+                                ? 'bg-blue-500/30 text-blue-300'
+                                : 'text-slate-400 hover:text-slate-200'
+                            )}
+                          >
+                            Description
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setLocationMode('bible');
+                              setConfig({
+                                ...config,
+                                scene: { ...config.scene, setting: config.scene?.setting || 'int', location_custom: undefined }
+                              });
+                            }}
+                            disabled={locations.length === 0}
+                            className={cn(
+                              'px-2.5 py-1 text-[10px] font-medium rounded transition-all',
+                              locationMode === 'bible'
+                                ? 'bg-blue-500/30 text-blue-300'
+                                : locations.length === 0
+                                  ? 'text-slate-600 cursor-not-allowed'
+                                  : 'text-slate-400 hover:text-slate-200'
+                            )}
+                          >
+                            Bible
+                          </button>
+                        </div>
+                      </div>
+
+                      {locationMode === 'custom' ? (
+                        <>
+                          <Input
+                            value={config.scene?.location_custom || ''}
+                            onChange={(e) => setConfig({
+                              ...config,
+                              scene: { ...config.scene, setting: config.scene?.setting || 'int', location_custom: e.target.value }
+                            })}
+                            placeholder="Dark, moody kitchen lit by a single pendant light..."
+                            className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
+                          />
+                          <p className="text-[10px] text-slate-500 mt-1">
+                            Décrivez le lieu et son ambiance
+                          </p>
+                        </>
+                      ) : (
+                        <Select
+                          value={config.scene?.location_id || ''}
+                          onValueChange={(locationId) => {
+                            const location = locations.find(l => l.id === locationId);
+                            setConfig({
+                              ...config,
+                              scene: {
+                                ...config.scene,
+                                setting: config.scene?.setting || 'int',
+                                location_id: locationId,
+                                location_custom: location?.description || location?.name
+                              }
+                            });
+                          }}
+                        >
+                          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
+                            <SelectValue placeholder="Sélectionner un lieu..." />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-800 border-white/10">
+                            {locations.map((loc) => (
+                              <SelectItem key={loc.id} value={loc.id} className="text-white">
+                                {loc.name}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
 
                     {/* Time of Day */}
