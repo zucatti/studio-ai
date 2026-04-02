@@ -35,9 +35,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
-import type { Segment, ShotType, CameraMovement, DialogueTone, ShotBeat } from '@/types/cinematic';
+import type { Segment, ShotFraming, ShotComposition, CameraMovement, DialogueTone, ShotBeat } from '@/types/cinematic';
 import {
-  SHOT_TYPE_OPTIONS,
+  SHOT_FRAMING_OPTIONS,
+  SHOT_COMPOSITION_OPTIONS,
   CAMERA_MOVEMENT_OPTIONS,
   DIALOGUE_TONE_OPTIONS,
   createDefaultBeat,
@@ -286,7 +287,12 @@ export function SegmentEditor({
     const startTime = formatTime(formData.start_time || 0);
     const endTime = formatTime(formData.end_time || 0);
 
-    const shotType = SHOT_TYPE_OPTIONS.find(o => o.value === formData.shot_type)?.label.toUpperCase() || 'MEDIUM';
+    // Build shot type label: "MEDIUM TWO-SHOT" or just "MEDIUM"
+    const framingLabel = SHOT_FRAMING_OPTIONS.find(o => o.value === formData.shot_framing)?.label.toUpperCase() || 'MEDIUM';
+    const compositionLabel = SHOT_COMPOSITION_OPTIONS.find(o => o.value === formData.shot_composition)?.label.toUpperCase();
+    const shotType = compositionLabel && formData.shot_composition !== 'single'
+      ? `${framingLabel} ${compositionLabel}`
+      : framingLabel;
     const subject = extractSubject(formData);
 
     const lines: string[] = [];
@@ -408,19 +414,19 @@ export function SegmentEditor({
           <div className="flex-1 overflow-hidden min-h-[400px]">
             {viewMode === 'edit' ? (
               <div className="h-full overflow-y-auto p-6 space-y-5">
-                {/* Shot Type & Camera Movement */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* Framing, Composition & Camera Movement */}
+                <div className="grid grid-cols-3 gap-3">
                   <div className="space-y-1.5">
-                    <Label className="text-slate-300 text-xs">Shot Type</Label>
+                    <Label className="text-slate-300 text-xs">Cadrage</Label>
                     <Select
-                      value={formData.shot_type || 'medium'}
-                      onValueChange={(v) => updateField('shot_type', v as ShotType)}
+                      value={formData.shot_framing || 'medium'}
+                      onValueChange={(v) => updateField('shot_framing', v as ShotFraming)}
                     >
                       <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-9">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent className="bg-slate-800 border-white/10">
-                        {SHOT_TYPE_OPTIONS.map((opt) => (
+                        {SHOT_FRAMING_OPTIONS.map((opt) => (
                           <SelectItem key={opt.value} value={opt.value} className="text-white">
                             {opt.label}
                           </SelectItem>
@@ -429,7 +435,25 @@ export function SegmentEditor({
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-slate-300 text-xs">Camera Movement</Label>
+                    <Label className="text-slate-300 text-xs">Composition</Label>
+                    <Select
+                      value={formData.shot_composition || 'single'}
+                      onValueChange={(v) => updateField('shot_composition', v as ShotComposition)}
+                    >
+                      <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-9">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-800 border-white/10">
+                        {SHOT_COMPOSITION_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value} className="text-white">
+                            {opt.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-slate-300 text-xs">Caméra</Label>
                     <Select
                       value={formData.camera_movement || 'static'}
                       onValueChange={(v) => updateField('camera_movement', v as CameraMovement)}

@@ -23,12 +23,13 @@ import {
 import { formatDuration } from './DurationPicker';
 import { cn } from '@/lib/utils';
 import type { Plan } from '@/store/shorts-store';
-import type { Segment, ShotType } from '@/types/cinematic';
+import type { Segment, ShotFraming } from '@/types/cinematic';
 import { getPlanDisplayTitle } from '@/types/cinematic';
 
-// Color for shot type in mini timeline
-function getMiniSegmentColor(type: ShotType): string {
-  const colors: Record<ShotType, string> = {
+// Color for shot framing in mini timeline
+function getMiniSegmentColor(framing?: ShotFraming): string {
+  if (!framing) return 'bg-slate-500';
+  const colors: Record<ShotFraming, string> = {
     extreme_wide: 'bg-purple-500',
     wide: 'bg-indigo-500',
     medium_wide: 'bg-blue-500',
@@ -36,12 +37,8 @@ function getMiniSegmentColor(type: ShotType): string {
     medium_close_up: 'bg-teal-500',
     close_up: 'bg-green-500',
     extreme_close_up: 'bg-lime-500',
-    over_shoulder: 'bg-amber-500',
-    pov: 'bg-orange-500',
-    insert: 'bg-rose-500',
-    two_shot: 'bg-pink-500',
   };
-  return colors[type] || 'bg-slate-500';
+  return colors[framing] || 'bg-slate-500';
 }
 
 // Mini timeline component for plan card
@@ -65,7 +62,7 @@ function MiniSegmentTimeline({ segments, duration }: { segments: Segment[]; dura
         return (
           <div
             key={seg.id}
-            className={cn('h-full flex-shrink-0', getMiniSegmentColor(seg.shot_type))}
+            className={cn('h-full flex-shrink-0', getMiniSegmentColor(seg.shot_framing))}
             style={{
               width: `${Math.max(widthPercent, 3)}%`,
               marginLeft: leftGapPercent > 0 ? `${leftGapPercent}%` : undefined,

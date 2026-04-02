@@ -100,7 +100,12 @@ export function CinematicHeaderWizard({
         const startTime = `${startMins}:${startSecs.toString().padStart(2, '0')}`;
         const endTime = `${endMins}:${endSecs.toString().padStart(2, '0')}`;
 
-        const shotType = segment.shot_type?.toUpperCase() || 'MEDIUM';
+        // Build shot type: "MEDIUM TWO-SHOT" or just "MEDIUM"
+        const framing = segment.shot_framing?.replace(/_/g, ' ').toUpperCase() || 'MEDIUM';
+        const composition = segment.shot_composition && segment.shot_composition !== 'single'
+          ? ` ${segment.shot_composition.replace(/_/g, ' ').toUpperCase()}`
+          : '';
+        const shotType = `${framing}${composition}`;
 
         // Extract subject from description or first beat
         let subject = segment.description?.match(/[@#!][A-Za-z][A-Za-z0-9_]*/)?.[0];

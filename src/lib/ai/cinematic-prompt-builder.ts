@@ -45,7 +45,7 @@ function formatTime(seconds: number): string {
 /**
  * Get shot type label for prompt
  */
-function getShotTypeLabel(shotType: ShotType | string | null): string {
+function getShotTypeLabel(shotType: ShotType | string | null | undefined): string {
   if (!shotType) return 'SHOT';
 
   const labels: Record<string, string> = {
@@ -178,8 +178,17 @@ function buildSegmentsPrompt(
     const segment = sortedSegments[i];
     const shotNumber = i + 1;
 
-    // Build shot header
-    const shotType = getShotTypeLabel(segment.shot_type);
+    // Build shot header from new framing/composition fields, fallback to legacy shot_type
+    let shotType: string;
+    if (segment.shot_framing) {
+      const framing = segment.shot_framing.replace(/_/g, ' ').toUpperCase();
+      const composition = segment.shot_composition && segment.shot_composition !== 'single'
+        ? ` ${segment.shot_composition.replace(/_/g, '-').toUpperCase()}`
+        : '';
+      shotType = `${framing}${composition}`;
+    } else {
+      shotType = getShotTypeLabel(segment.shot_type);
+    }
     const subject = segment.subject || 'Scene';
 
     lines.push(`SHOT ${shotNumber} (${formatTime(segment.start_time)}–${formatTime(segment.end_time)}) — ${shotType}, ${subject}:`);

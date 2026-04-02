@@ -4,8 +4,8 @@ import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Plus, Trash2, MessageSquare } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { Segment, ShotType } from '@/types/cinematic';
-import { SHOT_TYPE_OPTIONS, createDefaultSegment } from '@/types/cinematic';
+import type { Segment, ShotFraming, ShotComposition } from '@/types/cinematic';
+import { SHOT_FRAMING_OPTIONS, SHOT_COMPOSITION_OPTIONS, createDefaultSegment } from '@/types/cinematic';
 
 // Minimum segment duration in seconds
 export const MIN_SEGMENT_DURATION = 3;
@@ -131,33 +131,33 @@ export function scaleSegmentsToDuration(
   return scaled;
 }
 
-// Get short label for shot type
-function getShotTypeLabel(type: ShotType): string {
-  const option = SHOT_TYPE_OPTIONS.find((o) => o.value === type);
-  return option?.label || type;
+// Get shot label combining framing and composition
+function getShotLabel(framing: ShotFraming, composition?: ShotComposition): string {
+  const framingOpt = SHOT_FRAMING_OPTIONS.find((o) => o.value === framing);
+  const compositionOpt = SHOT_COMPOSITION_OPTIONS.find((o) => o.value === composition);
+
+  const framingLabel = framingOpt?.label || framing;
+  if (composition && composition !== 'single' && compositionOpt) {
+    return `${framingLabel} ${compositionOpt.label}`;
+  }
+  return framingLabel;
 }
 
 // Get abbreviated shot type (for compact display)
-function getShotTypeAbbr(type: ShotType): string {
-  const abbrs: Record<ShotType, string> = {
-    extreme_wide: 'XW',
-    wide: 'W',
-    medium_wide: 'MW',
-    medium: 'M',
-    medium_close_up: 'MCU',
-    close_up: 'CU',
-    extreme_close_up: 'XCU',
-    over_shoulder: 'OTS',
-    pov: 'POV',
-    insert: 'INS',
-    two_shot: '2S',
-  };
-  return abbrs[type] || type;
+function getShotAbbr(framing: ShotFraming, composition?: ShotComposition): string {
+  const framingOpt = SHOT_FRAMING_OPTIONS.find((o) => o.value === framing);
+  const compositionOpt = SHOT_COMPOSITION_OPTIONS.find((o) => o.value === composition);
+
+  const framingAbbr = framingOpt?.abbr || 'M';
+  if (composition && composition !== 'single' && compositionOpt?.abbr) {
+    return `${framingAbbr} ${compositionOpt.abbr}`;
+  }
+  return framingAbbr;
 }
 
-// Color for shot type
-function getShotTypeColor(type: ShotType): string {
-  const colors: Record<ShotType, string> = {
+// Color for shot framing (based on size - larger = cooler, tighter = warmer)
+function getShotColor(framing: ShotFraming): string {
+  const colors: Record<ShotFraming, string> = {
     extreme_wide: 'bg-purple-500/80',
     wide: 'bg-indigo-500/80',
     medium_wide: 'bg-blue-500/80',
@@ -165,12 +165,8 @@ function getShotTypeColor(type: ShotType): string {
     medium_close_up: 'bg-teal-500/80',
     close_up: 'bg-green-500/80',
     extreme_close_up: 'bg-lime-500/80',
-    over_shoulder: 'bg-amber-500/80',
-    pov: 'bg-orange-500/80',
-    insert: 'bg-rose-500/80',
-    two_shot: 'bg-pink-500/80',
   };
-  return colors[type] || 'bg-slate-500/80';
+  return colors[framing] || 'bg-slate-500/80';
 }
 
 export function SegmentTimeline({
@@ -474,7 +470,7 @@ export function SegmentTimeline({
               key={segment.id}
               className={cn(
                 'absolute top-1 bottom-1 rounded-sm cursor-pointer transition-all',
-                getShotTypeColor(segment.shot_type),
+                getShotColor(segment.shot_framing),
                 isSelected
                   ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 z-10'
                   : 'hover:brightness-110'
@@ -501,7 +497,7 @@ export function SegmentTimeline({
                 {/* Left: Shot type (full if wide enough, abbr otherwise) */}
                 <div className="flex items-center gap-1 text-white/90 text-[10px] font-medium min-w-0">
                   <span className="bg-black/30 px-1 rounded truncate">
-                    {width > 20 ? getShotTypeLabel(segment.shot_type) : getShotTypeAbbr(segment.shot_type)}
+                    {width > 20 ? getShotLabel(segment.shot_framing, segment.shot_composition) : getShotAbbr(segment.shot_framing, segment.shot_composition)}
                   </span>
                   {segment.dialogue && (
                     <MessageSquare className="w-2.5 h-2.5 flex-shrink-0 opacity-75" />
@@ -564,7 +560,7 @@ export function SegmentTimeline({
               return (
                 <span>
                   Shot {sortedSegments.findIndex((seg) => seg.id === s.id) + 1}:{' '}
-                  {getShotTypeLabel(s.shot_type)} ({formatTime(s.start_time)} → {formatTime(s.end_time)})
+                  {getShotLabel(s.shot_framing, s.shot_composition)} ({formatTime(s.start_time)} → {formatTime(s.end_time)})
                 </span>
               );
             })()}

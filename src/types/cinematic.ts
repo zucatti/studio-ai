@@ -94,6 +94,26 @@ export type DialogueLanguage = 'en' | 'fr' | 'es' | 'de' | 'it' | 'pt' | 'zh' | 
 // Shot Types (segment within a plan)
 // ============================================================================
 
+// Shot Framing (size/distance)
+export type ShotFraming =
+  | 'extreme_wide'
+  | 'wide'
+  | 'medium_wide'
+  | 'medium'
+  | 'medium_close_up'
+  | 'close_up'
+  | 'extreme_close_up';
+
+// Shot Composition (who/what in frame)
+export type ShotComposition =
+  | 'single'
+  | 'two_shot'
+  | 'group'
+  | 'over_shoulder'
+  | 'pov'
+  | 'insert';
+
+// Legacy - kept for backward compatibility
 export type ShotType =
   | 'extreme_wide'
   | 'wide'
@@ -176,9 +196,10 @@ export interface Segment {
   start_time: number;
   end_time: number;
 
-  // Identification
-  shot_type: ShotType;
-  subject?: string;  // Extracted from description or first beat character
+  // Shot definition (new system)
+  shot_framing: ShotFraming;          // Size: wide, medium, close-up...
+  shot_composition?: ShotComposition; // Who: single, two-shot, OTS...
+  subject?: string;                   // Extracted from description or first beat
 
   // Visual description (framing, atmosphere, setup)
   description?: string;
@@ -191,6 +212,7 @@ export interface Segment {
   camera_notes?: string;  // Free-form: "Slight push-in", "Subtle drift right"
 
   // Legacy fields (for backward compatibility)
+  shot_type?: ShotType;  // @deprecated - use shot_framing + shot_composition
   dialogue?: SegmentDialogue;
   framing?: string;
   action?: string;
@@ -414,6 +436,26 @@ export const PACING_OPTIONS: { value: TonePacing; label: string }[] = [
 // Shot/Segment Options
 // ============================================================================
 
+export const SHOT_FRAMING_OPTIONS: { value: ShotFraming; label: string; abbr: string }[] = [
+  { value: 'extreme_wide', label: 'Extreme Wide', abbr: 'XW' },
+  { value: 'wide', label: 'Wide', abbr: 'W' },
+  { value: 'medium_wide', label: 'Medium Wide', abbr: 'MW' },
+  { value: 'medium', label: 'Medium', abbr: 'M' },
+  { value: 'medium_close_up', label: 'Medium Close-up', abbr: 'MCU' },
+  { value: 'close_up', label: 'Close-up', abbr: 'CU' },
+  { value: 'extreme_close_up', label: 'Extreme Close-up', abbr: 'XCU' },
+];
+
+export const SHOT_COMPOSITION_OPTIONS: { value: ShotComposition; label: string; abbr: string }[] = [
+  { value: 'single', label: 'Single', abbr: '' },
+  { value: 'two_shot', label: 'Two-Shot', abbr: '2S' },
+  { value: 'group', label: 'Group', abbr: 'GRP' },
+  { value: 'over_shoulder', label: 'Over Shoulder', abbr: 'OTS' },
+  { value: 'pov', label: 'POV', abbr: 'POV' },
+  { value: 'insert', label: 'Insert', abbr: 'INS' },
+];
+
+// Legacy - kept for backward compatibility
 export const SHOT_TYPE_OPTIONS: { value: ShotType; label: string; description: string }[] = [
   { value: 'extreme_wide', label: 'Extreme Wide', description: 'Vast landscape or setting' },
   { value: 'wide', label: 'Wide', description: 'Full scene with context' },
@@ -494,7 +536,8 @@ export function createDefaultSegment(startTime: number = 0, duration: number = 5
     id: crypto.randomUUID(),
     start_time: startTime,
     end_time: startTime + duration,
-    shot_type: 'medium',
+    shot_framing: 'medium',
+    shot_composition: 'single',
     beats: [],
   };
 }
