@@ -257,8 +257,8 @@ export function SegmentEditor({
             </DialogDescription>
           </DialogHeader>
 
-          {/* Content */}
-          <div className="flex-1 overflow-hidden">
+          {/* Content - Fixed height for consistent modal size */}
+          <div className="flex-1 overflow-hidden min-h-[350px]">
             {viewMode === 'edit' ? (
               /* Edit Mode - Single Column Layout */
               <div className="h-full overflow-y-auto p-6 space-y-5">
