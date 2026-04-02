@@ -10,7 +10,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import {
   Select,
   SelectContent,
@@ -414,25 +413,12 @@ export function CinematicHeaderWizard({
                   </div>
                 </div>
 
-                {/* Column 3: Tone + Notes */}
+                {/* Column 3: Tone */}
                 <div className="space-y-4">
                   <div className="p-3 rounded-lg bg-white/5 border border-white/10">
                     <ToneSelector
                       value={config.tone}
                       onChange={(tone) => setConfig({ ...config, tone })}
-                    />
-                  </div>
-
-                  <div className="p-3 rounded-lg bg-white/5 border border-white/10 space-y-2">
-                    <div className="flex items-center gap-2">
-                      <span className="text-lg">📝</span>
-                      <Label className="text-slate-300 font-medium">Notes</Label>
-                    </div>
-                    <Textarea
-                      value={config.additional_notes || ''}
-                      onChange={(e) => setConfig({ ...config, additional_notes: e.target.value || undefined })}
-                      placeholder="Détails supplémentaires..."
-                      className="bg-white/5 border-white/10 text-white text-xs min-h-[80px] resize-none"
                     />
                   </div>
                 </div>
