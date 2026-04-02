@@ -209,11 +209,6 @@ function buildSegmentsPrompt(
       lines.push(`Camera: ${movementLabel}`);
     }
 
-    // Camera notes (additional directions)
-    if (segment.camera_notes) {
-      lines.push(segment.camera_notes);
-    }
-
     // Dialogue (with character reference and voice tag)
     if (segment.dialogue) {
       const charRef = segment.dialogue.character_id

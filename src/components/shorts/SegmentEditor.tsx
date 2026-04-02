@@ -410,9 +410,6 @@ export function SegmentEditor({
       const movement = CAMERA_MOVEMENT_OPTIONS.find(o => o.value === formData.camera_movement)?.label || '';
       lines.push(`Camera: ${movement}.`);
     }
-    if (formData.camera_notes) {
-      lines.push(formData.camera_notes);
-    }
 
     return lines.join('\n').trim();
   }, [formData, segmentIndex]);
@@ -582,16 +579,6 @@ export function SegmentEditor({
                   )}
                 </div>
 
-                {/* Camera Notes */}
-                <div className="space-y-1.5">
-                  <Label className="text-slate-300 text-xs">Camera Notes (optional)</Label>
-                  <Input
-                    value={formData.camera_notes || ''}
-                    onChange={(e) => updateField('camera_notes', e.target.value || undefined)}
-                    placeholder="Slight push-in, subtle drift to the right..."
-                    className="bg-slate-800/50 border-white/10 text-white h-9 text-sm placeholder:text-slate-600"
-                  />
-                </div>
               </div>
             ) : (
               /* Preview Mode */

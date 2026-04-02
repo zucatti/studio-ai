@@ -162,9 +162,6 @@ export function CinematicHeaderWizard({
         if (segment.camera_movement && segment.camera_movement !== 'static') {
           lines.push(`Camera: ${segment.camera_movement.replace(/_/g, ' ')}.`);
         }
-        if (segment.camera_notes) {
-          lines.push(segment.camera_notes);
-        }
       });
     }
 
