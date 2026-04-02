@@ -198,3 +198,59 @@ REDIS_HOST, REDIS_PORT
 - `!Look` - Variation de costume/style d'un personnage
 
 Ces mentions sont parsées et les images de référence sont envoyées aux providers qui les supportent.
+
+## TODO
+
+### Intégration Editly (JSON-to-video)
+
+**Priorité**: Haute
+
+Remplacer l'assemblage FFmpeg manuel par [Editly](https://github.com/mifi/editly) pour une approche déclarative JSON.
+
+**Architecture cible**:
+```
+src/lib/
+├── ffmpeg.ts          # Garder pour color matching uniquement
+├── editly.ts          # Nouveau - wrapper Editly
+└── video-assembly.ts  # Convertit Plan[] → Editly JSON spec
+```
+
+**À garder de FFmpeg**:
+- Color matching entre clips (analyzeFrameColors, calculateColorCorrection)
+- Normalisation résolution
+
+**Editly apporte**:
+- 20+ types de transitions
+- Titres/textes natifs
+- Ken Burns (zoom/pan sur images)
+- Subtitles
+- Specs JSON versionnables
+
+**Implémentation**:
+1. `npm install editly` dans worker/
+2. Créer `src/lib/editly.ts` avec wrapper
+3. Créer fonction `plansToEditlySpec(plans: Plan[])`
+4. Pipeline: color match clips → Editly assembly → upload B2
+
+---
+
+## Session Notes
+
+### 2025-04-03 - Mentions dans shots + Editly research
+
+**Réalisé**:
+1. **MentionInput dans SegmentEditor** - La description du shot supporte maintenant @character, #location, !look, &in, &out
+2. **MentionInput dans CinematicHeaderWizard** - Notes additionnelles avec mentions
+3. **Réduction colonne gauche** - Camera preview 40% → 60% pour édition
+4. **Bible locations** - Passage des locations du store vers PlanEditor (pour le wizard)
+5. **Research Editly** - Trouvé comme solution idéale pour JSON-to-video
+
+**Commits**:
+- `01e69ee` - Add mention support to shot description and additional notes
+
+**Fichiers modifiés**:
+- `src/components/shorts/SegmentEditor.tsx` - MentionInput + layout
+- `src/components/shorts/CinematicHeaderWizard.tsx` - MentionInput notes
+- `src/components/plan-editor/PlanEditor.tsx` - Prop locations
+- `src/components/plan-editor/types.ts` - Type locations
+- `src/app/(dashboard)/project/[projectId]/shorts/[shortId]/page.tsx` - Bible store integration
