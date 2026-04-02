@@ -79,6 +79,7 @@ interface ElevenLabsVoice {
   previewUrl?: string;
   category: string;
   isLibrary?: boolean;
+  publicOwnerId?: string;
 }
 
 type TabType = 'references' | 'looks' | 'audio';
@@ -1067,16 +1068,42 @@ export function CharacterFormDialog({
 
   // Select a voice and automatically create fal.ai voice
   const selectVoice = async (voice: ElevenLabsVoice) => {
-    // Warn user if selecting a library voice
-    if (voice.isLibrary) {
-      toast.warning(
-        'Cette voix provient de la Voice Library. Vous devez d\'abord l\'ajouter à votre collection sur elevenlabs.io avant de pouvoir l\'utiliser.',
-        { duration: 5000 }
-      );
+    let finalVoiceId = voice.id;
+    let finalVoiceName = voice.name;
+
+    // If it's a library voice, add it to the user's collection first
+    if (voice.isLibrary && voice.publicOwnerId) {
+      toast.info('Ajout de la voix à votre collection...', { duration: 2000 });
+
+      try {
+        const addRes = await fetch('/api/elevenlabs/voices/add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            publicUserId: voice.publicOwnerId,
+            voiceId: voice.id,
+            name: voice.name,
+          }),
+        });
+
+        if (addRes.ok) {
+          const addData = await addRes.json();
+          finalVoiceId = addData.voiceId;
+          toast.success('Voix ajoutée à votre collection !');
+        } else {
+          const error = await addRes.json();
+          toast.error(`Erreur: ${error.error || 'Impossible d\'ajouter la voix'}`);
+          return;
+        }
+      } catch (error) {
+        console.error('Error adding library voice:', error);
+        toast.error('Erreur lors de l\'ajout de la voix');
+        return;
+      }
     }
 
-    setVoiceId(voice.id);
-    setVoiceName(voice.name);
+    setVoiceId(finalVoiceId);
+    setVoiceName(finalVoiceName);
     setFalVoiceId(''); // Reset fal voice since we're changing ElevenLabs voice
     setFalVoiceSampleUrl(''); // Reset sample URL
 
@@ -1089,8 +1116,8 @@ export function CharacterFormDialog({
         await updateCharacter(characterId, {
           data: {
             ...existingData,
-            voice_id: voice.id,
-            voice_name: voice.name,
+            voice_id: finalVoiceId,
+            voice_name: finalVoiceName,
           },
         });
         // Now create fal voice

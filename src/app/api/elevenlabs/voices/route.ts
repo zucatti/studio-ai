@@ -15,6 +15,7 @@ interface SimplifiedVoice {
   previewUrl?: string;
   category: string;
   isLibrary?: boolean;
+  publicOwnerId?: string; // For library voices, needed to add to collection
 }
 
 export async function GET(request: Request) {
@@ -121,6 +122,7 @@ export async function GET(request: Request) {
               previewUrl: voice.preview_url,
               category: voice.category || 'library',
               isLibrary: true,
+              publicOwnerId: voice.public_owner_id,
             }));
         }
       } catch (libraryError) {
