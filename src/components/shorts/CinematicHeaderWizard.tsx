@@ -137,7 +137,7 @@ export function CinematicHeaderWizard({
           <div className="flex items-center justify-between">
             <DialogTitle className="text-white flex items-center gap-2">
               <Sparkles className="w-5 h-5 text-amber-400" />
-              Composer le style cinématique
+              Description cinématique
             </DialogTitle>
 
             {/* Edit/Prompt Toggle */}

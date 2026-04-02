@@ -649,7 +649,7 @@ export function PlanEditor({
               </div>
             )}
 
-            {/* Style Button - Opens CinematicHeaderWizard */}
+            {/* Description Button - Opens CinematicHeaderWizard */}
             {mode === 'video-free' && (
               <Button
                 variant="outline"
@@ -663,7 +663,7 @@ export function PlanEditor({
                 )}
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                Style
+                Description
                 {plan.cinematic_header && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                 )}
