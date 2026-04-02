@@ -437,7 +437,7 @@ export function SegmentEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-3xl max-h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0">
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0">
         <div className="flex flex-col h-full max-h-[90vh]">
           {/* Header */}
           <DialogHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">
@@ -483,245 +483,72 @@ export function SegmentEditor({
           {/* Content */}
           <div className="flex-1 overflow-hidden">
             {viewMode === 'edit' ? (
-              /* Edit Mode - Form */
-              <div className="h-full overflow-y-auto p-6 space-y-6">
-              {/* Presets */}
-              <div className="space-y-2">
-                <Label className="text-slate-300 flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-400" />
-                  Quick Presets
-                </Label>
-                <div className="grid grid-cols-3 gap-2">
-                  {SHOT_PRESETS.map((preset) => (
-                    <button
-                      key={preset.id}
-                      onClick={() => applyPreset(preset)}
-                      className={cn(
-                        'p-3 rounded-lg border text-left transition-all',
-                        activePreset === preset.id
-                          ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300'
-                          : 'bg-slate-800/50 border-white/10 text-slate-300 hover:bg-slate-800 hover:border-white/20'
-                      )}
-                    >
-                      <div className="flex items-center gap-2 mb-1">
-                        {preset.icon}
-                        <span className="font-medium text-sm">{preset.label}</span>
-                      </div>
-                      <span className="text-xs text-slate-500">{preset.description}</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-
-              {/* Shot Type & Camera Movement */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label className="text-slate-300">Shot Type</Label>
-                  <Select
-                    value={formData.shot_type || 'medium'}
-                    onValueChange={(v) => updateField('shot_type', v as ShotType)}
-                  >
-                    <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-800 border-white/10">
-                      {SHOT_TYPE_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value} className="text-white">
-                          <span>{opt.label}</span>
-                          <span className="text-xs text-slate-500 ml-2">— {opt.description}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label className="text-slate-300 flex items-center gap-1">
-                    <Move className="w-3.5 h-3.5" />
-                    Camera Movement
-                  </Label>
-                  <Select
-                    value={formData.camera_movement || 'static'}
-                    onValueChange={(v) => updateField('camera_movement', v as CameraMovement)}
-                  >
-                    <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent className="bg-slate-800 border-white/10 max-h-60">
-                      {CAMERA_MOVEMENT_OPTIONS.map((opt) => (
-                        <SelectItem key={opt.value} value={opt.value} className="text-white">
-                          <span>{opt.label}</span>
-                          <span className="text-xs text-slate-500 ml-2">— {opt.description}</span>
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-
-              {/* Subject */}
-              <div className="space-y-2">
-                <Label className="text-slate-300">Subject</Label>
-                <Input
-                  value={formData.subject || ''}
-                  onChange={(e) => updateField('subject', e.target.value)}
-                  placeholder="e.g. @Sarah, the knife, both characters"
-                  className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
-                />
-                {/* Quick subject chips */}
-                <div className="flex flex-wrap gap-1.5 mt-2">
-                  {characters.slice(0, 4).map((char) => (
-                    <button
-                      key={char.id}
-                      onClick={() => setSubjectFromCharacter(char.name)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30 transition-colors"
-                    >
-                      <User className="w-3 h-3" />
-                      {char.name}
-                    </button>
-                  ))}
-                  {locations.slice(0, 2).map((loc) => (
-                    <button
-                      key={loc.id}
-                      onClick={() => setSubjectFromLocation(loc.name)}
-                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-green-500/20 text-green-300 rounded hover:bg-green-500/30 transition-colors"
-                    >
-                      <MapPin className="w-3 h-3" />
-                      {loc.name}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Framing */}
-              <div className="space-y-2">
-                <Label className="text-slate-300">Framing</Label>
-                <Input
-                  value={formData.framing || ''}
-                  onChange={(e) => updateField('framing', e.target.value)}
-                  placeholder="Describe the camera framing..."
-                  className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
-                />
-                {/* Framing suggestions */}
-                <div className="flex flex-wrap gap-1.5">
-                  {framingSuggestions.map((suggestion, i) => (
-                    <button
-                      key={i}
-                      onClick={() => addToField('framing', suggestion)}
-                      className="px-2 py-0.5 text-xs bg-slate-700/50 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300 transition-colors"
-                    >
-                      + {suggestion}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Action */}
-              <div className="space-y-2">
-                <Label className="text-slate-300">Action</Label>
-                <Textarea
-                  value={formData.action || ''}
-                  onChange={(e) => updateField('action', e.target.value)}
-                  placeholder="What happens in this shot..."
-                  rows={2}
-                  className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none"
-                />
-                {/* Action suggestions */}
-                <div className="flex flex-wrap gap-1.5">
-                  {actionSuggestions.length > 0 ? (
-                    actionSuggestions.map((suggestion, i) => (
-                      <button
-                        key={i}
-                        onClick={() => addToField('action', suggestion)}
-                        className="px-2 py-0.5 text-xs bg-slate-700/50 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300 transition-colors"
-                      >
-                        + {suggestion}
-                      </button>
-                    ))
-                  ) : (
-                    ACTION_VERBS.slice(0, 8).map((verb, i) => (
-                      <button
-                        key={i}
-                        onClick={() => addToField('action', verb)}
-                        className="px-2 py-0.5 text-xs bg-slate-700/50 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300 transition-colors"
-                      >
-                        + {verb}
-                      </button>
-                    ))
-                  )}
-                </div>
-              </div>
-
-              {/* Environment */}
-              <div className="space-y-2">
-                <Label className="text-slate-300">Environment</Label>
-                <Input
-                  value={formData.environment || ''}
-                  onChange={(e) => updateField('environment', e.target.value)}
-                  placeholder="Lighting, atmosphere, background..."
-                  className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500"
-                />
-              </div>
-
-              {/* Dialogue Section */}
-              <div className="border-t border-white/10 pt-4">
-                <div className="flex items-center justify-between mb-4">
-                  <Label className="text-slate-300 flex items-center gap-2">
-                    <MessageSquare className="w-4 h-4" />
-                    Dialogue
-                  </Label>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={toggleDialogue}
-                    className={cn(
-                      'border-white/10',
-                      hasDialogue
-                        ? 'bg-green-500/20 border-green-500/30 text-green-400'
-                        : 'text-slate-400'
-                    )}
-                  >
-                    {hasDialogue ? 'Remove' : 'Add Dialogue'}
-                  </Button>
-                </div>
-
-                {hasDialogue && (
-                  <div className="grid gap-4 p-4 bg-slate-800/30 rounded-lg border border-white/5">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label className="text-slate-400 text-xs">Character</Label>
-                        <Select
-                          value={formData.dialogue?.character_id || ''}
-                          onValueChange={handleCharacterSelect}
-                        >
-                          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
-                            <SelectValue placeholder="Select character" />
-                          </SelectTrigger>
-                          <SelectContent className="bg-slate-800 border-white/10">
-                            {characters.map((char) => (
-                              <SelectItem key={char.id} value={char.id} className="text-white">
-                                {char.name}
-                              </SelectItem>
-                            ))}
-                            {characters.length === 0 && (
-                              <SelectItem value="__none__" disabled className="text-slate-500">
-                                No characters available
-                              </SelectItem>
+              /* Edit Mode - Two Column Layout */
+              <div className="h-full overflow-y-auto p-6">
+                <div className="grid grid-cols-2 gap-6">
+                  {/* Left Column - Shot Setup */}
+                  <div className="space-y-5">
+                    {/* Presets */}
+                    <div className="space-y-2">
+                      <Label className="text-slate-300 flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                        Quick Presets
+                      </Label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {SHOT_PRESETS.map((preset) => (
+                          <button
+                            key={preset.id}
+                            onClick={() => applyPreset(preset)}
+                            className={cn(
+                              'p-2.5 rounded-lg border text-left transition-all',
+                              activePreset === preset.id
+                                ? 'bg-indigo-500/20 border-indigo-500/50 text-indigo-300'
+                                : 'bg-slate-800/50 border-white/10 text-slate-300 hover:bg-slate-800 hover:border-white/20'
                             )}
-                          </SelectContent>
-                        </Select>
+                          >
+                            <div className="flex items-center gap-1.5">
+                              {preset.icon}
+                              <span className="font-medium text-xs">{preset.label}</span>
+                            </div>
+                          </button>
+                        ))}
                       </div>
-                      <div className="space-y-2">
-                        <Label className="text-slate-400 text-xs">Tone</Label>
+                    </div>
+
+                    {/* Shot Type & Camera Movement */}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label className="text-slate-300 text-xs">Shot Type</Label>
                         <Select
-                          value={formData.dialogue?.tone || 'neutral'}
-                          onValueChange={(v) => updateDialogueField('tone', v)}
+                          value={formData.shot_type || 'medium'}
+                          onValueChange={(v) => updateField('shot_type', v as ShotType)}
                         >
-                          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white">
+                          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-9">
                             <SelectValue />
                           </SelectTrigger>
                           <SelectContent className="bg-slate-800 border-white/10">
-                            {DIALOGUE_TONE_OPTIONS.map((opt) => (
+                            {SHOT_TYPE_OPTIONS.map((opt) => (
+                              <SelectItem key={opt.value} value={opt.value} className="text-white">
+                                {opt.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label className="text-slate-300 text-xs flex items-center gap-1">
+                          <Move className="w-3 h-3" />
+                          Camera
+                        </Label>
+                        <Select
+                          value={formData.camera_movement || 'static'}
+                          onValueChange={(v) => updateField('camera_movement', v as CameraMovement)}
+                        >
+                          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-9">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent className="bg-slate-800 border-white/10 max-h-60">
+                            {CAMERA_MOVEMENT_OPTIONS.map((opt) => (
                               <SelectItem key={opt.value} value={opt.value} className="text-white">
                                 {opt.label}
                               </SelectItem>
@@ -730,20 +557,177 @@ export function SegmentEditor({
                         </Select>
                       </div>
                     </div>
-                    <div className="space-y-2">
-                      <Label className="text-slate-400 text-xs">Line</Label>
-                      <Textarea
-                        value={formData.dialogue?.text || ''}
-                        onChange={(e) => updateDialogueField('text', e.target.value)}
-                        placeholder='What does the character say? e.g. "Not in this life."'
-                        rows={2}
-                        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none"
+
+                    {/* Subject */}
+                    <div className="space-y-1.5">
+                      <Label className="text-slate-300 text-xs">Subject</Label>
+                      <Input
+                        value={formData.subject || ''}
+                        onChange={(e) => updateField('subject', e.target.value)}
+                        placeholder="@Character, object, scene..."
+                        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 h-9"
                       />
+                      <div className="flex flex-wrap gap-1">
+                        {characters.slice(0, 3).map((char) => (
+                          <button
+                            key={char.id}
+                            onClick={() => setSubjectFromCharacter(char.name)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-blue-500/20 text-blue-300 rounded hover:bg-blue-500/30"
+                          >
+                            <User className="w-2.5 h-2.5" />
+                            {char.name}
+                          </button>
+                        ))}
+                        {locations.slice(0, 2).map((loc) => (
+                          <button
+                            key={loc.id}
+                            onClick={() => setSubjectFromLocation(loc.name)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] bg-green-500/20 text-green-300 rounded hover:bg-green-500/30"
+                          >
+                            <MapPin className="w-2.5 h-2.5" />
+                            {loc.name}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Framing */}
+                    <div className="space-y-1.5">
+                      <Label className="text-slate-300 text-xs">Framing</Label>
+                      <Input
+                        value={formData.framing || ''}
+                        onChange={(e) => updateField('framing', e.target.value)}
+                        placeholder="Camera position, angle..."
+                        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 h-9"
+                      />
+                      <div className="flex flex-wrap gap-1">
+                        {framingSuggestions.slice(0, 4).map((suggestion, i) => (
+                          <button
+                            key={i}
+                            onClick={() => addToField('framing', suggestion)}
+                            className="px-1.5 py-0.5 text-[10px] bg-slate-700/50 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300"
+                          >
+                            + {suggestion}
+                          </button>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                )}
+
+                  {/* Right Column - Content */}
+                  <div className="space-y-5">
+                    {/* Action */}
+                    <div className="space-y-1.5">
+                      <Label className="text-slate-300 text-xs">Action</Label>
+                      <Textarea
+                        value={formData.action || ''}
+                        onChange={(e) => updateField('action', e.target.value)}
+                        placeholder="What happens in this shot..."
+                        rows={3}
+                        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none"
+                      />
+                      <div className="flex flex-wrap gap-1">
+                        {(actionSuggestions.length > 0 ? actionSuggestions : ACTION_VERBS.slice(0, 6)).map((suggestion, i) => (
+                          <button
+                            key={i}
+                            onClick={() => addToField('action', suggestion)}
+                            className="px-1.5 py-0.5 text-[10px] bg-slate-700/50 text-slate-400 rounded hover:bg-slate-700 hover:text-slate-300"
+                          >
+                            + {suggestion}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Environment */}
+                    <div className="space-y-1.5">
+                      <Label className="text-slate-300 text-xs">Environment</Label>
+                      <Input
+                        value={formData.environment || ''}
+                        onChange={(e) => updateField('environment', e.target.value)}
+                        placeholder="Lighting, atmosphere..."
+                        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 h-9"
+                      />
+                    </div>
+
+                    {/* Dialogue Section */}
+                    <div className="border-t border-white/10 pt-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <Label className="text-slate-300 text-xs flex items-center gap-1.5">
+                          <MessageSquare className="w-3.5 h-3.5" />
+                          Dialogue
+                        </Label>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={toggleDialogue}
+                          className={cn(
+                            'h-7 text-xs border-white/10',
+                            hasDialogue
+                              ? 'bg-green-500/20 border-green-500/30 text-green-400'
+                              : 'text-slate-400'
+                          )}
+                        >
+                          {hasDialogue ? 'Remove' : 'Add'}
+                        </Button>
+                      </div>
+
+                      {hasDialogue && (
+                        <div className="space-y-3 p-3 bg-slate-800/30 rounded-lg border border-white/5">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label className="text-slate-400 text-[10px]">Character</Label>
+                              <Select
+                                value={formData.dialogue?.character_id || ''}
+                                onValueChange={handleCharacterSelect}
+                              >
+                                <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-8 text-xs">
+                                  <SelectValue placeholder="Select" />
+                                </SelectTrigger>
+                                <SelectContent className="bg-slate-800 border-white/10">
+                                  {characters.map((char) => (
+                                    <SelectItem key={char.id} value={char.id} className="text-white text-xs">
+                                      {char.name}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-slate-400 text-[10px]">Tone</Label>
+                              <Select
+                                value={formData.dialogue?.tone || 'neutral'}
+                                onValueChange={(v) => updateDialogueField('tone', v)}
+                              >
+                                <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-8 text-xs">
+                                  <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent className="bg-slate-800 border-white/10">
+                                  {DIALOGUE_TONE_OPTIONS.map((opt) => (
+                                    <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
+                                      {opt.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-slate-400 text-[10px]">Line</Label>
+                            <Textarea
+                              value={formData.dialogue?.text || ''}
+                              onChange={(e) => updateDialogueField('text', e.target.value)}
+                              placeholder='"Not in this life."'
+                              rows={2}
+                              className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-500 resize-none text-sm"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
             ) : (
               /* Preview Mode */
               <div className="h-full overflow-y-auto p-6">
