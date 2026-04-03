@@ -176,8 +176,22 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Check if this is cinematic mode (has segments)
     const segments = shot.segments as Segment[] | null;
-    const cinematicHeader = shot.cinematic_header as CinematicHeaderConfig | null;
-    const isCinematicMode = segments && segments.length > 0;
+    let cinematicHeader = shot.cinematic_header as CinematicHeaderConfig | null;
+    const isCinematicMode = !!(segments && segments.length > 0);
+
+    // If shot belongs to a sequence, inherit cinematic_header from sequence
+    if (shot.sequence_id) {
+      const { data: sequence } = await supabase
+        .from('sequences')
+        .select('cinematic_header')
+        .eq('id', shot.sequence_id)
+        .single();
+
+      if (sequence?.cinematic_header) {
+        console.log('[QueueVideo] Inheriting cinematic_header from sequence:', shot.sequence_id);
+        cinematicHeader = sequence.cinematic_header as CinematicHeaderConfig;
+      }
+    }
 
     let prompt: string;
     let characterMap = new Map<string, GlobalAsset>();
