@@ -223,7 +223,9 @@ export function cinematicHeaderToPrompt(config: CinematicHeaderConfig, locationN
     sections.push(config.additional_notes.trim());
   }
 
-  return sections.join('\n');
+  // Join with space - the master prompt format uses a single flowing line
+  // not multiple lines with newlines
+  return sections.join(' ');
 }
 
 /**

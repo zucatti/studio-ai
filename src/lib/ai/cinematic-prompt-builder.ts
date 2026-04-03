@@ -20,9 +20,12 @@ import { cinematicHeaderToPrompt } from '@/lib/cinematic-header-to-prompt';
 // ============================================================================
 
 /**
- * Plan with cinematic fields (Plan already includes these fields)
+ * Plan with cinematic fields for prompt building
+ * cinematic_header is populated from the parent Sequence at runtime
  */
-export type CinematicPlan = Plan;
+export type CinematicPlan = Plan & {
+  cinematic_header?: CinematicHeaderConfig | null;
+};
 
 /**
  * Short with cinematic fields (Short already includes these fields)
@@ -191,50 +194,69 @@ function buildSegmentsPrompt(
     }
     const subject = segment.subject || 'Scene';
 
-    lines.push(`SHOT ${shotNumber} (${formatTime(segment.start_time)}–${formatTime(segment.end_time)}) — ${shotType}, ${subject}:`);
+    // Build shot header - include subject description inline like master prompt
+    // Master format: "SHOT 1 (0:00–0:03) — CLOSE-UP, Sarah's eyes: Tight close-up description here."
+    const shotHeader = `SHOT ${shotNumber} (${formatTime(segment.start_time)}–${formatTime(segment.end_time)}) — ${shotType}, ${subject}:`;
+
+    // Collect visual context parts (framing, action, camera) to ensure there's always
+    // visual description before dialogue - this prevents audio glitches at shot start
+    const visualParts: string[] = [];
 
     // Framing details
     if (segment.framing) {
-      lines.push(segment.framing);
+      visualParts.push(segment.framing);
     }
 
     // Action
     if (segment.action) {
-      lines.push(segment.action);
+      visualParts.push(segment.action);
     }
 
     // Camera movement
     const movementLabel = getCameraMovementLabel(segment.camera_movement || null);
     if (movementLabel) {
-      lines.push(`Camera: ${movementLabel}`);
+      visualParts.push(movementLabel);
     }
 
-    // NEW: Process beats (action/dialogue sequence)
+    // If no visual context and we have dialogue beats, add a default visual description
+    // based on the subject to give the model something to render before speech starts
+    const hasDialogueBeats = segment.beats?.some(b => b.type === 'dialogue');
+    if (visualParts.length === 0 && hasDialogueBeats) {
+      // Add a minimal visual anchor based on subject
+      visualParts.push(`${subject} in frame`);
+    }
+
+    // Build the shot line with visual context inline
+    if (visualParts.length > 0) {
+      lines.push(`${shotHeader} ${visualParts.join('. ')}.`);
+    } else {
+      lines.push(shotHeader);
+    }
+
+    // Process beats (action/dialogue sequence)
+    // Dialogue is now INLINE like master prompt: "He says coldly: "dialogue text""
     if (segment.beats && segment.beats.length > 0) {
-      console.log(`[PromptBuilder] Segment ${shotNumber} has ${segment.beats.length} beats`);
       for (const beat of segment.beats) {
-        console.log(`  Beat: type=${beat.type}, character_id=${beat.character_id}, character_name=${beat.character_name}`);
         if (!beat.content) continue;
 
         if (beat.type === 'dialogue' && beat.character_id) {
-          // Dialogue beat with character reference
+          // Dialogue beat with character reference - INLINE format
           const charRef = getCharacterElement(beat.character_id, characters);
           const voiceRef = getVoiceReference(beat.character_id, characters, dialogueLanguage);
           const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
           const offScreen = beat.presence === 'off' ? ' (V.O.)' : '';
 
+          // Inline format like master prompt: "She says flatly: "dialogue""
           if (voiceRef) {
-            lines.push(`${charRef}${offScreen} says${tone} ${voiceRef}:`);
+            lines.push(`${charRef}${offScreen} says${tone} ${voiceRef}: "${beat.content}"`);
           } else {
-            lines.push(`${charRef}${offScreen} says${tone}:`);
+            lines.push(`${charRef}${offScreen} says${tone}: "${beat.content}"`);
           }
-          lines.push(`"${beat.content}"`);
         } else if (beat.type === 'dialogue' && beat.character_name) {
-          // Dialogue beat with character name only (no ID - fallback)
+          // Dialogue beat with character name only (no ID - fallback) - INLINE
           const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
           const offScreen = beat.presence === 'off' ? ' (V.O.)' : '';
-          lines.push(`${beat.character_name}${offScreen} says${tone}:`);
-          lines.push(`"${beat.content}"`);
+          lines.push(`${beat.character_name}${offScreen} says${tone}: "${beat.content}"`);
         } else {
           // Action beat
           if (beat.character_name) {
@@ -277,10 +299,11 @@ function buildSegmentsPrompt(
       lines.push(segment.custom_prompt);
     }
 
-    lines.push(''); // Empty line between segments
+    // No empty line separator - master prompt format uses single flowing line
   }
 
-  return lines.join('\n').trim();
+  // Join with space - master prompt format uses single flowing line with periods
+  return lines.join(' ').trim();
 }
 
 // ============================================================================
@@ -318,7 +341,7 @@ export function buildCinematicPrompt(
     if (header) {
       const headerPrompt = cinematicHeaderToPrompt(header);
       lines.push(headerPrompt);
-      lines.push(''); // Empty line separator
+      // No empty line separator - master prompt format uses single flowing line
     }
 
     // ========================================
@@ -380,11 +403,12 @@ export function buildCinematicPrompt(
         lines.push(plan.description);
       }
 
-      lines.push(''); // Empty line
+      // No empty line separator - master prompt format uses single flowing line
     }
   }
 
-  return lines.join('\n').trim();
+  // Join with space - master prompt format uses single flowing line
+  return lines.join(' ').trim();
 }
 
 /**

@@ -88,6 +88,8 @@ export function PlanEditor({
   onGenerateImage,
   isGeneratingImage,
   locations = [],
+  sequenceCinematicHeader,
+  sequenceTitle,
 }: PlanEditorModalProps) {
   const config = MODE_CONFIG[mode];
   const ratioConfig = ASPECT_RATIO_CONFIG[aspectRatio] || ASPECT_RATIO_CONFIG['16:9'];
@@ -153,6 +155,9 @@ export function PlanEditor({
   const lastVideoUrlRef = useRef(plan?.generated_video_url);
   // Track if we've ever completed for this plan to prevent re-triggering
   const hasCompletedRef = useRef(false);
+
+  // Elapsed time counter for generation progress
+  const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
 
   // Bible store
   const { projectAssets, fetchProjectAssets } = useBibleStore();
@@ -230,6 +235,32 @@ export function PlanEditor({
     }
     return isGeneratingVideo || stickyGenerating;
   }, [isGeneratingVideo, stickyGenerating, plan?.generated_video_url]);
+
+  // Elapsed time counter for generation progress
+  useEffect(() => {
+    if (!effectivelyGenerating) {
+      setGenerationElapsedSeconds(0);
+      return;
+    }
+
+    // Calculate start time from progress data or use current time
+    const startTime = videoGenerationProgress?.startedAt
+      ? typeof videoGenerationProgress.startedAt === 'string'
+        ? new Date(videoGenerationProgress.startedAt).getTime()
+        : videoGenerationProgress.startedAt
+      : Date.now();
+
+    const updateElapsed = () => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      setGenerationElapsedSeconds(elapsed);
+    };
+
+    // Update immediately and then every second
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+
+    return () => clearInterval(interval);
+  }, [effectivelyGenerating, videoGenerationProgress?.startedAt]);
 
   // ESC key for fullscreen
   useEffect(() => {
@@ -541,6 +572,16 @@ export function PlanEditor({
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
   };
 
+  // Format elapsed time as "Xm Ys" or "Xs"
+  const formatElapsedTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    if (mins > 0) {
+      return `${mins}m ${secs}s`;
+    }
+    return `${secs}s`;
+  };
+
   const handleCopyVideoPrompt = useCallback(async () => {
     if (plan?.video_prompt) {
       await navigator.clipboard.writeText(plan.video_prompt);
@@ -548,12 +589,6 @@ export function PlanEditor({
       setTimeout(() => setCopiedVideoPrompt(false), 2000);
     }
   }, [plan?.video_prompt]);
-
-  // Cinematic style handler
-  const handleCinematicStyleChange = useCallback((config: CinematicHeaderConfig) => {
-    onUpdate({ cinematic_header: config });
-    setShowStyleWizard(false);
-  }, [onUpdate]);
 
   // Segment handlers
   const handleSegmentsChange = useCallback((segments: Segment[]) => {
@@ -650,25 +685,23 @@ export function PlanEditor({
               </div>
             )}
 
-            {/* Description Button - Opens CinematicHeaderWizard */}
-            {mode === 'video-free' && (
-              <Button
-                variant="outline"
-                size="sm"
+            {/* Sequence Cinematic Header Display (click to view prompt) */}
+            {mode === 'video-free' && sequenceCinematicHeader && (
+              <button
                 onClick={() => setShowStyleWizard(true)}
                 className={cn(
-                  'h-8 gap-2 border-white/10',
-                  plan.cinematic_header
-                    ? 'bg-amber-500/20 border-amber-500/30 text-amber-300 hover:bg-amber-500/30'
-                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                  'h-8 px-3 flex items-center gap-2 rounded-md text-xs transition-colors',
+                  'bg-purple-500/20 border border-purple-500/30 text-purple-300',
+                  'hover:bg-purple-500/30 hover:border-purple-500/50'
                 )}
+                title="Cliquer pour voir le prompt"
               >
                 <Sparkles className="w-3.5 h-3.5" />
-                Description
-                {plan.cinematic_header && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                )}
-              </Button>
+                <span className="truncate max-w-[200px]">
+                  {sequenceTitle || 'Séquence'}
+                </span>
+                <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+              </button>
             )}
           </div>
         </DialogHeader>
@@ -784,6 +817,9 @@ export function PlanEditor({
                         </div>
                         <div className="text-3xl font-bold text-white mt-3">
                           {videoGenerationProgress?.progress || 0}%
+                        </div>
+                        <div className="text-sm text-white/60 mt-2 tabular-nums">
+                          {formatElapsedTime(generationElapsedSeconds)}
                         </div>
                       </div>
                     </div>
@@ -1209,16 +1245,23 @@ export function PlanEditor({
     </Dialog>
     )}
 
-    {/* Cinematic Style Wizard */}
-    <CinematicHeaderWizard
-      open={showStyleWizard}
-      onOpenChange={setShowStyleWizard}
-      value={plan.cinematic_header || null}
-      onChange={handleCinematicStyleChange}
-      projectId={projectId}
-      segments={plan.segments || []}
-      locations={locations}
-    />
+    {/* Cinematic Style Wizard - Read-only preview of sequence's header */}
+    {sequenceCinematicHeader && (
+      <CinematicHeaderWizard
+        open={showStyleWizard}
+        onOpenChange={setShowStyleWizard}
+        value={sequenceCinematicHeader}
+        onChange={() => {
+          // No-op: editing is done at sequence level
+          setShowStyleWizard(false);
+        }}
+        projectId={projectId}
+        segments={plan.segments || []}
+        locations={locations}
+        defaultViewMode="prompt"
+        readOnly
+      />
+    )}
   </>
   );
 }

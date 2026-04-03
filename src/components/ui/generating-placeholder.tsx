@@ -1,5 +1,6 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AspectRatio } from '@/types/database';
@@ -12,6 +13,17 @@ interface GeneratingPlaceholderProps {
   progress?: number; // 0-100 for models that support it
   className?: string;
   label?: string; // Optional label to show
+  startedAt?: string | number; // Timestamp when generation started
+}
+
+// Format elapsed time as "Xm Ys" or "Xs"
+function formatElapsedTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins > 0) {
+    return `${mins}m ${secs}s`;
+  }
+  return `${secs}s`;
 }
 
 // Map aspect ratios to padding-bottom percentages for responsive sizing
@@ -38,9 +50,36 @@ export function GeneratingPlaceholder({
   progress,
   className,
   label,
+  startedAt,
 }: GeneratingPlaceholderProps) {
   const paddingBottom = ASPECT_RATIO_PADDING[aspectRatio] || '100%';
   const isActive = status === 'queued' || status === 'generating' || status === 'uploading';
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Elapsed time counter
+  useEffect(() => {
+    if (!isActive) {
+      return;
+    }
+
+    // Calculate start time
+    const startTime = startedAt
+      ? typeof startedAt === 'string'
+        ? new Date(startedAt).getTime()
+        : startedAt
+      : Date.now();
+
+    const updateElapsed = () => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      setElapsedSeconds(elapsed);
+    };
+
+    // Update immediately and then every second
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+
+    return () => clearInterval(interval);
+  }, [isActive, startedAt]);
 
   return (
     <div
@@ -93,6 +132,13 @@ export function GeneratingPlaceholder({
         {progress !== undefined && progress > 0 && (
           <span className="text-lg font-bold text-white/90">
             {Math.round(progress)}%
+          </span>
+        )}
+
+        {/* Elapsed time */}
+        {isActive && (
+          <span className="text-xs text-white/60 tabular-nums">
+            {formatElapsedTime(elapsedSeconds)}
           </span>
         )}
       </div>
