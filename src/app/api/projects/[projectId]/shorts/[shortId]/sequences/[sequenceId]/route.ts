@@ -70,7 +70,19 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     const { projectId, shortId, sequenceId } = await params;
     const body = await request.json();
-    const { title, cinematic_header, transition_in, transition_out, transition_duration } = body;
+    const {
+      title,
+      cinematic_header,
+      transition_in,
+      transition_out,
+      transition_duration,
+      // Music fields
+      music_asset_id,
+      music_start,
+      music_end,
+      music_offset,
+      music_volume,
+    } = body;
 
     const supabase = createServerSupabaseClient();
 
@@ -105,6 +117,12 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (transition_in !== undefined) updates.transition_in = transition_in;
     if (transition_out !== undefined) updates.transition_out = transition_out;
     if (transition_duration !== undefined) updates.transition_duration = transition_duration;
+    // Music fields
+    if (music_asset_id !== undefined) updates.music_asset_id = music_asset_id;
+    if (music_start !== undefined) updates.music_start = music_start;
+    if (music_end !== undefined) updates.music_end = music_end;
+    if (music_offset !== undefined) updates.music_offset = music_offset;
+    if (music_volume !== undefined) updates.music_volume = music_volume;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No updates provided' }, { status: 400 });

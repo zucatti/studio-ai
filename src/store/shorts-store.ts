@@ -54,8 +54,10 @@ export interface Plan {
   dialogue_audio_url: string | null;
   audio_mode: 'mute' | 'dialogue' | 'audio' | 'instrumental' | 'vocal';
   audio_asset_id: string | null;
-  audio_start: number;
-  audio_end: number | null;
+  audio_start: number;        // Region start in the audio file (seconds)
+  audio_end: number | null;   // Region end in the audio file (seconds)
+  audio_offset: number;       // Where the audio starts in the video timeline (seconds)
+  audio_volume: number;       // Volume level (0.0 - 1.0)
   shot_subject: string | null;
   framing: string | null;
   action: string | null;
@@ -341,6 +343,8 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           audio_asset_id: data.plan.audio_asset_id ?? null,
           audio_start: data.plan.audio_start ?? 0,
           audio_end: data.plan.audio_end ?? null,
+          audio_offset: data.plan.audio_offset ?? 0,
+          audio_volume: data.plan.audio_volume ?? 1.0,
           shot_subject: data.plan.shot_subject ?? null,
           framing: data.plan.framing ?? null,
           action: data.plan.action ?? null,
