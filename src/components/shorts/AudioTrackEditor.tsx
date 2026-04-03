@@ -328,9 +328,14 @@ export function AudioTrackEditor({
   const thumbnailCount = compact ? 6 : 10;
   const [videoThumbnails, setVideoThumbnails] = useState<string[]>([]);
 
+  // Proxy the video URL for canvas access (CORS)
+  const proxiedVideoUrl = signedVideoUrl
+    ? `/api/storage/proxy?url=${encodeURIComponent(signedVideoUrl)}`
+    : null;
+
   // Extract thumbnails from video
   useEffect(() => {
-    if (!signedVideoUrl || videoDuration <= 0) {
+    if (!proxiedVideoUrl || videoDuration <= 0) {
       setVideoThumbnails([]);
       return;
     }
@@ -378,12 +383,12 @@ export function AudioTrackEditor({
       setVideoThumbnails([]);
     };
 
-    video.src = signedVideoUrl;
+    video.src = proxiedVideoUrl;
 
     return () => {
       video.src = '';
     };
-  }, [signedVideoUrl, videoDuration, thumbnailCount]);
+  }, [proxiedVideoUrl, videoDuration, thumbnailCount]);
 
   // Fallback placeholder thumbnails when video not available
   const thumbnails = useMemo(() => {
