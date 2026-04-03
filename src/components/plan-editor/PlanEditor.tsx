@@ -66,6 +66,7 @@ import {
 } from '@/components/shorts/SegmentTimeline';
 import { SegmentEditor } from '@/components/shorts/SegmentEditor';
 import { CinematicHeaderWizard } from '@/components/shorts/CinematicHeaderWizard';
+import { AudioTrackEditor } from '@/components/shorts/AudioTrackEditor';
 
 interface PlanEditorModalProps extends PlanEditorProps {
   open: boolean;
@@ -620,6 +621,35 @@ export function PlanEditor({
       }));
   }, [projectAssets]);
 
+  // Get audio assets from Bible for AudioTrackEditor
+  const audioAssets = useMemo(() => {
+    return projectAssets
+      .filter((asset) => asset.asset_type === 'audio')
+      .map((asset) => ({
+        id: asset.id,
+        name: asset.name,
+        file_url: (asset.data?.file_url as string) || '',
+        duration: (asset.data?.duration as number) || undefined,
+      }));
+  }, [projectAssets]);
+
+  // Handle audio track changes
+  const handleAudioChange = useCallback((audioSettings: {
+    audio_asset_id: string | null;
+    audio_start: number;
+    audio_end: number | null;
+    audio_offset: number;
+    audio_volume: number;
+  }) => {
+    onUpdate({
+      audio_asset_id: audioSettings.audio_asset_id,
+      audio_start: audioSettings.audio_start,
+      audio_end: audioSettings.audio_end,
+      audio_offset: audioSettings.audio_offset,
+      audio_volume: audioSettings.audio_volume,
+    });
+  }, [onUpdate]);
+
   if (!plan) return null;
 
   return (
@@ -1096,6 +1126,23 @@ export function PlanEditor({
                 onSelectSegment={setSelectedSegmentId}
                 onSegmentsChange={handleSegmentsChange}
                 onEditSegment={handleEditSegment}
+              />
+            </div>
+          )}
+
+          {/* Audio Track Editor (video-free mode only) */}
+          {mode === 'video-free' && audioAssets.length > 0 && (
+            <div className="flex-shrink-0 px-6 py-4 border-t border-white/10 bg-[#0a0e12]">
+              <AudioTrackEditor
+                videoUrl={plan.generated_video_url || undefined}
+                videoDuration={plan.duration}
+                audioAssetId={plan.audio_asset_id || null}
+                audioStart={plan.audio_start || 0}
+                audioEnd={plan.audio_end || null}
+                audioOffset={plan.audio_offset || 0}
+                audioVolume={plan.audio_volume ?? 1.0}
+                audioAssets={audioAssets}
+                onAudioChange={handleAudioChange}
               />
             </div>
           )}

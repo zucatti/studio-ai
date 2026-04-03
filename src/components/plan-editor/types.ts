@@ -46,6 +46,8 @@ export interface PlanData {
   audio_asset_id?: string | null;
   audio_start?: number;
   audio_end?: number | null;
+  audio_offset?: number;
+  audio_volume?: number;
 
   // Vidéo générée (optionnel)
   generated_video_url?: string | null;
