@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Play, Pause, Clock, MoreVertical, Pencil, Trash2, Film, Volume2, VolumeX, Download, Maximize2, Sparkles } from 'lucide-react';
+import { Play, Pause, Clock, MoreVertical, Pencil, Trash2, Film, Volume2, VolumeX, Download, Maximize2 } from 'lucide-react';
 import { StorageImg } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import {
@@ -313,14 +313,6 @@ export function ShortCard({ short, projectId, onDelete, onEdit, onGallery }: Sho
           {/* Static badges (visible when not hovering) */}
           {!isHovering && (
             <>
-              {/* Cinematic mode badge (top left) */}
-              {short.generation_mode === 'cinematic' && (
-                <div className="absolute top-2 left-2 flex items-center gap-1 px-2 py-1 rounded bg-amber-500/80 text-white text-xs font-medium">
-                  <Sparkles className="w-3 h-3" />
-                  Cinématique
-                </div>
-              )}
-
               {/* Duration badge */}
               <div className="absolute bottom-2 right-2 flex items-center gap-1 px-2 py-1 rounded bg-black/60 text-white text-xs">
                 <Clock className="w-3 h-3" />
