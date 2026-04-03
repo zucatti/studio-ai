@@ -628,7 +628,8 @@ export function PlanEditor({
       .map((asset) => ({
         id: asset.id,
         name: asset.name,
-        file_url: (asset.data?.file_url as string) || '',
+        // AudioData uses camelCase: fileUrl, not file_url
+        file_url: (asset.data?.fileUrl as string) || '',
         duration: (asset.data?.duration as number) || undefined,
       }));
   }, [projectAssets]);
@@ -1131,7 +1132,7 @@ export function PlanEditor({
           )}
 
           {/* Audio Track Editor (video-free mode only) */}
-          {mode === 'video-free' && audioAssets.length > 0 && (
+          {mode === 'video-free' && (
             <div className="flex-shrink-0 px-6 py-4 border-t border-white/10 bg-[#0a0e12]">
               <AudioTrackEditor
                 videoUrl={plan.generated_video_url || undefined}
