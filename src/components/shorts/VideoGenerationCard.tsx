@@ -11,6 +11,8 @@ export interface VideoGenerationProgress {
   message: string;
   status: 'generating' | 'completed' | 'failed';
   videoUrl?: string;
+  /** Timestamp when generation started (ISO string or Unix ms) */
+  startedAt?: string | number;
 }
 
 interface VideoGenerationCardProps {
@@ -19,12 +21,48 @@ interface VideoGenerationCardProps {
   onComplete?: () => void;
 }
 
+// Format elapsed time as "Xm Ys" or "Xs"
+function formatElapsedTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (mins > 0) {
+    return `${mins}m ${secs}s`;
+  }
+  return `${secs}s`;
+}
+
 export function VideoGenerationCard({
   progress,
   aspectRatio,
   onComplete,
 }: VideoGenerationCardProps) {
   const [showVideo, setShowVideo] = useState(false);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  // Elapsed time counter
+  useEffect(() => {
+    if (progress.status !== 'generating') {
+      return;
+    }
+
+    // Calculate initial elapsed time
+    const startTime = progress.startedAt
+      ? typeof progress.startedAt === 'string'
+        ? new Date(progress.startedAt).getTime()
+        : progress.startedAt
+      : Date.now();
+
+    const updateElapsed = () => {
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      setElapsedSeconds(elapsed);
+    };
+
+    // Update immediately and then every second
+    updateElapsed();
+    const interval = setInterval(updateElapsed, 1000);
+
+    return () => clearInterval(interval);
+  }, [progress.status, progress.startedAt]);
 
   // Transition to video when complete
   useEffect(() => {
@@ -98,6 +136,11 @@ export function VideoGenerationCard({
         {/* Percentage */}
         <p className="text-2xl font-bold text-white/90">
           {progress.progress}%
+        </p>
+
+        {/* Elapsed time */}
+        <p className="text-xs text-white/60 mt-1 tabular-nums">
+          {formatElapsedTime(elapsedSeconds)}
         </p>
       </div>
 

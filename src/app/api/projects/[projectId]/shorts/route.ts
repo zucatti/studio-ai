@@ -68,6 +68,10 @@ export async function GET(request: Request, { params }: RouteParams) {
         character_mappings,
         generation_mode,
         dialogue_language,
+        music_asset_id,
+        music_volume,
+        music_fade_in,
+        music_fade_out,
         created_at,
         updated_at,
         shots (
@@ -103,7 +107,8 @@ export async function GET(request: Request, { params }: RouteParams) {
           start_time,
           title,
           cinematic_header,
-          segments
+          segments,
+          sequence_id
         )
       `)
       .eq('project_id', projectId)
@@ -149,7 +154,8 @@ export async function GET(request: Request, { params }: RouteParams) {
             audio_mode,
             audio_asset_id,
             audio_start,
-            audio_end
+            audio_end,
+            sequence_id
           )
         `)
         .eq('project_id', projectId)
@@ -165,6 +171,21 @@ export async function GET(request: Request, { params }: RouteParams) {
     if (error) {
       console.error('Error fetching shorts:', error);
       return NextResponse.json({ error: 'Failed to fetch shorts' }, { status: 500 });
+    }
+
+    // Fetch sequences for all shorts in a single query
+    const sceneIds = (scenes || []).map(s => s.id);
+    const { data: allSequences } = await supabase
+      .from('sequences')
+      .select('*')
+      .in('scene_id', sceneIds)
+      .order('sort_order', { ascending: true });
+
+    const sequencesByScene = new Map<string, typeof allSequences>();
+    for (const seq of allSequences || []) {
+      const existing = sequencesByScene.get(seq.scene_id) || [];
+      existing.push(seq);
+      sequencesByScene.set(seq.scene_id, existing);
     }
 
     // Transform to shorts format with signed URLs
@@ -209,9 +230,27 @@ export async function GET(request: Request, { params }: RouteParams) {
           title: (shot as Record<string, unknown>).title ?? null,
           cinematic_header: (shot as Record<string, unknown>).cinematic_header ?? null,
           segments: (shot as Record<string, unknown>).segments ?? [],
+          // Sequence assignment
+          sequence_id: (shot as Record<string, unknown>).sequence_id ?? null,
         })));
 
       const totalDuration = plans.reduce((sum, p) => sum + p.duration, 0);
+
+      // Get sequences for this short with assembly info
+      const sequences = (sequencesByScene.get(scene.id) || []).map(seq => ({
+        id: seq.id,
+        scene_id: seq.scene_id,
+        title: seq.title,
+        sort_order: seq.sort_order,
+        transition_in: seq.transition_in,
+        transition_out: seq.transition_out,
+        transition_duration: seq.transition_duration,
+        assembled_video_url: seq.assembled_video_url || null,
+        assembled_plan_hash: seq.assembled_plan_hash || null,
+        assembled_at: seq.assembled_at || null,
+        created_at: seq.created_at,
+        updated_at: seq.updated_at,
+      }));
 
       return {
         id: scene.id,
@@ -221,6 +260,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         scene_number: scene.scene_number,
         sort_order: scene.sort_order,
         plans,
+        sequences,
         totalDuration,
         assembled_video_url: scene.assembled_video_url || null,
         assembled_video_duration: scene.assembled_video_duration || null,
@@ -229,6 +269,11 @@ export async function GET(request: Request, { params }: RouteParams) {
         character_mappings: (scene as Record<string, unknown>).character_mappings || null,
         generation_mode: (scene as Record<string, unknown>).generation_mode || 'standard',
         dialogue_language: (scene as Record<string, unknown>).dialogue_language || 'en',
+        // Music fields
+        music_asset_id: (scene as Record<string, unknown>).music_asset_id || null,
+        music_volume: (scene as Record<string, unknown>).music_volume ?? 0.3,
+        music_fade_in: (scene as Record<string, unknown>).music_fade_in ?? 0,
+        music_fade_out: (scene as Record<string, unknown>).music_fade_out ?? 2,
         created_at: scene.created_at,
         updated_at: scene.updated_at,
       };

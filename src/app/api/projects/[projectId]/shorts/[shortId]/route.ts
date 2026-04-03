@@ -168,6 +168,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       character_mappings,
       generation_mode,
       dialogue_language,
+      // Music settings for Editly
+      music_asset_id,
+      music_volume,
+      music_fade_in,
+      music_fade_out,
     } = body;
 
     const supabase = createServerSupabaseClient();
@@ -192,6 +197,11 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (character_mappings !== undefined) updates.character_mappings = character_mappings;
     if (generation_mode !== undefined) updates.generation_mode = generation_mode;
     if (dialogue_language !== undefined) updates.dialogue_language = dialogue_language;
+    // Music settings for Editly
+    if (music_asset_id !== undefined) updates.music_asset_id = music_asset_id;
+    if (music_volume !== undefined) updates.music_volume = music_volume;
+    if (music_fade_in !== undefined) updates.music_fade_in = music_fade_in;
+    if (music_fade_out !== undefined) updates.music_fade_out = music_fade_out;
 
     if (Object.keys(updates).length === 0) {
       return NextResponse.json({ error: 'No updates provided' }, { status: 400 });

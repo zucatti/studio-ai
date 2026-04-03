@@ -318,6 +318,29 @@ export async function POST(request: Request, { params }: RouteParams) {
     // Sort plans by sort_order or start_time
     plans.sort((a, b) => (a.start_time ?? a.sort_order * 5) - (b.start_time ?? b.sort_order * 5));
 
+    // Fetch sequences to get cinematic_header for each plan
+    const { data: sequences } = await supabase
+      .from('sequences')
+      .select('id, cinematic_header')
+      .eq('scene_id', shortId);
+
+    // Build a map of sequence_id -> cinematic_header
+    const sequenceHeaders = new Map<string, unknown>();
+    (sequences || []).forEach((seq) => {
+      if (seq.cinematic_header) {
+        sequenceHeaders.set(seq.id, seq.cinematic_header);
+      }
+    });
+
+    // Inherit cinematic_header from sequence for each plan
+    for (const plan of plans) {
+      const planAny = plan as unknown as { sequence_id?: string; cinematic_header?: unknown };
+      if (planAny.sequence_id && sequenceHeaders.has(planAny.sequence_id)) {
+        planAny.cinematic_header = sequenceHeaders.get(planAny.sequence_id);
+        console.log(`[Cinematic] Plan ${plan.id} inherits cinematic_header from sequence ${planAny.sequence_id}`);
+      }
+    }
+
     // Fetch ALL project characters for auto-detection
     const { data: projectAssets } = await supabase
       .from('project_assets')

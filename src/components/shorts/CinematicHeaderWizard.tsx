@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
+import { generateReferenceName } from '@/lib/reference-name';
 import {
   Dialog,
   DialogContent,
@@ -39,6 +40,13 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+interface SequenceForCopy {
+  id: string;
+  title: string | null;
+  sort_order: number;
+  cinematic_header: CinematicHeaderConfig | null;
+}
+
 interface CinematicHeaderWizardProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -47,6 +55,12 @@ interface CinematicHeaderWizardProps {
   projectId: string;
   segments?: Segment[];
   locations?: Array<{ id: string; name: string; description?: string }>;
+  /** Other sequences to copy cinematic_header from */
+  otherSequences?: SequenceForCopy[];
+  /** Default view mode: 'edit' or 'prompt' */
+  defaultViewMode?: 'edit' | 'prompt';
+  /** If true, hide the Apply button (read-only mode) */
+  readOnly?: boolean;
 }
 
 // Check if a config has all required fields
@@ -68,6 +82,9 @@ export function CinematicHeaderWizard({
   projectId,
   segments = [],
   locations = [],
+  otherSequences = [],
+  defaultViewMode = 'edit',
+  readOnly = false,
 }: CinematicHeaderWizardProps) {
   // Local state for editing - ensure we have valid defaults
   const [config, setConfig] = useState<CinematicHeaderConfig>(
@@ -75,7 +92,7 @@ export function CinematicHeaderWizard({
   );
 
   // View mode state
-  const [viewMode, setViewMode] = useState<'edit' | 'prompt'>('edit');
+  const [viewMode, setViewMode] = useState<'edit' | 'prompt'>(defaultViewMode);
   const [activeTab, setActiveTab] = useState<'tone' | 'time' | 'lighting' | 'camera' | 'color'>('tone');
 
   // Location mode: 'custom' for free text, 'bible' for Bible locations
@@ -88,8 +105,9 @@ export function CinematicHeaderWizard({
   useEffect(() => {
     if (open) {
       setConfig(isValidConfig(value) ? value : createDefaultCinematicHeader());
+      setViewMode(defaultViewMode);
     }
-  }, [open, value]);
+  }, [open, value, defaultViewMode]);
 
   // Generate prompt preview (header only)
   const headerPrompt = useMemo(() => {
@@ -129,7 +147,7 @@ export function CinematicHeaderWizard({
         if (!subject && segment.beats?.length) {
           const firstBeatWithChar = segment.beats.find(b => b.character_name);
           if (firstBeatWithChar?.character_name) {
-            subject = `@${firstBeatWithChar.character_name}`;
+            subject = generateReferenceName(firstBeatWithChar.character_name, '@');
           }
         }
 
@@ -152,14 +170,16 @@ export function CinematicHeaderWizard({
               const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
               const offScreen = beat.presence === 'off' ? ' (off)' : '';
               if (beat.character_name) {
-                beatLine = `${beat.character_name}${offScreen} says${tone}:\n"${beat.content}"`;
+                const charRef = generateReferenceName(beat.character_name, '@');
+                beatLine = `${charRef}${offScreen} says${tone}:\n"${beat.content}"`;
               } else {
                 beatLine = `Says${offScreen}${tone}: "${beat.content}"`;
               }
             } else {
               // Action beat
               if (beat.character_name) {
-                beatLine = `${beat.character_name} ${beat.content}`;
+                const charRef = generateReferenceName(beat.character_name, '@');
+                beatLine = `${charRef} ${beat.content}`;
               } else {
                 beatLine = beat.content;
               }
@@ -243,6 +263,40 @@ export function CinematicHeaderWizard({
         <div className="flex-1 overflow-hidden flex flex-col min-h-[400px]">
           {viewMode === 'edit' ? (
             <>
+              {/* Copy from another sequence (only in edit mode, not readOnly) */}
+              {!readOnly && otherSequences.filter(s => isValidConfig(s.cinematic_header)).length > 0 && (
+                <div className="px-4 py-2 border-b border-white/10 flex-shrink-0">
+                  <div className="flex items-center gap-2">
+                    <Copy className="w-3.5 h-3.5 text-slate-500" />
+                    <span className="text-xs text-slate-500">Copier de</span>
+                    <Select
+                      value=""
+                      onValueChange={(sequenceId) => {
+                        const seq = otherSequences.find(s => s.id === sequenceId);
+                        if (seq?.cinematic_header) {
+                          setConfig(seq.cinematic_header);
+                          toast.success(`Style copié de "${seq.title || `Séquence ${seq.sort_order + 1}`}"`);
+                        }
+                      }}
+                    >
+                      <SelectTrigger className="h-7 w-72 bg-slate-800/50 border-white/10 text-xs text-slate-300">
+                        <SelectValue placeholder="Sélectionner une séquence..." />
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-800 border-white/10">
+                        {otherSequences
+                          .filter(s => isValidConfig(s.cinematic_header))
+                          .sort((a, b) => a.sort_order - b.sort_order)
+                          .map((seq) => (
+                            <SelectItem key={seq.id} value={seq.id} className="text-white text-xs">
+                              {seq.title || `Séquence ${seq.sort_order + 1}`}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              )}
+
               {/* Category Tabs */}
               <div className="px-4 py-3 border-b border-white/10 flex-shrink-0">
                 <div className="inline-flex rounded-lg bg-slate-800/50 p-1 gap-1">
@@ -561,19 +615,31 @@ export function CinematicHeaderWizard({
 
         {/* Footer */}
         <div className="flex items-center justify-end gap-3 px-4 py-3 border-t border-white/10">
-          <Button
-            variant="outline"
-            onClick={() => onOpenChange(false)}
-            className="border-white/10"
-          >
-            Annuler
-          </Button>
-          <Button
-            onClick={handleApply}
-            className="bg-blue-600 hover:bg-blue-700"
-          >
-            Appliquer
-          </Button>
+          {readOnly ? (
+            <Button
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="border-white/10"
+            >
+              Fermer
+            </Button>
+          ) : (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                className="border-white/10"
+              >
+                Annuler
+              </Button>
+              <Button
+                onClick={handleApply}
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                Appliquer
+              </Button>
+            </>
+          )}
         </div>
 
       </DialogContent>

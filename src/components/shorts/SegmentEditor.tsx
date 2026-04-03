@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { generateReferenceName } from '@/lib/reference-name';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
@@ -34,6 +35,8 @@ import {
   Zap,
   Video,
   RotateCcw,
+  Languages,
+  Loader2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -182,6 +185,87 @@ interface BeatEditorProps {
 }
 
 function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: BeatEditorProps) {
+  const [isTranslating, setIsTranslating] = useState(false);
+
+  // Estimate dialogue duration based on word count and speech patterns
+  // Average speaking rate: ~150-160 words/min, but varies by tone
+  const estimateDuration = useMemo(() => {
+    if (beat.type !== 'dialogue' || !beat.content) return null;
+
+    const text = beat.content.trim();
+    if (!text) return null;
+
+    // Count words (split by whitespace)
+    const words = text.split(/\s+/).filter(w => w.length > 0);
+    const wordCount = words.length;
+
+    // Base rate: 150 words/min = 2.5 words/sec
+    // Adjust by tone
+    const toneMultipliers: Record<string, number> = {
+      neutral: 1.0,
+      angry: 0.85,      // Faster, more intense
+      fearful: 0.9,     // Slightly faster, breathless
+      sad: 1.2,         // Slower, more pauses
+      joyful: 0.95,     // Slightly faster
+      sarcastic: 1.1,   // Slower, more emphasis
+      whispered: 1.15,  // Slower, deliberate
+      shouted: 0.8,     // Fast and loud
+    };
+
+    const toneMultiplier = toneMultipliers[beat.tone || 'neutral'] || 1.0;
+
+    // Add time for punctuation pauses
+    const commas = (text.match(/,/g) || []).length;
+    const periods = (text.match(/[.!?]/g) || []).length;
+    const ellipsis = (text.match(/\.\.\./g) || []).length;
+    const pauseTime = (commas * 0.15) + (periods * 0.3) + (ellipsis * 0.5);
+
+    // Calculate duration
+    const baseDuration = (wordCount / 2.5) * toneMultiplier;
+    const totalDuration = baseDuration + pauseTime;
+
+    return Math.round(totalDuration * 10) / 10; // Round to 0.1s
+  }, [beat.content, beat.tone, beat.type]);
+
+  // Translate dialogue to English using Claude
+  const translateToEnglish = async () => {
+    if (!beat.content || beat.type !== 'dialogue') return;
+
+    setIsTranslating(true);
+    try {
+      const res = await fetch('/api/translate-dialogue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: beat.content,
+          from: 'auto', // Auto-detect source language
+          to: 'en',
+          context: {
+            characterName: beat.character_name,
+            tone: beat.tone,
+          },
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Translation failed');
+      }
+
+      const data = await res.json();
+      if (data.translation && !data.unchanged) {
+        onChange({ ...beat, content: data.translation });
+        toast.success('Translated to English');
+      } else if (data.unchanged) {
+        toast.info('Already in English');
+      }
+    } catch (error) {
+      console.error('Translation error:', error);
+      toast.error('Translation failed');
+    } finally {
+      setIsTranslating(false);
+    }
+  };
+
   const handleCharacterChange = (characterId: string) => {
     const character = characters.find(c => c.id === characterId);
     const noCharacter = characterId === '_none';
@@ -331,17 +415,48 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
         )}
       </div>
 
-      {/* Content textarea */}
-      <Textarea
-        value={beat.content || ''}
-        onChange={(e) => onChange({ ...beat, content: e.target.value })}
-        placeholder={beat.type === 'dialogue'
-          ? "What did you find in my phone?"
-          : "approaches slowly, hands clenched..."
-        }
-        rows={2}
-        className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm"
-      />
+      {/* Content textarea with translate button for dialogue */}
+      <div className="relative">
+        <Textarea
+          value={beat.content || ''}
+          onChange={(e) => onChange({ ...beat, content: e.target.value })}
+          placeholder={beat.type === 'dialogue'
+            ? "What did you find in my phone?"
+            : "approaches slowly, hands clenched..."
+          }
+          rows={2}
+          className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm pr-10 pb-6"
+        />
+        {/* Translate button - for dialogue beats */}
+        {beat.type === 'dialogue' && (
+          <button
+            type="button"
+            onClick={translateToEnglish}
+            disabled={isTranslating || !beat.content}
+            className={cn(
+              "absolute right-2 top-2 p-1.5 rounded transition-colors",
+              isTranslating
+                ? "text-blue-400 cursor-wait"
+                : !beat.content
+                  ? "text-slate-600 cursor-not-allowed"
+                  : "text-slate-400 hover:text-blue-400 hover:bg-blue-500/10"
+            )}
+            title="Traduire en anglais"
+          >
+            {isTranslating ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <Languages className="w-4 h-4" />
+            )}
+          </button>
+        )}
+        {/* Duration estimate for dialogue */}
+        {beat.type === 'dialogue' && (
+          <div className="absolute right-2 bottom-1.5 text-[10px] text-slate-500 tabular-nums">
+            {estimateDuration !== null ? `~${estimateDuration}s` : '—'}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -372,7 +487,7 @@ function extractSubject(segment: Partial<Segment>): string | null {
   // Then try first beat with character
   const firstBeatWithChar = segment.beats?.find(b => b.character_name);
   if (firstBeatWithChar?.character_name) {
-    return `@${firstBeatWithChar.character_name}`;
+    return generateReferenceName(firstBeatWithChar.character_name, '@');
   }
   return null;
 }
@@ -518,17 +633,20 @@ export function SegmentEditor({
           // Has character_id - will use @Element and voice
           const voiceIndex = dialogueCharacterIds.indexOf(beat.character_id) + 1;
           const voiceTag = voiceIndex <= 2 ? ` <<<voice_${voiceIndex}>>>` : '';
-          beatLine = `@${beat.character_name}${offScreen} says${tone}${voiceTag}:\n"${beat.content}"`;
+          const charRef = generateReferenceName(beat.character_name, '@');
+          beatLine = `${charRef}${offScreen} says${tone}${voiceTag}:\n"${beat.content}"`;
         } else if (beat.character_name) {
           // Only character_name - no element/voice mapping
-          beatLine = `${beat.character_name}${offScreen} says${tone}:\n"${beat.content}"`;
+          const charRef = generateReferenceName(beat.character_name, '@');
+          beatLine = `${charRef}${offScreen} says${tone}:\n"${beat.content}"`;
         } else {
           beatLine = `Says${offScreen}${tone}: "${beat.content}"`;
         }
       } else {
         // Action beat
         if (beat.character_name) {
-          beatLine = `@${beat.character_name} ${beat.content}`;
+          const charRef = generateReferenceName(beat.character_name, '@');
+          beatLine = `${charRef} ${beat.content}`;
         } else {
           beatLine = beat.content;
         }

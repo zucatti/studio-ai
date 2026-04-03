@@ -78,8 +78,9 @@ studio/
 
 Tables principales:
 - `projects` - Projets utilisateur
-- `scenes` - Scènes du projet
-- `shots` - Plans avec descriptions
+- `scenes` - Scènes/Shorts (music_asset_id, music_volume, music_fade_in/out)
+- `sequences` - Groupes de plans contigus (transition_in/out, transition_duration)
+- `shots` - Plans avec descriptions (sequence_id)
 - `characters`, `locations`, `props` - Bible du projet
 - `global_assets` - Assets réutilisables
 - `music_sections` - Sections musicales (clips)
@@ -101,12 +102,13 @@ Tables principales:
 
 ## Worker (BullMQ)
 
-5 queues:
+6 queues:
 - `video-gen` - Génération vidéo (3 concurrent, 7min timeout)
 - `image-gen` - Génération image (5 concurrent, 90s timeout)
 - `audio-gen` - Génération audio (5 concurrent, 30s timeout)
 - `ffmpeg` - Processing vidéo (2 concurrent, 2min timeout)
 - `quick-shot-gen` - Quick shots (4 concurrent, 2min timeout)
+- `editly` - Assemblage Editly (1 concurrent, 5min timeout)
 
 ## Conventions de code
 
@@ -199,42 +201,138 @@ REDIS_HOST, REDIS_PORT
 
 Ces mentions sont parsées et les images de référence sont envoyées aux providers qui les supportent.
 
+## Editly Video Assembly
+
+Architecture d'assemblage vidéo déclaratif avec transitions et musique.
+
+### Hiérarchie
+
+```
+Short (conteneur global)
+├── music_asset_id, music_volume, music_fade_in/out  # Musique globale
+│
+└── Sequences[] (groupes de plans contigus)
+    ├── transition_in: Transition à l'entrée
+    ├── transition_out: Transition à la sortie
+    └── plans[] (color matched + cuts)
+```
+
+### Fichiers clés
+
+```
+worker/src/lib/editly/
+├── index.ts          # assembleWithEditly()
+├── types.ts          # EditlySpec, EditlyClip
+├── spec-builder.ts   # buildEditlySpec()
+└── transitions.ts    # Mapping DB → Editly
+
+worker/src/processors/
+└── editly.processor.ts  # Processeur queue 'editly'
+
+src/app/api/.../shorts/[shortId]/
+├── assemble-v2/      # API Editly assembly
+└── sequences/        # CRUD séquences
+
+src/components/shorts/
+├── SequenceCard.tsx  # UI séquence avec transitions
+└── MusicSelector.tsx # Sélecteur musique
+```
+
+### Transitions disponibles
+
+| Type | Editly Mapping |
+|------|----------------|
+| dissolve | fade |
+| fadeblack | fadeblack |
+| fadewhite | fadewhite |
+| slideleft/right/up/down | directional-* |
+| crosszoom, zoomin, zoomout | fade (fallback) |
+| circleopen, circleclose, radial | fade (fallback) |
+| cube | fade (fallback) |
+
+### Usage
+
+```typescript
+// API assemble-v2 endpoint
+POST /api/projects/{projectId}/shorts/{shortId}/assemble-v2
+
+// Returns job ID for polling
+{ jobId: "...", status: "queued", sequenceCount: 2, clipCount: 5 }
+```
+
+---
+
 ## TODO
 
-### Intégration Editly (JSON-to-video)
+### Color Matching per Sequence
 
-**Priorité**: Haute
+Appliquer le color matching FFmpeg PAR SÉQUENCE avant l'assemblage Editly (plans d'une même séquence = même colorimétrie).
 
-Remplacer l'assemblage FFmpeg manuel par [Editly](https://github.com/mifi/editly) pour une approche déclarative JSON.
+### Ken Burns pour images
 
-**Architecture cible**:
-```
-src/lib/
-├── ffmpeg.ts          # Garder pour color matching uniquement
-├── editly.ts          # Nouveau - wrapper Editly
-└── video-assembly.ts  # Convertit Plan[] → Editly JSON spec
-```
+Utiliser le layer `image` avec `zoomDirection` pour les plans sans vidéo générée.
 
-**À garder de FFmpeg**:
-- Color matching entre clips (analyzeFrameColors, calculateColorCorrection)
-- Normalisation résolution
+---
 
-**Editly apporte**:
-- 20+ types de transitions
-- Titres/textes natifs
-- Ken Burns (zoom/pan sur images)
-- Subtitles
-- Specs JSON versionnables
+## Architecture Notes
 
-**Implémentation**:
-1. `npm install editly` dans worker/
-2. Créer `src/lib/editly.ts` avec wrapper
-3. Créer fonction `plansToEditlySpec(plans: Plan[])`
-4. Pipeline: color match clips → Editly assembly → upload B2
+### BullMQ Queues (TOUT passe par là, sauf Claude chat)
+
+| Queue | Concurrency | Timeout | Usage |
+|-------|-------------|---------|-------|
+| `video-gen` | 3 | 7min | Video generation (Kling, Sora, Veo) |
+| `image-gen` | 5 | 90s | Character/location reference images |
+| `audio-gen` | 5 | 30s | TTS dialogue |
+| `ffmpeg` | 2 | 2min | Video processing |
+| `quick-shot-gen` | 4 | 2min | Quick shots + Rush images |
+| `editly` | 1 | 5min | Video assembly |
+
+### Endpoints Pattern
+
+- **Queue**: `/api/.../queue-{action}` → Returns `{ jobId }` for polling
+- **Polling**: `/api/jobs/[jobId]` → Returns job status/progress/result
+- **Legacy sync**: `/api/.../` → Direct response (for simple operations)
+
+### Redis
+
+**IMPORTANT**: Redis est une application Mac native, PAS Docker.
+- Host: `localhost`
+- Port: `6379`
+- Pas de password en dev local
 
 ---
 
 ## Session Notes
+
+### 2026-04-03 - Editly Integration
+
+**Réalisé**:
+1. **Migration DB** - Table `sequences` + colonnes music_* sur scenes
+2. **Types TS** - Interface Sequence, TransitionType (16 types)
+3. **API Routes** - CRUD séquences + assemble-v2 endpoint
+4. **Worker Editly** - Module complet avec spec-builder et processeur
+5. **Store Zustand** - Gestion séquences et musique dans shorts-store
+6. **UI Components** - SequenceCard avec transitions, MusicSelector
+
+**Fichiers créés**:
+- `supabase/migrations/20260404000001_sequences_music_transitions.sql`
+- `worker/src/lib/editly/` (index, types, transitions, spec-builder)
+- `worker/src/processors/editly.processor.ts`
+- `src/app/api/.../sequences/` (route, [sequenceId]/route, reorder/route)
+- `src/app/api/.../assemble-v2/route.ts`
+- `src/components/shorts/SequenceCard.tsx`
+- `src/components/shorts/MusicSelector.tsx`
+
+**Fichiers modifiés**:
+- `src/types/cinematic.ts` - TransitionType, Sequence, ShortMusicSettings
+- `src/store/shorts-store.ts` - sequences, music, sequence_id on Plan
+- `src/lib/bullmq/types.ts` - EditlyJobData, EDITLY queue
+- `src/lib/bullmq/queues.ts` - enqueueEditly()
+- `worker/src/config.ts` - EDITLY queue config
+- `worker/src/queues/index.ts` - Editly worker registration
+- `worker/package.json` - editly dependency
+
+---
 
 ### 2025-04-03 - Mentions dans shots + Editly research
 
@@ -254,3 +352,52 @@ src/lib/
 - `src/components/plan-editor/PlanEditor.tsx` - Prop locations
 - `src/components/plan-editor/types.ts` - Type locations
 - `src/app/(dashboard)/project/[projectId]/shorts/[shortId]/page.tsx` - Bible store integration
+
+---
+
+### 2026-04-03 - SSE Removal + BullMQ Migration
+
+**IMPORTANT**: Tout passe par BullMQ, PLUS de SSE (sauf Claude chat).
+
+**Redis**: Application native Mac sur localhost:6379 (PAS Docker)
+
+**Réalisé**:
+1. **Suppression SSE** - Plus de streaming dans les API routes de génération
+2. **cinematic_header héritage** - Déplacé du Plan vers la Sequence (plans héritent du parent)
+3. **Copy from Sequence** - Dropdown dans CinematicHeaderWizard pour copier les styles
+4. **Elapsed time** - Affichage du temps écoulé pendant génération vidéo
+5. **Queue endpoints** - Nouveaux endpoints BullMQ pour quick-shots et rush
+
+**Routes SSE supprimées**:
+- `DELETE /api/projects/[projectId]/shots/[shotId]/generate-video/` - Remplacé par queue-video
+- `DELETE /api/projects/[projectId]/shorts/[shortId]/assemble/` - Remplacé par queue-assemble
+- `MODIFIÉ /api/projects/[projectId]/quick-shots/route.ts` - SSE retiré, stream=true → erreur
+- `MODIFIÉ /api/projects/[projectId]/rush/route.ts` - SSE retiré, stream=true → erreur
+
+**Nouveaux endpoints BullMQ**:
+- `/api/projects/[projectId]/queue-quick-shot` - Quick shots via BullMQ (existait déjà)
+- `/api/projects/[projectId]/queue-rush` - Rush images via BullMQ (NOUVEAU)
+- `/api/projects/[projectId]/shots/[shotId]/queue-video` - Video via BullMQ
+- `/api/projects/[projectId]/shorts/[shortId]/queue-assemble` - Assembly via BullMQ
+
+**Cinematic Header Changes**:
+- `shorts-store.ts` - Retiré `cinematic_header` du Plan, ajouté à Sequence
+- `CinematicHeaderWizard.tsx` - Props `otherSequences`, `readOnly`, `defaultViewMode`
+- `queue-video/route.ts` - Héritage cinematic_header depuis sequence
+- `generate-cinematic/route.ts` - Population cinematic_header pour tous les plans
+
+**VideoGenerationProgress**:
+- Ajout champ `startedAt?: string | number` pour calcul elapsed time
+- `VideoGenerationCard.tsx` - Affichage temps écoulé "Xm Ys"
+
+**Fichiers créés**:
+- `src/app/api/projects/[projectId]/queue-rush/route.ts`
+
+**Fichiers modifiés**:
+- `src/app/api/projects/[projectId]/quick-shots/route.ts` - SSE supprimé
+- `src/app/api/projects/[projectId]/rush/route.ts` - SSE supprimé
+- `src/components/shorts/CinematicHeaderWizard.tsx` - Copy from sequence + readonly
+- `src/components/shorts/VideoGenerationCard.tsx` - Elapsed time display
+- `src/components/plan-editor/types.ts` - sequenceCinematicHeader, sequenceTitle, startedAt
+- `src/store/shorts-store.ts` - cinematic_header moved to Sequence
+- `src/lib/ai/cinematic-prompt-builder.ts` - CinematicPlan type update

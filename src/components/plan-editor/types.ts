@@ -59,11 +59,11 @@ export interface PlanData {
   // Plan title (optional, fallback: "Plan 1", "Plan 2", etc.)
   title?: string | null;
 
-  // Cinematic header (style, camera, color grade, etc.)
-  cinematic_header?: CinematicHeaderConfig | null;
-
   // Segments (shots within this plan)
   segments?: Segment[];
+
+  // Note: cinematic_header is now at Sequence level, not Plan level
+  // Plans inherit the cinematic style from their parent sequence
 }
 
 /**
@@ -84,6 +84,8 @@ export interface VideoGenerationProgress {
   step: string;
   message: string;
   status: 'generating' | 'completed' | 'error' | 'failed';
+  /** Timestamp when generation started (ISO string or Unix ms) */
+  startedAt?: string | number;
 }
 
 /**
@@ -105,6 +107,10 @@ export interface PlanEditorProps {
 
   // Bible data for cinematic wizard
   locations?: Array<{ id: string; name: string; description?: string }>;
+
+  // Sequence cinematic header (inherited from parent sequence)
+  sequenceCinematicHeader?: CinematicHeaderConfig | null;
+  sequenceTitle?: string | null;
 
   // Callbacks
   onUpdate: (updates: Partial<PlanData>) => void;

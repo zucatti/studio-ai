@@ -57,12 +57,15 @@ export async function POST(request: Request) {
       );
     }
 
-    if (from === to) {
+    // Handle auto-detection: if from is "auto", let Claude detect the language
+    const isAutoDetect = from === 'auto';
+
+    if (!isAutoDetect && from === to) {
       // No translation needed
       return NextResponse.json({ translation: text, unchanged: true });
     }
 
-    const sourceLang = LANGUAGE_NAMES[from] || from;
+    const sourceLang = isAutoDetect ? null : (LANGUAGE_NAMES[from] || from);
     const targetLang = LANGUAGE_NAMES[to] || to;
 
     // Build context section for the prompt
@@ -96,7 +99,8 @@ export async function POST(request: Request) {
 
 Respond with ONLY the translated dialogue, nothing else. No quotes, no explanation, just the translation.`;
 
-    const userPrompt = `Translate this ${sourceLang} dialogue into ${targetLang}:
+    const sourceDescription = sourceLang ? `${sourceLang} ` : '';
+    const userPrompt = `Translate this ${sourceDescription}dialogue into ${targetLang}:
 ${contextSection}
 Dialogue:
 "${text}"
@@ -105,7 +109,7 @@ Translated dialogue:`;
 
     // Use Haiku for speed and cost efficiency (translation is fast)
     const response = await anthropic.messages.create({
-      model: 'claude-3-5-haiku-20241022',
+      model: 'claude-haiku-4-5-20251001',
       max_tokens: 500,
       system: systemPrompt,
       messages: [

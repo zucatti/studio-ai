@@ -38,6 +38,7 @@
     "@supabase/supabase-js": "^2.98.0",
     "@types/fluent-ffmpeg": "^2.1.28",
     "@types/turndown": "^5.0.6",
+    "@xzdarcy/react-timeline-editor": "^1.0.0",
     "bullmq": "^5.71.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
