@@ -7,10 +7,14 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     python3 \
     build-essential \
+    pkg-config \
     libxi-dev \
     libglu1-mesa-dev \
     libglew-dev \
-    pkg-config \
+    libgl1-mesa-dev \
+    libegl1-mesa-dev \
+    libgles2-mesa-dev \
+    xorg-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy package files
@@ -38,6 +42,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxi6 \
     libglu1-mesa \
     libglew2.2 \
+    libgl1-mesa-glx \
+    libgl1-mesa-dri \
+    libegl1-mesa \
+    libgles2-mesa \
     xvfb \
     && rm -rf /var/lib/apt/lists/*
 
