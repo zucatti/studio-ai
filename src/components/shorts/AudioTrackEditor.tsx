@@ -83,7 +83,8 @@ export function AudioTrackEditor({
 
   // Get selected audio asset
   const selectedAsset = audioAssets.find(a => a.id === audioAssetId);
-  const { signedUrl: signedAudioUrl } = useSignedUrl(selectedAsset?.file_url || null);
+  const audioFileUrl = selectedAsset?.file_url && selectedAsset.file_url.length > 0 ? selectedAsset.file_url : null;
+  const { signedUrl: signedAudioUrl, isLoading: isLoadingAudioUrl, error: audioUrlError } = useSignedUrl(audioFileUrl);
   const { signedUrl: signedVideoUrl } = useSignedUrl(videoUrl || null);
 
   // Calculate region duration
@@ -94,13 +95,15 @@ export function AudioTrackEditor({
 
   // Initialize WaveSurfer
   useEffect(() => {
-    if (!waveformRef.current || !signedAudioUrl) return;
+    // Wait until we have a valid signed URL (not loading, no error)
+    if (!waveformRef.current || !signedAudioUrl || isLoadingAudioUrl) return;
 
     setIsLoading(true);
 
     // Destroy existing instance
     if (wavesurferRef.current) {
       wavesurferRef.current.destroy();
+      wavesurferRef.current = null;
     }
 
     // Create regions plugin
@@ -122,6 +125,12 @@ export function AudioTrackEditor({
     });
 
     wavesurferRef.current = ws;
+
+    // Handle load errors
+    ws.on('error', (err) => {
+      console.error('[AudioTrackEditor] WaveSurfer error:', err);
+      setIsLoading(false);
+    });
 
     // Load audio
     ws.load(signedAudioUrl);
@@ -174,7 +183,7 @@ export function AudioTrackEditor({
     return () => {
       ws.destroy();
     };
-  }, [signedAudioUrl, compact]);
+  }, [signedAudioUrl, isLoadingAudioUrl, compact]);
 
   // Update region when audioStart/audioEnd changes externally
   useEffect(() => {
@@ -374,7 +383,20 @@ export function AudioTrackEditor({
         )}
       </div>
 
-      {audioAssetId && signedAudioUrl && (
+      {audioAssetId && isLoadingAudioUrl && (
+        <div className="flex items-center justify-center py-4 text-slate-500 text-sm">
+          <div className="animate-spin w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full mr-2" />
+          Chargement de l'audio...
+        </div>
+      )}
+
+      {audioAssetId && audioUrlError && (
+        <div className="py-2 px-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-xs">
+          Erreur de chargement: {audioUrlError.message}
+        </div>
+      )}
+
+      {audioAssetId && signedAudioUrl && !isLoadingAudioUrl && (
         <>
           {/* Video Timeline (filmstrip placeholder) */}
           <div className="space-y-1">
