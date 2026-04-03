@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth0 } from '@/lib/auth0';
-import { downloadFile, parseStorageUrl, isB2Url } from '@/lib/storage';
 
 /**
- * GET /api/storage/proxy?url=b2://bucket/key
- *
- * Temporary proxy for B2 files while CORS propagates.
+ * Proxy endpoint for audio files to bypass CORS restrictions
+ * GET /api/storage/proxy?url=<signed-url>
  */
 export async function GET(request: NextRequest) {
   try {
@@ -15,32 +13,40 @@ export async function GET(request: NextRequest) {
     }
 
     const url = request.nextUrl.searchParams.get('url');
-    if (!url || !isB2Url(url)) {
-      return NextResponse.json({ error: 'Invalid URL' }, { status: 400 });
+    if (!url) {
+      return NextResponse.json({ error: 'Missing url parameter' }, { status: 400 });
     }
 
-    const parsed = parseStorageUrl(url);
-    if (!parsed) {
-      return NextResponse.json({ error: 'Invalid B2 URL' }, { status: 400 });
+    // Fetch the file from B2
+    const response = await fetch(url);
+    if (!response.ok) {
+      return NextResponse.json(
+        { error: `Failed to fetch: ${response.status}` },
+        { status: response.status }
+      );
     }
 
-    const fileBuffer = await downloadFile(parsed.key);
+    // Get content type from response
+    const contentType = response.headers.get('content-type') || 'application/octet-stream';
+    const contentLength = response.headers.get('content-length');
 
-    const ext = parsed.key.split('.').pop()?.toLowerCase();
-    const types: Record<string, string> = {
-      mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg',
-      m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
+    // Stream the response
+    const headers: HeadersInit = {
+      'Content-Type': contentType,
+      'Access-Control-Allow-Origin': '*',
+      'Cache-Control': 'public, max-age=3600',
     };
 
-    return new NextResponse(new Uint8Array(fileBuffer), {
-      headers: {
-        'Content-Type': types[ext || ''] || 'audio/mpeg',
-        'Content-Length': fileBuffer.length.toString(),
-        'Cache-Control': 'public, max-age=3600',
-      },
+    if (contentLength) {
+      headers['Content-Length'] = contentLength;
+    }
+
+    return new NextResponse(response.body, {
+      status: 200,
+      headers,
     });
   } catch (error) {
-    console.error('Proxy error:', error);
-    return NextResponse.json({ error: 'Failed' }, { status: 500 });
+    console.error('[Proxy] Error:', error);
+    return NextResponse.json({ error: 'Proxy error' }, { status: 500 });
   }
 }

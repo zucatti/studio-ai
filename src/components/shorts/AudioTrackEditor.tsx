@@ -88,6 +88,11 @@ export function AudioTrackEditor({
   const { signedUrl: signedAudioUrl, isLoading: isLoadingAudioUrl, error: audioUrlError } = useSignedUrl(audioFileUrl);
   const { signedUrl: signedVideoUrl } = useSignedUrl(videoUrl || null);
 
+  // Proxy the audio URL to bypass CORS (WaveSurfer needs to fetch audio data)
+  const proxiedAudioUrl = signedAudioUrl
+    ? `/api/storage/proxy?url=${encodeURIComponent(signedAudioUrl)}`
+    : null;
+
   // Calculate region duration
   const regionDuration = audioEnd ? audioEnd - audioStart : 0;
 
@@ -96,10 +101,10 @@ export function AudioTrackEditor({
 
   // Initialize WaveSurfer
   useEffect(() => {
-    // Wait until we have a valid signed URL (not loading, no error)
-    if (!waveformRef.current || !signedAudioUrl || isLoadingAudioUrl) return;
+    // Wait until we have a valid proxied URL (not loading, no error)
+    if (!waveformRef.current || !proxiedAudioUrl || isLoadingAudioUrl) return;
 
-    console.log('[AudioTrackEditor] Initializing with URL:', signedAudioUrl.substring(0, 100) + '...');
+    console.log('[AudioTrackEditor] Initializing with proxied URL');
     setIsLoading(true);
     setLoadError(null);
 
@@ -143,9 +148,9 @@ export function AudioTrackEditor({
       setIsLoading(false);
     });
 
-    // Load audio
-    console.log('[AudioTrackEditor] Loading audio...');
-    ws.load(signedAudioUrl);
+    // Load audio via proxy to bypass CORS
+    console.log('[AudioTrackEditor] Loading audio via proxy...');
+    ws.load(proxiedAudioUrl);
 
     // Events
     ws.on('ready', () => {
@@ -197,7 +202,7 @@ export function AudioTrackEditor({
     return () => {
       ws.destroy();
     };
-  }, [signedAudioUrl, isLoadingAudioUrl, compact]);
+  }, [proxiedAudioUrl, isLoadingAudioUrl, compact]);
 
   // Update region when audioStart/audioEnd changes externally
   useEffect(() => {
