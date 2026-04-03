@@ -40,9 +40,6 @@ export function createWorkers(): Worker[] {
   videoGenWorker.on('active', (job) => {
     console.log(`[VideoGen] Job ${job.id} started processing`);
   });
-  videoGenWorker.on('waiting', (job) => {
-    console.log(`[VideoGen] Job ${job.id} waiting in queue`);
-  });
   videoGenWorker.on('completed', (job) => {
     console.log(`[VideoGen] Job ${job.id} completed`);
   });

@@ -13,7 +13,7 @@ import type {
 } from './types.js';
 import { aiConfig } from '../../config.js';
 
-// Model mapping: short names to fal.ai endpoints
+// Model mapping: short names to fal.ai endpoints (image-to-video)
 const MODEL_ENDPOINTS: Record<string, string> = {
   'omnihuman': 'fal-ai/omnihuman',
   'kling-omni': 'fal-ai/kling-video/o3/pro/image-to-video', // Kling 3.0 Omni - elements + audio
@@ -23,6 +23,14 @@ const MODEL_ENDPOINTS: Record<string, string> = {
   'veo-3': 'fal-ai/veo3/image-to-video',
   'wan-2.1': 'fal-ai/wan/v2.1/image-to-video',
   'wan-2.6': 'fal-ai/wan/v2.1/image-to-video', // Same endpoint
+};
+
+// Text-to-video endpoints (no starting image required)
+const TEXT_TO_VIDEO_ENDPOINTS: Record<string, string> = {
+  'kling-omni': 'fal-ai/kling-video/o3/pro/text-to-video',
+  'kling-2.6': 'fal-ai/kling-video/v2.6/pro/text-to-video',
+  'sora-2': 'fal-ai/sora/v2/text-to-video',
+  'veo-3': 'fal-ai/veo3/text-to-video',
 };
 
 const MODELS: VideoModel[] = [
@@ -39,13 +47,15 @@ const MODELS: VideoModel[] = [
   },
   {
     id: 'kling-omni',
-    name: 'Kling Omni',
-    description: 'High quality video via fal.ai',
-    maxDuration: 10,
-    minDuration: 5,
+    name: 'Kling O3 Pro',
+    description: 'Kling 3.0 Omni - elements + voice synthesis',
+    maxDuration: 15,
+    minDuration: 3,
     supportsEndFrame: true,
-    supportsDialogue: false,
-    supportsAudio: false,
+    supportsDialogue: true,
+    supportsAudio: true,
+    supportsTextToVideo: true,
+    defaultForVideo: true,
   },
   {
     id: 'sora-2',
@@ -103,25 +113,43 @@ export class FalProvider implements VideoProvider {
     request: VideoGenerationRequest,
     onProgress?: ProgressCallback
   ): Promise<VideoGenerationResult> {
-    const endpoint = MODEL_ENDPOINTS[model] || model;
     const modelInfo = MODELS.find(m => m.id === model);
-
-    console.log(`[Fal] Generating with ${endpoint}`);
-    await onProgress?.(10, `Génération ${modelInfo?.name || model}...`);
 
     // Handle OmniHuman separately (different API)
     if (model === 'omnihuman') {
       return this.generateOmniHuman(request, onProgress);
     }
 
-    // Standard image-to-video generation
+    // Determine if we use text-to-video or image-to-video
+    const hasStartingFrame = !!request.firstFrameUrl;
+    let endpoint: string;
+
+    if (hasStartingFrame) {
+      endpoint = MODEL_ENDPOINTS[model] || model;
+    } else {
+      // No starting frame - use text-to-video endpoint
+      endpoint = TEXT_TO_VIDEO_ENDPOINTS[model];
+      if (!endpoint) {
+        throw new Error(`Model ${model} does not support text-to-video (no starting frame provided)`);
+      }
+    }
+
+    const isTextToVideo = !hasStartingFrame;
+    console.log(`[Fal] Generating with ${endpoint} (${isTextToVideo ? 'text-to-video' : 'image-to-video'})`);
+    await onProgress?.(10, `Génération ${modelInfo?.name || model}...`);
+
+    // Build input parameters
     const input: Record<string, unknown> = {
       prompt: request.prompt,
-      image_url: request.firstFrameUrl,
     };
 
-    // Add aspect ratio for models that support it
-    if (model === 'sora-2' || model === 'veo-3') {
+    // Add image_url only for image-to-video
+    if (hasStartingFrame) {
+      input.image_url = request.firstFrameUrl;
+    }
+
+    // Add aspect ratio
+    if (request.aspectRatio) {
       input.aspect_ratio = request.aspectRatio === '1:1' ? '16:9' : request.aspectRatio;
     }
 
@@ -130,8 +158,8 @@ export class FalProvider implements VideoProvider {
       // O3 supports duration 3-15 seconds
       input.duration = Math.min(Math.max(request.duration, 3), 15);
 
-      // Character elements for consistency
-      if (request.isCinematicMode && request.cinematicElements?.length) {
+      // Character elements for consistency (only for image-to-video with refs)
+      if (hasStartingFrame && request.isCinematicMode && request.cinematicElements?.length) {
         input.elements = request.cinematicElements.map(el => ({
           frontal_image_url: el.frontalImageUrl,
           reference_image_urls: el.referenceImageUrls,
@@ -145,11 +173,15 @@ export class FalProvider implements VideoProvider {
         input.generate_audio = true;
         input.voice_ids = request.cinematicVoices.map(v => v.voiceId);
         console.log(`[Fal] Kling O3 voice_ids:`, input.voice_ids);
+      } else if (isTextToVideo) {
+        // For text-to-video, enable audio by default for natural speech
+        input.generate_audio = true;
+        console.log(`[Fal] Kling O3 text-to-video: generate_audio enabled`);
       }
     }
 
-    // Add end frame if supported
-    if (request.lastFrameUrl && modelInfo?.supportsEndFrame) {
+    // Add end frame if supported (image-to-video only)
+    if (hasStartingFrame && request.lastFrameUrl && modelInfo?.supportsEndFrame) {
       input.tail_image_url = request.lastFrameUrl;
     }
 

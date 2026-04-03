@@ -7,9 +7,11 @@ export type AspectRatio = '16:9' | '9:16' | '1:1';
 export interface VideoGenerationRequest {
   // Required
   prompt: string;
-  firstFrameUrl: string;
   duration: number; // seconds
   aspectRatio: AspectRatio;
+
+  // Starting frame (optional for text-to-video)
+  firstFrameUrl?: string;
 
   // Optional
   lastFrameUrl?: string;
@@ -84,6 +86,7 @@ export interface VideoModel {
   supportsEndFrame: boolean;
   supportsDialogue: boolean;
   supportsAudio: boolean;
+  supportsTextToVideo?: boolean; // Can generate without starting frame
   defaultForDialogue?: boolean;
   defaultForVideo?: boolean;
 }
