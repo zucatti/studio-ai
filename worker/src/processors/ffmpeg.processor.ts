@@ -287,6 +287,15 @@ async function processSequenceAssembly(data: FFmpegJobData): Promise<void> {
 
     const videoFiles = tempFiles.filter(f => f.endsWith('.mp4'));
 
+    // Check which videos have audio streams
+    const audioStatus: boolean[] = [];
+    for (const file of videoFiles) {
+      const hasAudio = await checkVideoHasAudio(file);
+      audioStatus.push(hasAudio);
+      console.log(`[FFmpeg] ${file} has audio: ${hasAudio}`);
+    }
+    const hasAnyAudio = audioStatus.some(Boolean);
+
     // Build FFmpeg command based on number of clips
     // Use filter_complex with audio crossfade to eliminate clicks at junction points
     const AUDIO_CROSSFADE_DURATION = 0.05; // 50ms - imperceptible but eliminates clicks
@@ -295,13 +304,13 @@ async function processSequenceAssembly(data: FFmpegJobData): Promise<void> {
 
     if (videoFiles.length === 1) {
       // Single clip - just re-encode
+      const singleHasAudio = audioStatus[0];
       ffmpegArgs = [
         '-i', videoFiles[0],
         '-c:v', 'libx264',
         '-preset', 'fast',
         '-crf', '18',
-        '-c:a', 'aac',
-        '-b:a', '128k',
+        ...(singleHasAudio ? ['-c:a', 'aac', '-b:a', '128k'] : ['-an']),
         '-movflags', '+faststart',
         '-y',
         outputPath,
@@ -314,51 +323,91 @@ async function processSequenceAssembly(data: FFmpegJobData): Promise<void> {
         inputArgs.push('-i', file);
       }
 
-      // Build filter_complex:
-      // 1. Concatenate video streams normally
-      // 2. Chain audio streams with acrossfade for smooth transitions
       const n = videoFiles.length;
 
       // Video concat: [0:v][1:v]...[n-1:v]concat=n=N:v=1:a=0[outv]
       const videoInputs = videoFiles.map((_, i) => `[${i}:v]`).join('');
       const videoConcat = `${videoInputs}concat=n=${n}:v=1:a=0[outv]`;
 
-      // Audio crossfade chain
-      // For 2 clips: [0:a][1:a]acrossfade=d=0.05[outa]
-      // For 3 clips: [0:a][1:a]acrossfade=d=0.05[a01];[a01][2:a]acrossfade=d=0.05[outa]
-      // For 4 clips: [0:a][1:a]acrossfade=d=0.05[a01];[a01][2:a]acrossfade=d=0.05[a012];[a012][3:a]acrossfade=d=0.05[outa]
-      let audioFilter = '';
-      if (n === 2) {
-        audioFilter = `[0:a][1:a]acrossfade=d=${AUDIO_CROSSFADE_DURATION}:c1=tri:c2=tri[outa]`;
+      if (!hasAnyAudio) {
+        // No audio in any clip - video only output
+        console.log(`[FFmpeg] No audio in any clip, video-only output`);
+        const filterComplex = videoConcat;
+        console.log(`[FFmpeg] Filter complex: ${filterComplex}`);
+
+        ffmpegArgs = [
+          ...inputArgs,
+          '-filter_complex', filterComplex,
+          '-map', '[outv]',
+          '-c:v', 'libx264',
+          '-preset', 'fast',
+          '-crf', '18',
+          '-an', // No audio
+          '-movflags', '+faststart',
+          '-y',
+          outputPath,
+        ];
       } else {
-        // Chain crossfades for n > 2 clips
-        const crossfades: string[] = [];
-        for (let i = 0; i < n - 1; i++) {
-          const inputA = i === 0 ? '[0:a]' : `[a${i - 1}]`;
-          const inputB = `[${i + 1}:a]`;
-          const output = i === n - 2 ? '[outa]' : `[a${i}]`;
-          crossfades.push(`${inputA}${inputB}acrossfade=d=${AUDIO_CROSSFADE_DURATION}:c1=tri:c2=tri${output}`);
+        // Some or all clips have audio
+        // For clips without audio, we need to generate silence
+        // Use anullsrc to generate silence matching the clip duration
+
+        // First, get duration of each video
+        const durations: number[] = [];
+        for (const file of videoFiles) {
+          const dur = await getVideoDuration(file);
+          durations.push(dur);
         }
-        audioFilter = crossfades.join(';');
+
+        // Build audio filter parts
+        // For each clip: if it has audio, use [i:a], else generate silence with anullsrc
+        const audioFilters: string[] = [];
+        for (let i = 0; i < n; i++) {
+          if (!audioStatus[i]) {
+            // Generate silence for this clip's duration
+            // anullsrc generates silence, atrim limits to exact duration
+            audioFilters.push(`anullsrc=r=44100:cl=stereo,atrim=0:${durations[i]}[sil${i}]`);
+          }
+        }
+
+        // Build crossfade chain using either real audio or generated silence
+        const getAudioRef = (i: number) => audioStatus[i] ? `[${i}:a]` : `[sil${i}]`;
+
+        let audioFilter = '';
+        if (n === 2) {
+          audioFilter = `${getAudioRef(0)}${getAudioRef(1)}acrossfade=d=${AUDIO_CROSSFADE_DURATION}:c1=tri:c2=tri[outa]`;
+        } else {
+          // Chain crossfades for n > 2 clips
+          const crossfades: string[] = [];
+          for (let i = 0; i < n - 1; i++) {
+            const inputA = i === 0 ? getAudioRef(0) : `[a${i - 1}]`;
+            const inputB = getAudioRef(i + 1);
+            const output = i === n - 2 ? '[outa]' : `[a${i}]`;
+            crossfades.push(`${inputA}${inputB}acrossfade=d=${AUDIO_CROSSFADE_DURATION}:c1=tri:c2=tri${output}`);
+          }
+          audioFilter = crossfades.join(';');
+        }
+
+        // Combine all filter parts
+        const allFilters = [...audioFilters, videoConcat, audioFilter].filter(Boolean);
+        const filterComplex = allFilters.join(';');
+        console.log(`[FFmpeg] Filter complex: ${filterComplex}`);
+
+        ffmpegArgs = [
+          ...inputArgs,
+          '-filter_complex', filterComplex,
+          '-map', '[outv]',
+          '-map', '[outa]',
+          '-c:v', 'libx264',
+          '-preset', 'fast',
+          '-crf', '18',
+          '-c:a', 'aac',
+          '-b:a', '128k',
+          '-movflags', '+faststart',
+          '-y',
+          outputPath,
+        ];
       }
-
-      const filterComplex = `${videoConcat};${audioFilter}`;
-      console.log(`[FFmpeg] Filter complex: ${filterComplex}`);
-
-      ffmpegArgs = [
-        ...inputArgs,
-        '-filter_complex', filterComplex,
-        '-map', '[outv]',
-        '-map', '[outa]',
-        '-c:v', 'libx264',
-        '-preset', 'fast',
-        '-crf', '18',
-        '-c:a', 'aac',
-        '-b:a', '128k',
-        '-movflags', '+faststart',
-        '-y',
-        outputPath,
-      ];
     }
 
     await runFFmpeg(ffmpegArgs, {
