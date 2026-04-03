@@ -18,11 +18,14 @@ export interface FFmpegJobData {
   userId: string;
   jobId: string;
   createdAt: string;
-  operation: 'assemble' | 'music-overlay' | 'extract-frame';
+  operation: 'assemble' | 'assemble-sequence' | 'music-overlay' | 'extract-frame';
   projectId: string;
   // For assembly
   shortId?: string;
   shotIds?: string[];
+  // For sequence assembly
+  sequenceId?: string;
+  planHash?: string;
   // For music overlay
   shotId?: string;
   videoUrl?: string;
@@ -45,6 +48,9 @@ export async function processFFmpegJob(job: Job<FFmpegJobData>): Promise<void> {
     switch (operation) {
       case 'assemble':
         await processAssembly(data);
+        break;
+      case 'assemble-sequence':
+        await processSequenceAssembly(data);
         break;
       case 'music-overlay':
         await processMusicOverlay(data);
@@ -184,6 +190,212 @@ async function processAssembly(data: FFmpegJobData): Promise<void> {
     });
 
     console.log(`[FFmpeg] Assembly job ${jobId} completed`);
+
+  } finally {
+    // Cleanup temp files
+    for (const file of tempFiles) {
+      try {
+        await unlink(file);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+    try {
+      const { rmdir } = await import('fs/promises');
+      await rmdir(tempDir);
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
+}
+
+/**
+ * Assemble plans within a sequence (simple concatenation, no color correction)
+ *
+ * NOTE: Color correction has been disabled because the AI models now generate
+ * consistent colorimetry via prompts. The previous color matching was causing
+ * more harm than good with visible color shifts between clips.
+ */
+async function processSequenceAssembly(data: FFmpegJobData): Promise<void> {
+  const { jobId, userId, projectId, sequenceId, shotIds, planHash } = data;
+
+  if (!sequenceId || !shotIds || shotIds.length === 0) {
+    throw new Error('Missing sequenceId or shotIds for sequence assembly');
+  }
+
+  const supabase = getSupabase();
+  await startJob(jobId, 'Préparation de l\'assemblage...');
+
+  // Get shot video URLs
+  await updateJobProgress(jobId, 10, 'Récupération des vidéos...');
+
+  const { data: shots, error: shotsError } = await supabase
+    .from('shots')
+    .select('id, generated_video_url, sort_order')
+    .in('id', shotIds)
+    .order('sort_order');
+
+  if (shotsError || !shots) {
+    throw new Error(`Failed to get shots: ${shotsError?.message}`);
+  }
+
+  // Filter shots with videos and get public URLs
+  const videoUrls: string[] = [];
+  for (const shot of shots) {
+    if (shot.generated_video_url) {
+      const publicUrl = await getPublicUrl(shot.generated_video_url);
+      videoUrls.push(publicUrl);
+    }
+  }
+
+  if (videoUrls.length === 0) {
+    throw new Error('No videos to assemble');
+  }
+
+  await updateJobProgress(jobId, 20, `Assemblage de ${videoUrls.length} vidéos...`);
+
+  // Create temp directory
+  const tempDir = join(tmpdir(), `ffmpeg-seq-${jobId}`);
+  await mkdir(tempDir, { recursive: true });
+
+  const tempFiles: string[] = [];
+  const outputPath = join(tempDir, 'output.mp4');
+
+  try {
+    // Download all videos
+    for (let i = 0; i < videoUrls.length; i++) {
+      await updateJobProgress(jobId, 20 + (i / videoUrls.length) * 30, `Téléchargement plan ${i + 1}/${videoUrls.length}...`);
+
+      const response = await fetch(videoUrls[i]);
+      if (!response.ok) {
+        throw new Error(`Failed to download video ${i + 1}: ${response.status}`);
+      }
+
+      const buffer = await response.arrayBuffer();
+      const tempPath = join(tempDir, `input_${i}.mp4`);
+      await writeFile(tempPath, Buffer.from(buffer));
+      tempFiles.push(tempPath);
+    }
+
+    // Get total duration for progress
+    await updateJobProgress(jobId, 55, 'Concaténation...');
+    let totalDuration = 0;
+    for (const file of tempFiles.filter(f => f.endsWith('.mp4'))) {
+      totalDuration += await getVideoDuration(file);
+    }
+    console.log(`[FFmpeg] Sequence total duration: ${totalDuration.toFixed(2)}s`);
+
+    const videoFiles = tempFiles.filter(f => f.endsWith('.mp4'));
+
+    // Build FFmpeg command based on number of clips
+    // Use filter_complex with audio crossfade to eliminate clicks at junction points
+    const AUDIO_CROSSFADE_DURATION = 0.05; // 50ms - imperceptible but eliminates clicks
+
+    let ffmpegArgs: string[];
+
+    if (videoFiles.length === 1) {
+      // Single clip - just re-encode
+      ffmpegArgs = [
+        '-i', videoFiles[0],
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '18',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-movflags', '+faststart',
+        '-y',
+        outputPath,
+      ];
+    } else {
+      // Multiple clips - use filter_complex with audio crossfade
+      // Build input arguments
+      const inputArgs: string[] = [];
+      for (const file of videoFiles) {
+        inputArgs.push('-i', file);
+      }
+
+      // Build filter_complex:
+      // 1. Concatenate video streams normally
+      // 2. Chain audio streams with acrossfade for smooth transitions
+      const n = videoFiles.length;
+
+      // Video concat: [0:v][1:v]...[n-1:v]concat=n=N:v=1:a=0[outv]
+      const videoInputs = videoFiles.map((_, i) => `[${i}:v]`).join('');
+      const videoConcat = `${videoInputs}concat=n=${n}:v=1:a=0[outv]`;
+
+      // Audio crossfade chain
+      // For 2 clips: [0:a][1:a]acrossfade=d=0.05[outa]
+      // For 3 clips: [0:a][1:a]acrossfade=d=0.05[a01];[a01][2:a]acrossfade=d=0.05[outa]
+      // For 4 clips: [0:a][1:a]acrossfade=d=0.05[a01];[a01][2:a]acrossfade=d=0.05[a012];[a012][3:a]acrossfade=d=0.05[outa]
+      let audioFilter = '';
+      if (n === 2) {
+        audioFilter = `[0:a][1:a]acrossfade=d=${AUDIO_CROSSFADE_DURATION}:c1=tri:c2=tri[outa]`;
+      } else {
+        // Chain crossfades for n > 2 clips
+        const crossfades: string[] = [];
+        for (let i = 0; i < n - 1; i++) {
+          const inputA = i === 0 ? '[0:a]' : `[a${i - 1}]`;
+          const inputB = `[${i + 1}:a]`;
+          const output = i === n - 2 ? '[outa]' : `[a${i}]`;
+          crossfades.push(`${inputA}${inputB}acrossfade=d=${AUDIO_CROSSFADE_DURATION}:c1=tri:c2=tri${output}`);
+        }
+        audioFilter = crossfades.join(';');
+      }
+
+      const filterComplex = `${videoConcat};${audioFilter}`;
+      console.log(`[FFmpeg] Filter complex: ${filterComplex}`);
+
+      ffmpegArgs = [
+        ...inputArgs,
+        '-filter_complex', filterComplex,
+        '-map', '[outv]',
+        '-map', '[outa]',
+        '-c:v', 'libx264',
+        '-preset', 'fast',
+        '-crf', '18',
+        '-c:a', 'aac',
+        '-b:a', '128k',
+        '-movflags', '+faststart',
+        '-y',
+        outputPath,
+      ];
+    }
+
+    await runFFmpeg(ffmpegArgs, {
+      jobId,
+      baseProgress: 55,
+      progressRange: 30,
+      totalDuration,
+      onProgress: (progress, message) => updateJobProgress(jobId, progress, message),
+    });
+
+    tempFiles.push(outputPath);
+
+    // Upload result
+    await updateJobProgress(jobId, 90, 'Sauvegarde...');
+
+    const { readFile } = await import('fs/promises');
+    const outputBuffer = await readFile(outputPath);
+    const storageKey = `sequences/${userId.replace(/[|]/g, '_')}/${projectId}/${sequenceId}_assembled_${Date.now()}.mp4`;
+    const b2Url = await uploadFile(storageKey, outputBuffer, 'video/mp4');
+
+    // Update sequence in database
+    await supabase
+      .from('sequences')
+      .update({
+        assembled_video_url: b2Url,
+        assembled_plan_hash: planHash,
+        assembled_at: new Date().toISOString(),
+      })
+      .eq('id', sequenceId);
+
+    await completeJob(jobId, {
+      outputUrl: b2Url,
+      planCount: videoUrls.length,
+      sequenceId,
+    });
+
+    console.log(`[FFmpeg] Sequence assembly completed (simple concat, no color correction)`);
 
   } finally {
     // Cleanup temp files

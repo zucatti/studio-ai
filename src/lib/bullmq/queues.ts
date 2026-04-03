@@ -12,6 +12,7 @@ import {
   AudioGenJobData,
   FFmpegJobData,
   QuickShotGenJobData,
+  EditlyJobData,
 } from './types';
 
 // Parse Redis port handling K8s service discovery format (tcp://host:port)
@@ -106,6 +107,13 @@ export function getFFmpegQueue(): Queue<FFmpegJobData> {
  */
 export function getQuickShotGenQueue(): Queue<QuickShotGenJobData> {
   return getQueue(QUEUE_NAMES.QUICK_SHOT_GEN) as Queue<QuickShotGenJobData>;
+}
+
+/**
+ * Get the Editly video assembly queue
+ */
+export function getEditlyQueue(): Queue<EditlyJobData> {
+  return getQueue(QUEUE_NAMES.EDITLY) as Queue<EditlyJobData>;
 }
 
 /**
@@ -219,6 +227,33 @@ export async function enqueueQuickShotGen(
     return job.id!;
   } catch (error) {
     console.error(`[BullMQ] Failed to enqueue quick-shot:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Add an Editly video assembly job
+ */
+export async function enqueueEditly(
+  data: Omit<EditlyJobData, 'type'>,
+  options?: { priority?: number; delay?: number }
+): Promise<string> {
+  console.log(`[BullMQ] Enqueueing editly job ${data.jobId}...`);
+  try {
+    const queue = getEditlyQueue();
+    const job = await queue.add(
+      'editly',
+      { ...data, type: 'editly' },
+      {
+        jobId: data.jobId,
+        priority: options?.priority,
+        delay: options?.delay,
+      }
+    );
+    console.log(`[BullMQ] Editly job ${job.id} added successfully`);
+    return job.id!;
+  } catch (error) {
+    console.error(`[BullMQ] Failed to enqueue editly:`, error);
     throw error;
   }
 }

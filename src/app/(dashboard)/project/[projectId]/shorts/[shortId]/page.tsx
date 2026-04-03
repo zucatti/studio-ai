@@ -1,20 +1,44 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { PlanTimeline } from '@/components/shorts/PlanTimeline';
 import { PlanEditor, type VideoGenerationOptions, type PlanData } from '@/components/plan-editor';
-import { VideoGenerationCard, type VideoGenerationProgress } from '@/components/shorts/VideoGenerationCard';
+import { type VideoGenerationProgress } from '@/components/shorts/VideoGenerationCard';
 import { VideoCard } from '@/components/shorts/VideoCard';
+import { MontageEditor } from '@/components/shorts/MontageEditor';
+import { useSignedUrl, isB2Url } from '@/hooks/use-signed-url';
+import { useSequenceAssembly } from '@/hooks/use-sequence-assembly';
 import { ProjectBibleButton } from '@/components/bible/ProjectBible';
 import { formatDuration } from '@/components/shorts/DurationPicker';
 import { CinematicHeaderWizard } from '@/components/shorts/CinematicHeaderWizard';
+import { PlanCard } from '@/components/shorts/PlanCard';
+import { SequenceCard } from '@/components/shorts/SequenceCard';
+import { SequenceClip } from '@/components/shorts/SequenceClip';
+import { MusicSelector } from '@/components/shorts/MusicSelector';
+import {
+  DndContext,
+  DragOverlay,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragStartEvent,
+  DragEndEvent,
+  useDroppable,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { useShortsStore, type Plan } from '@/store/shorts-store';
 import { useJobsStore } from '@/store/jobs-store';
 import { useBibleStore } from '@/store/bible-store';
 import type { AspectRatio } from '@/types/database';
-import type { CinematicHeaderConfig } from '@/types/cinematic';
+import type { CinematicHeaderConfig, Sequence, TransitionType } from '@/types/cinematic';
 import {
   ArrowLeft,
   Loader2,
@@ -27,7 +51,11 @@ import {
   Download,
   Clapperboard,
   Sparkles,
-  Settings2,
+  Plus,
+  Layers,
+  Maximize2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -48,6 +76,12 @@ export default function ShortDetailPage() {
     deletePlan,
     reorderPlans,
     getShortById,
+    createSequence,
+    updateSequence,
+    deleteSequence,
+    assignPlanToSequence,
+    setMusicSettings,
+    getSequencesByShort,
   } = useShortsStore();
 
   // Jobs store for QueuePanel integration
@@ -62,7 +96,6 @@ export default function ShortDetailPage() {
   const [titleValue, setTitleValue] = useState('');
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
-  const [expandedVideo, setExpandedVideo] = useState<Plan | null>(null);
   const [generationProgress, setGenerationProgress] = useState<Map<string, VideoGenerationProgress>>(new Map());
 
   // Tab state: 'edition' or 'montage'
@@ -76,6 +109,25 @@ export default function ShortDetailPage() {
   const [isAssembling, setIsAssembling] = useState(false);
   const [assembledVideoUrl, setAssembledVideoUrl] = useState<string | null>(null);
   const [assemblyProgress, setAssemblyProgress] = useState(0);
+
+  // Sequences state (loaded in Edition tab)
+  const [sequences, setSequences] = useState<Sequence[]>([]);
+  const [isLoadingSequences, setIsLoadingSequences] = useState(false);
+  // Track COLLAPSED sequences (empty = all expanded by default)
+  const [collapsedSequences, setCollapsedSequences] = useState<Set<string>>(new Set());
+
+  // Drag state
+  const [activeDragId, setActiveDragId] = useState<string | null>(null);
+
+  // Gallery carousel state - use index instead of plan object for smooth sliding
+  const [galleryIndex, setGalleryIndex] = useState<number>(-1);
+
+  // DnD sensors
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 8 },
+    })
+  );
 
   // Fetch project to get aspect ratio
   useEffect(() => {
@@ -105,6 +157,31 @@ export default function ShortDetailPage() {
     fetchProjectAssets(projectId);
   }, [projectId, fetchProjectAssets]);
 
+  // Fetch sequences when page loads
+  useEffect(() => {
+    if (shortId) {
+      fetchSequences();
+    }
+  }, [shortId]);
+
+  const fetchSequences = async () => {
+    setIsLoadingSequences(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences`);
+      if (res.ok) {
+        const data = await res.json();
+        const seqs = data.sequences || [];
+        setSequences(seqs);
+        // Expand all sequences by default
+        // collapsedSequences starts empty = all expanded by default (no action needed)
+      }
+    } catch (error) {
+      console.error('Error fetching sequences:', error);
+    } finally {
+      setIsLoadingSequences(false);
+    }
+  };
+
   // Extract locations from project assets
   const locations = useMemo(() => {
     return projectAssets
@@ -117,6 +194,23 @@ export default function ShortDetailPage() {
   }, [projectAssets]);
 
   const short = getShortById(shortId);
+  const activeDragPlan = short?.plans.find(p => p.id === activeDragId) || null;
+
+  // Sequence assembly hook (color matching + concatenation per sequence)
+  const {
+    assemblyStates: sequenceAssemblyStates,
+    getSequenceState,
+    assembleAll: assembleAllSequences,
+    assembleSequence,
+    isAssembling: isSequenceAssembling,
+    overallProgress: sequenceOverallProgress,
+  } = useSequenceAssembly({
+    projectId,
+    shortId,
+    sequences,
+    plans: short?.plans || [],
+    enabled: false, // Don't auto-assemble, user triggers manually
+  });
 
   // Set title value when short loads
   useEffect(() => {
@@ -226,6 +320,277 @@ export default function ShortDetailPage() {
     toast.info('Le style cinématique se configure maintenant dans chaque plan');
   };
 
+  // Sequence handlers
+  const handleCreateSequence = async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: `Séquence ${sequences.length + 1}`,
+          sort_order: sequences.length,
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setSequences(prev => [...prev, data.sequence]);
+        toast.success('Séquence créée');
+      }
+    } catch (error) {
+      console.error('Error creating sequence:', error);
+      toast.error('Erreur lors de la création');
+    }
+  };
+
+  // State for sequence cinematic wizard
+  const [editingSequenceCinematic, setEditingSequenceCinematic] = useState<string | null>(null);
+
+  const handleUpdateSequence = async (sequenceId: string, updates: Partial<{
+    title: string | null;
+    cinematic_header: CinematicHeaderConfig | null;
+    transition_in: TransitionType | null;
+    transition_out: TransitionType | null;
+    transition_duration: number;
+  }>) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences/${sequenceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+      if (res.ok) {
+        setSequences(prev => prev.map(s => s.id === sequenceId ? { ...s, ...updates } : s));
+      }
+    } catch (error) {
+      console.error('Error updating sequence:', error);
+      toast.error('Erreur lors de la mise à jour');
+    }
+  };
+
+  const handleDeleteSequence = async (sequenceId: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences/${sequenceId}`, {
+        method: 'DELETE',
+      });
+      if (res.ok) {
+        setSequences(prev => prev.filter(s => s.id !== sequenceId));
+        toast.success('Séquence supprimée');
+      }
+    } catch (error) {
+      console.error('Error deleting sequence:', error);
+      toast.error('Erreur lors de la suppression');
+    }
+  };
+
+  // Assign plan to sequence (optimistic update)
+  const handleAssignPlanToSequence = async (planId: string, sequenceId: string | null) => {
+    // Optimistic update via store
+    const { shorts } = useShortsStore.getState();
+    const updatedShorts = shorts.map(s => {
+      if (s.id !== shortId) return s;
+      return {
+        ...s,
+        plans: s.plans.map(p =>
+          p.id === planId ? { ...p, sequence_id: sequenceId } : p
+        ),
+      };
+    });
+    useShortsStore.setState({ shorts: updatedShorts });
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/shots/${planId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequence_id: sequenceId }),
+      });
+
+      if (!res.ok) {
+        // Revert on error
+        useShortsStore.setState({ shorts });
+        toast.error('Erreur lors de l\'assignation');
+      }
+    } catch (error) {
+      // Revert on error
+      useShortsStore.setState({ shorts });
+      console.error('Error assigning plan to sequence:', error);
+      toast.error('Erreur lors de l\'assignation');
+    }
+  };
+
+  // Drag handlers
+  const handleDragStart = (event: DragStartEvent) => {
+    setActiveDragId(event.active.id as string);
+  };
+
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    setActiveDragId(null);
+
+    if (!over || !short) return;
+
+    const draggedPlanId = active.id as string;
+    const overId = over.id as string;
+    const draggedPlan = short.plans.find(p => p.id === draggedPlanId);
+
+    if (!draggedPlan) return;
+
+    // Check if dropped on a sequence container
+    if (overId.startsWith('sequence-')) {
+      const targetSequenceId = overId.replace('sequence-', '');
+      if (draggedPlan.sequence_id !== targetSequenceId) {
+        await handleAssignPlanToSequence(draggedPlanId, targetSequenceId);
+      }
+      return;
+    }
+
+    // Check if dropped on rush zone
+    if (overId === 'rush-zone') {
+      if (draggedPlan.sequence_id) {
+        await handleAssignPlanToSequence(draggedPlanId, null);
+      }
+      return;
+    }
+
+    // Check if dropped on another plan - inherit that plan's sequence
+    const targetPlan = short.plans.find(p => p.id === overId);
+    if (targetPlan) {
+      const targetSequenceId = targetPlan.sequence_id;
+
+      // If dropped on a plan in a different sequence (or rush), move to that sequence
+      if (draggedPlan.sequence_id !== targetSequenceId) {
+        await handleAssignPlanToSequence(draggedPlanId, targetSequenceId);
+        return;
+      }
+
+      // Same sequence - reorder within sequence
+      if (targetSequenceId) {
+        const sequencePlans = short.plans
+          .filter(p => p.sequence_id === targetSequenceId)
+          .sort((a, b) => a.sort_order - b.sort_order);
+        const oldIndex = sequencePlans.findIndex(p => p.id === draggedPlanId);
+        const newIndex = sequencePlans.findIndex(p => p.id === overId);
+
+        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+          const newOrder = arrayMove(sequencePlans, oldIndex, newIndex);
+          await reorderPlans(projectId, shortId, newOrder.map(p => p.id));
+        }
+      } else {
+        // Same in rush - reorder within rush
+        const rushPlans = short.plans
+          .filter(p => !p.sequence_id)
+          .sort((a, b) => a.sort_order - b.sort_order);
+        const oldIndex = rushPlans.findIndex(p => p.id === draggedPlanId);
+        const newIndex = rushPlans.findIndex(p => p.id === overId);
+
+        if (oldIndex !== -1 && newIndex !== -1 && oldIndex !== newIndex) {
+          const newOrder = arrayMove(rushPlans, oldIndex, newIndex);
+          await reorderPlans(projectId, shortId, newOrder.map(p => p.id));
+        }
+      }
+    }
+  };
+
+  // Music handlers
+  const handleMusicSelect = async (assetId: string | null) => {
+    try {
+      await updateShort(projectId, shortId, { music_asset_id: assetId });
+      toast.success(assetId ? 'Musique sélectionnée' : 'Musique retirée');
+    } catch (error) {
+      console.error('Error updating music:', error);
+      toast.error('Erreur lors de la mise à jour');
+    }
+  };
+
+  const handleMusicVolumeChange = async (volume: number) => {
+    await updateShort(projectId, shortId, { music_volume: volume });
+  };
+
+  const handleMusicFadeInChange = async (fadeIn: number) => {
+    await updateShort(projectId, shortId, { music_fade_in: fadeIn });
+  };
+
+  const handleMusicFadeOutChange = async (fadeOut: number) => {
+    await updateShort(projectId, shortId, { music_fade_out: fadeOut });
+  };
+
+  // Get plans grouped by sequence for display
+  const getPlansForSequence = useCallback((sequenceId: string) => {
+    if (!short?.plans) return [];
+    return short.plans
+      .filter(p => p.sequence_id === sequenceId)
+      .sort((a, b) => a.sort_order - b.sort_order);
+  }, [short?.plans]);
+
+  // Get unassigned plans (not in any sequence)
+  const unassignedPlans = useMemo(() => {
+    if (!short?.plans) return [];
+    return short.plans
+      .filter(p => !p.sequence_id)
+      .sort((a, b) => a.sort_order - b.sort_order);
+  }, [short?.plans]);
+
+  // Get all navigable sequences (with assembled video) in display order
+  const navigableSequences = useMemo(() => {
+    return sequences.filter(seq => {
+      // Check if sequence has assembled video (from state or DB)
+      const assemblyState = sequenceAssemblyStates.get(seq.id);
+      const assembledUrl = assemblyState?.status === 'completed'
+        ? assemblyState.assembledVideoUrl
+        : seq.assembled_video_url;
+      return !!assembledUrl;
+    });
+  }, [sequences, sequenceAssemblyStates]);
+
+  // Open gallery at specific sequence
+  const openGallery = useCallback((sequence: Sequence) => {
+    const index = navigableSequences.findIndex(s => s.id === sequence.id);
+    if (index !== -1) {
+      setGalleryIndex(index);
+    }
+  }, [navigableSequences]);
+
+  // Close gallery
+  const closeGallery = useCallback(() => {
+    setGalleryIndex(-1);
+  }, []);
+
+  // Navigate to previous/next sequence in fullscreen (no infinite loop)
+  const navigateSequence = useCallback((direction: 'prev' | 'next') => {
+    if (galleryIndex === -1 || navigableSequences.length <= 1) return;
+
+    // Check bounds - no infinite loop
+    if (direction === 'prev' && galleryIndex === 0) return;
+    if (direction === 'next' && galleryIndex === navigableSequences.length - 1) return;
+
+    const newIndex = direction === 'prev' ? galleryIndex - 1 : galleryIndex + 1;
+    setGalleryIndex(newIndex);
+  }, [galleryIndex, navigableSequences]);
+
+  // Keyboard navigation for fullscreen
+  useEffect(() => {
+    if (galleryIndex === -1) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        navigateSequence('prev');
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        navigateSequence('next');
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        closeGallery();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [galleryIndex, navigateSequence, closeGallery]);
+
+  // Check if at boundaries
+  const isFirstSequence = galleryIndex === 0;
+  const isLastSequence = galleryIndex === navigableSequences.length - 1;
+
   // Generate all plans (cinematic mega-prompt for each)
   const handleGenerateCinematic = async () => {
     if (!short) return;
@@ -286,6 +651,7 @@ export default function ShortDetailPage() {
         step: 'queuing',
         message: 'Mise en file d\'attente...',
         status: 'generating',
+        startedAt: Date.now(),
       });
       return newMap;
     });
@@ -347,15 +713,17 @@ export default function ShortDetailPage() {
         description: 'Vous pouvez continuer à travailler pendant la génération.',
       });
 
-      // Update progress to show queued state
+      // Update progress to show queued state (preserve startedAt)
       setGenerationProgress(prev => {
         const newMap = new Map(prev);
+        const existing = prev.get(planId);
         newMap.set(planId, {
           planId,
           progress: 5,
           step: 'queued',
           message: 'En file d\'attente...',
           status: 'generating',
+          startedAt: existing?.startedAt || Date.now(),
         });
         return newMap;
       });
@@ -389,11 +757,59 @@ export default function ShortDetailPage() {
 
       // Check if this is an assembly job for this short
       if (assetType === 'short' && jobSubtype === 'assembly') {
-        console.log('[Assembly] Job completed, refreshing shorts...');
+        console.log('[Assembly] Job completed, fetching result...');
+
+        // Fetch job to get the output URL
+        const { jobId } = customEvent.detail;
+        try {
+          const res = await fetch(`/api/jobs/${jobId}`);
+          if (res.ok) {
+            const data = await res.json();
+            const videoUrl = data.job?.result_data?.outputUrl || data.job?.result_data?.videoUrl;
+            if (videoUrl) {
+              // Sign the URL if it's b2://
+              if (videoUrl.startsWith('b2://')) {
+                const signRes = await fetch('/api/storage/sign', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ urls: [videoUrl] }),
+                });
+                if (signRes.ok) {
+                  const signData = await signRes.json();
+                  const signedUrl = signData.signedUrls?.[videoUrl];
+                  if (signedUrl) {
+                    setAssembledVideoUrl(signedUrl);
+                  }
+                }
+              } else {
+                setAssembledVideoUrl(videoUrl);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('[Assembly] Error fetching job result:', error);
+        }
+
         await fetchShorts(projectId);
         setIsAssembling(false);
         setAssemblyProgress(100);
         toast.success('Short assemblé');
+        return;
+      }
+
+      // Check if this is a sequence assembly job
+      if (assetType === 'sequence' && jobSubtype === 'sequence-assembly') {
+        console.log('[Sequence Assembly] Job completed, refreshing sequences...');
+        // Refetch sequences to get updated assembled_video_url
+        try {
+          const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences`);
+          if (res.ok) {
+            const data = await res.json();
+            setSequences(data.sequences || []);
+          }
+        } catch (error) {
+          console.error('Error refetching sequences:', error);
+        }
         return;
       }
 
@@ -455,7 +871,7 @@ export default function ShortDetailPage() {
       window.removeEventListener('job-completed', handleJobCompleted);
       window.removeEventListener('job-failed', handleJobFailed);
     };
-  }, [projectId, fetchShorts]);
+  }, [projectId, shortId, fetchShorts]);
 
   // Sync job progress from jobs store to generationProgress map
   useEffect(() => {
@@ -487,6 +903,7 @@ export default function ShortDetailPage() {
           step: job.status,
           message: job.message || 'En cours...',
           status: 'generating',
+          startedAt: job.started_at || job.created_at,
         });
       }
 
@@ -512,6 +929,355 @@ export default function ShortDetailPage() {
       setAssemblyProgress(assemblyJob.progress);
     }
   }, [jobs, shortId]);
+
+  // Sortable plan item for rush list
+  const SortablePlanItem = ({ plan }: { plan: Plan }) => {
+    const {
+      attributes,
+      listeners,
+      setNodeRef,
+      transform,
+      transition,
+      isDragging,
+    } = useSortable({ id: plan.id });
+
+    const style = {
+      transform: CSS.Transform.toString(transform),
+      transition,
+      opacity: isDragging ? 0.5 : 1,
+    };
+
+    return (
+      <div ref={setNodeRef} style={style} {...attributes}>
+        <PlanCard
+          plan={plan}
+          isSelected={selectedPlanId === plan.id}
+          onSelect={() => {
+            setSelectedPlanId(plan.id);
+            setIsModalOpen(true);
+          }}
+          onEdit={() => {
+            setSelectedPlanId(plan.id);
+            setIsModalOpen(true);
+          }}
+          onDelete={() => handleDeletePlan(plan.id)}
+          dragHandleProps={listeners}
+          compact
+        />
+      </div>
+    );
+  };
+
+  // Droppable sequence zone
+  const DroppableSequence = ({ sequence, children }: { sequence: Sequence; children: React.ReactNode }) => {
+    const { setNodeRef, isOver } = useDroppable({
+      id: `sequence-${sequence.id}`,
+    });
+
+    return (
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "rounded-xl bg-[#0d1218] border overflow-hidden transition-colors",
+          isOver ? "border-purple-500 bg-purple-500/10" : "border-white/5"
+        )}
+      >
+        {children}
+      </div>
+    );
+  };
+
+  // Droppable rush zone
+  const DroppableRush = ({ children }: { children: React.ReactNode }) => {
+    const { setNodeRef, isOver } = useDroppable({
+      id: 'rush-zone',
+    });
+
+    return (
+      <div
+        ref={setNodeRef}
+        className={cn(
+          "flex-1 overflow-y-auto rounded-lg transition-colors p-2 -m-2",
+          isOver && "bg-blue-500/10"
+        )}
+      >
+        {children}
+      </div>
+    );
+  };
+
+  // Storyboard plan card with hover video autoplay
+  const StoryboardPlanCard = ({
+    plan,
+    aspectRatio: ar,
+    isSelected,
+    isGenerating,
+    isRush,
+    onSelect,
+    onExpand,
+  }: {
+    plan: Plan;
+    aspectRatio: string;
+    isSelected: boolean;
+    isGenerating: boolean;
+    isRush?: boolean;
+    onSelect: () => void;
+    onExpand: () => void;
+  }) => {
+    const [isHovered, setIsHovered] = useState(false);
+    const [videoProgress, setVideoProgress] = useState(0);
+    const videoRef = useRef<HTMLVideoElement>(null);
+
+    // Sign B2 URLs
+    const { signedUrl: signedVideoUrl } = useSignedUrl(plan.generated_video_url || null);
+    const { signedUrl: signedImageUrl } = useSignedUrl(plan.storyboard_image_url || null);
+
+    const finalVideoUrl = signedVideoUrl || (!isB2Url(plan.generated_video_url || '') ? plan.generated_video_url : null);
+    const finalImageUrl = signedImageUrl || (!isB2Url(plan.storyboard_image_url || '') ? plan.storyboard_image_url : null);
+
+    // Card width based on aspect ratio - larger sizes
+    const cardWidth = ar === '9:16' ? 160 : ar === '1:1' ? 200 : 280;
+    const aspectStyle = ar.replace(':', '/');
+
+    // Handle hover autoplay for videos
+    useEffect(() => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      if (isHovered && finalVideoUrl) {
+        video.play().catch(() => {});
+      } else {
+        video.pause();
+        video.currentTime = 0;
+        setVideoProgress(0);
+      }
+    }, [isHovered, finalVideoUrl]);
+
+    // Track video progress
+    useEffect(() => {
+      const video = videoRef.current;
+      if (!video) return;
+
+      const handleTimeUpdate = () => {
+        if (video.duration > 0) {
+          setVideoProgress((video.currentTime / video.duration) * 100);
+        }
+      };
+
+      video.addEventListener('timeupdate', handleTimeUpdate);
+      return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+    }, []);
+
+    return (
+      <div
+        className={cn(
+          "relative flex-shrink-0 rounded-xl overflow-hidden border-2 cursor-pointer transition-all group",
+          isSelected
+            ? isRush
+              ? "border-blue-500 ring-2 ring-blue-500/30"
+              : "border-purple-500 ring-2 ring-purple-500/30"
+            : isRush
+              ? "border-dashed border-white/20 hover:border-white/40"
+              : "border-white/10 hover:border-white/30"
+        )}
+        style={{ width: cardWidth }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+        onClick={onSelect}
+      >
+        {/* Content */}
+        {isGenerating ? (
+          <div
+            className="bg-slate-800 flex items-center justify-center"
+            style={{ aspectRatio: aspectStyle }}
+          >
+            <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+          </div>
+        ) : finalVideoUrl ? (
+          // Video with hover autoplay
+          <div className="relative" style={{ aspectRatio: aspectStyle }}>
+            <video
+              ref={videoRef}
+              src={finalVideoUrl}
+              loop
+              muted
+              playsInline
+              className="w-full h-full object-cover bg-black"
+              poster={finalImageUrl || undefined}
+            />
+            {/* Play indicator when not hovered */}
+            {!isHovered && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+                <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
+                  <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+                </div>
+              </div>
+            )}
+            {/* Controls on hover */}
+            {isHovered && (
+              <>
+                {/* Progress bar */}
+                <div className="absolute bottom-8 left-0 right-0 h-1 bg-black/50">
+                  <div
+                    className="h-full bg-blue-500 transition-all"
+                    style={{ width: `${videoProgress}%` }}
+                  />
+                </div>
+                {/* Fullscreen button */}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onExpand();
+                  }}
+                  className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"
+                  title="Plein écran"
+                >
+                  <Maximize2 className="w-4 h-4 text-white" />
+                </button>
+              </>
+            )}
+          </div>
+        ) : finalImageUrl ? (
+          // Image only
+          <div className="relative" style={{ aspectRatio: aspectStyle }}>
+            <img
+              src={finalImageUrl}
+              alt={`Plan ${plan.shot_number}`}
+              className="w-full h-full object-cover"
+            />
+            {isHovered && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onExpand();
+                }}
+                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"
+                title="Plein écran"
+              >
+                <Maximize2 className="w-4 h-4 text-white" />
+              </button>
+            )}
+          </div>
+        ) : (
+          // Empty state
+          <div
+            className="bg-slate-800/50 flex flex-col items-center justify-center"
+            style={{ aspectRatio: aspectStyle }}
+          >
+            <Video className="w-6 h-6 text-slate-600 mb-1" />
+            <span className="text-xs text-slate-500">P{plan.shot_number}</span>
+          </div>
+        )}
+
+        {/* Bottom label */}
+        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-6">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium text-white">
+              Plan {plan.shot_number}
+            </span>
+            <span className="text-[10px] text-slate-400">
+              {plan.duration}s
+            </span>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Gallery slide component for sequences
+  const GallerySequenceSlide = ({
+    sequence,
+    isCurrent,
+  }: {
+    sequence: Sequence;
+    isCurrent: boolean;
+  }) => {
+    const videoRef = useRef<HTMLVideoElement>(null);
+
+    // Get the assembled video URL
+    const assemblyState = sequenceAssemblyStates.get(sequence.id);
+    const assembledUrl = assemblyState?.status === 'completed'
+      ? assemblyState.assembledVideoUrl
+      : sequence.assembled_video_url;
+
+    const { signedUrl } = useSignedUrl(assembledUrl || null);
+    const finalVideoUrl = signedUrl || (assembledUrl && !isB2Url(assembledUrl) ? assembledUrl : null);
+
+    // Get sequence plans for info
+    const sequencePlans = getPlansForSequence(sequence.id);
+    const totalDuration = sequencePlans.reduce((sum, p) => sum + p.duration, 0);
+
+    // Auto-play when current and video is ready
+    useEffect(() => {
+      const video = videoRef.current;
+      if (!video || !finalVideoUrl) return;
+
+      const handleCanPlay = () => {
+        if (isCurrent) {
+          video.play().catch(() => {});
+        }
+      };
+
+      if (isCurrent) {
+        // Try to play immediately if already loaded
+        if (video.readyState >= 3) {
+          video.play().catch(() => {});
+        } else {
+          // Wait for video to be ready
+          video.addEventListener('canplay', handleCanPlay);
+        }
+      } else {
+        video.pause();
+        video.currentTime = 0;
+      }
+
+      return () => {
+        video.removeEventListener('canplay', handleCanPlay);
+      };
+    }, [isCurrent, finalVideoUrl]);
+
+    return (
+      <div
+        className={cn(
+          "flex-shrink-0 transition-all duration-300",
+          isCurrent ? "opacity-100 scale-100" : "opacity-40 scale-95",
+        )}
+      >
+        <div
+          className={cn(
+            "relative rounded-xl overflow-hidden shadow-2xl",
+            isCurrent && "ring-2 ring-white/20",
+          )}
+        >
+          {finalVideoUrl ? (
+            <video
+              ref={videoRef}
+              src={finalVideoUrl}
+              loop
+              muted={!isCurrent}
+              playsInline
+              controls={isCurrent}
+              className="w-full object-cover bg-black"
+              style={{ aspectRatio: aspectRatio.replace(':', '/') }}
+            />
+          ) : null}
+
+          {/* Info overlay - top left */}
+          <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-3 pb-10 pointer-events-none">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-white flex items-center gap-2">
+                <Layers className="w-4 h-4 text-purple-400" />
+                {sequence.title || `Séquence ${sequence.sort_order + 1}`}
+              </span>
+              <span className="text-xs text-slate-300">
+                {sequencePlans.length} plans • {totalDuration}s
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   if (isLoading) {
     return (
@@ -603,33 +1369,48 @@ export default function ShortDetailPage() {
         </div>
       </div>
 
-      {/* Tab group button + Generate All */}
+      {/* Tab group button + Music + Generate All */}
       <div className="flex-shrink-0 pb-4 flex items-center justify-between">
-        <div className="inline-flex rounded-lg bg-white/5 p-1">
-          <button
-            onClick={() => setActiveTab('edition')}
-            className={cn(
-              "flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all",
-              activeTab === 'edition'
-                ? "bg-white/10 text-white"
-                : "text-slate-400 hover:text-white"
-            )}
-          >
-            <Pencil className="w-3.5 h-3.5" />
-            Édition
-          </button>
-          <button
-            onClick={() => setActiveTab('montage')}
-            className={cn(
-              "flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all",
-              activeTab === 'montage'
-                ? "bg-white/10 text-white"
-                : "text-slate-400 hover:text-white"
-            )}
-          >
-            <Clapperboard className="w-3.5 h-3.5" />
-            Montage
-          </button>
+        <div className="flex items-center gap-4">
+          <div className="inline-flex rounded-lg bg-white/5 p-1">
+            <button
+              onClick={() => setActiveTab('edition')}
+              className={cn(
+                "flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all",
+                activeTab === 'edition'
+                  ? "bg-white/10 text-white"
+                  : "text-slate-400 hover:text-white"
+              )}
+            >
+              <Pencil className="w-3.5 h-3.5" />
+              Édition
+            </button>
+            <button
+              onClick={() => setActiveTab('montage')}
+              className={cn(
+                "flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all",
+                activeTab === 'montage'
+                  ? "bg-white/10 text-white"
+                  : "text-slate-400 hover:text-white"
+              )}
+            >
+              <Clapperboard className="w-3.5 h-3.5" />
+              Montage
+            </button>
+          </div>
+
+          {/* Music Selector */}
+          <MusicSelector
+            projectId={projectId}
+            selectedAssetId={short.music_asset_id || null}
+            volume={short.music_volume ?? 0.3}
+            fadeIn={short.music_fade_in ?? 0}
+            fadeOut={short.music_fade_out ?? 2}
+            onSelect={handleMusicSelect}
+            onVolumeChange={handleMusicVolumeChange}
+            onFadeInChange={handleMusicFadeInChange}
+            onFadeOutChange={handleMusicFadeOutChange}
+          />
         </div>
 
         <Button
@@ -658,320 +1439,425 @@ export default function ShortDetailPage() {
 
       {/* Main content */}
       {activeTab === 'edition' ? (
-      /* EDITION TAB */
+      /* EDITION TAB - Séquences/Plans left, Preview right */
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
       <div className="flex-1 flex flex-col gap-4 min-h-0">
         {/* Two columns layout */}
         <div className="flex-1 flex gap-6 min-h-0">
-        {/* LEFT: Timeline - compact */}
-        <div className="w-[320px] flex-shrink-0 rounded-xl bg-[#151d28] border border-white/5 p-4 flex flex-col overflow-hidden">
+
+        {/* LEFT: Sequences + Plans hierarchical */}
+        <div className="w-[340px] flex-shrink-0 rounded-xl bg-[#151d28] border border-white/5 p-4 flex flex-col overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wider flex items-center gap-2">
+              <Layers className="w-4 h-4" />
+              Plans
+            </h2>
+            <div className="flex items-center gap-1">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleCreateSequence}
+                className="h-7 gap-1 text-xs bg-[#0d1218] border-white/10 hover:bg-[#1a2433] text-slate-300"
+              >
+                <Plus className="w-3 h-3" />
+                Séq
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleAddPlan}
+                className="h-7 gap-1 text-xs bg-[#0d1218] border-white/10 hover:bg-[#1a2433] text-slate-300"
+              >
+                <Plus className="w-3 h-3" />
+                Plan
+              </Button>
+            </div>
+          </div>
+
+          {/* Scrollable list */}
+          <div className="flex-1 overflow-y-auto overflow-x-hidden space-y-3">
+            {/* Sequences with full SequenceCard (includes transition controls) */}
+            {sequences.map((sequence) => {
+              const sequencePlans = getPlansForSequence(sequence.id);
+              // Expanded = NOT in the collapsed set
+              const isExpanded = !collapsedSequences.has(sequence.id);
+              return (
+                <DroppableSequence key={sequence.id} sequence={sequence}>
+                  <SequenceCard
+                    sequence={sequence}
+                    plans={sequencePlans}
+                    isExpanded={isExpanded}
+                    onToggleExpand={() => {
+                      setCollapsedSequences(prev => {
+                        const next = new Set(prev);
+                        if (next.has(sequence.id)) {
+                          // Was collapsed, now expand (remove from collapsed set)
+                          next.delete(sequence.id);
+                        } else {
+                          // Was expanded, now collapse (add to collapsed set)
+                          next.add(sequence.id);
+                        }
+                        return next;
+                      });
+                    }}
+                    onUpdateSequence={(updates) => handleUpdateSequence(sequence.id, updates)}
+                    onDeleteSequence={() => handleDeleteSequence(sequence.id)}
+                    onSelectPlan={(planId) => {
+                      setSelectedPlanId(planId);
+                      setIsModalOpen(true);
+                    }}
+                    onEditPlan={(planId) => {
+                      setSelectedPlanId(planId);
+                      setIsModalOpen(true);
+                    }}
+                    onDeletePlan={handleDeletePlan}
+                    onOpenCinematicWizard={() => setEditingSequenceCinematic(sequence.id)}
+                    selectedPlanId={selectedPlanId || undefined}
+                    projectId={projectId}
+                    shortId={shortId}
+                  />
+                </DroppableSequence>
+              );
+            })}
+
+            {/* Rush - unassigned plans */}
+            <DroppableRush>
+              <div className="rounded-lg border border-dashed border-white/10 overflow-hidden">
+                <div className="flex items-center gap-2 px-2 py-1.5 bg-[#0a0f14]/50">
+                  <Film className="w-3 h-3 text-slate-500" />
+                  <span className="text-xs font-medium text-slate-400">Rush</span>
+                  <span className="text-[10px] text-slate-600">
+                    ({unassignedPlans.length})
+                  </span>
+                </div>
+                <div className="p-1.5 space-y-1">
+                  <SortableContext items={unassignedPlans.map(p => p.id)} strategy={verticalListSortingStrategy}>
+                    {unassignedPlans.length === 0 ? (
+                      <div className="text-center py-3 text-[10px] text-slate-600">
+                        Tous les plans sont assignés
+                      </div>
+                    ) : (
+                      unassignedPlans.map((plan) => (
+                        <SortablePlanItem key={plan.id} plan={plan} />
+                      ))
+                    )}
+                  </SortableContext>
+                </div>
+              </div>
+            </DroppableRush>
+          </div>
+        </div>
+
+        {/* RIGHT: Storyboard view - Horizontal layout */}
+        <div className="flex-1 rounded-xl bg-[#151d28] border border-white/5 p-4 flex flex-col overflow-hidden">
           <h2 className="text-sm font-medium text-slate-400 mb-3 uppercase tracking-wider flex items-center gap-2">
             <Film className="w-4 h-4" />
-            Timeline
+            Storyboard
           </h2>
-          <div className="flex-1 overflow-y-auto">
-            <PlanTimeline
-              plans={short.plans}
-              selectedPlanId={selectedPlanId}
-              onSelectPlan={(id) => {
-                setSelectedPlanId(id);
-                if (id) setIsModalOpen(true);
-              }}
-              onEditPlan={handleEditPlan}
-              onDeletePlan={handleDeletePlan}
-              onReorder={handleReorderPlans}
-              onAddPlan={handleAddPlan}
+
+          <div className="flex-1 overflow-x-auto overflow-y-hidden">
+            {/* All sequences + rush in one horizontal row */}
+            <div className="flex gap-6 h-full items-start pb-4">
+              {/* Sequences - one card per sequence */}
+              {sequences.map((sequence) => {
+                const sequencePlans = getPlansForSequence(sequence.id);
+                if (sequencePlans.length === 0) return null;
+
+                const assemblyState = getSequenceState(sequence.id);
+                const isCompiling = assemblyState?.status === 'checking' || assemblyState?.status === 'queued' || assemblyState?.status === 'assembling';
+                const assembledUrl = assemblyState?.status === 'completed'
+                  ? assemblyState.assembledVideoUrl
+                  : sequence.assembled_video_url;
+                const hasAllVideos = sequencePlans.every(p => p.generated_video_url);
+                const videoCount = sequencePlans.filter(p => p.generated_video_url).length;
+
+                return (
+                  <div key={sequence.id} className="flex-shrink-0 relative">
+                    <SequenceClip
+                      sequence={sequence}
+                      plans={sequencePlans}
+                      aspectRatio={aspectRatio}
+                      assembledVideoUrl={assembledUrl}
+                      assemblyProgress={isCompiling ? assemblyState?.progress : undefined}
+                      onExpand={assembledUrl ? () => openGallery(sequence) : undefined}
+                    />
+                    {/* Compile overlay - show when not assembled and has videos */}
+                    {!assembledUrl && !isCompiling && videoCount > 0 && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-lg">
+                        <Button
+                          size="sm"
+                          onClick={() => assembleSequence(sequence.id)}
+                          className="bg-purple-600 hover:bg-purple-700 text-white"
+                        >
+                          <Clapperboard className="w-4 h-4 mr-1.5" />
+                          Compiler
+                          <span className="ml-1.5 text-xs opacity-75">({videoCount})</span>
+                        </Button>
+                      </div>
+                    )}
+                    {/* No videos yet */}
+                    {videoCount === 0 && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-lg">
+                        <span className="text-xs text-slate-400">Générez des vidéos</span>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Rush section */}
+              {unassignedPlans.length > 0 && (
+                <div className="flex-shrink-0 flex flex-col gap-2 opacity-70">
+                  {/* Rush header */}
+                  <div className="flex items-center gap-2 px-1">
+                    <Film className="w-3 h-3 text-slate-500" />
+                    <span className="text-xs font-medium text-slate-500 whitespace-nowrap">
+                      Rush ({unassignedPlans.length})
+                    </span>
+                  </div>
+                  {/* Rush plans - horizontal */}
+                  <div className="flex gap-3">
+                    {unassignedPlans.map((plan) => (
+                      <StoryboardPlanCard
+                        key={plan.id}
+                        plan={plan}
+                        aspectRatio={aspectRatio}
+                        isSelected={selectedPlanId === plan.id}
+                        isGenerating={generationProgress.has(plan.id)}
+                        isRush
+                        onSelect={() => {
+                          setSelectedPlanId(plan.id);
+                          setIsModalOpen(true);
+                        }}
+                        onExpand={() => {
+                          // Rush plans don't have sequences, just open editor
+                          setSelectedPlanId(plan.id);
+                          setIsModalOpen(true);
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Empty state */}
+              {short.plans.length === 0 && (
+                <div className="flex-1 flex flex-col items-center justify-center text-slate-600 py-12 min-w-[300px]">
+                  <Film className="w-12 h-12 opacity-20 mb-3" />
+                  <p className="text-sm">Aucun plan</p>
+                  <p className="text-xs mt-1">Ajoutez des plans pour créer votre storyboard</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        </div>
+      </div>
+
+      {/* Drag overlay */}
+      <DragOverlay>
+        {activeDragPlan && (
+          <div className="opacity-90 pointer-events-none shadow-xl">
+            <PlanCard
+              plan={activeDragPlan}
+              isSelected={false}
+              onSelect={() => {}}
+              onEdit={() => {}}
+              onDelete={() => {}}
               compact
             />
           </div>
-        </div>
-
-        {/* RIGHT: Generated Videos */}
-        <div className="flex-1 rounded-xl bg-[#151d28] border border-white/5 p-4 flex flex-col overflow-hidden">
-          <h2 className="text-sm font-medium text-slate-400 mb-3 uppercase tracking-wider flex items-center gap-2">
-            <Video className="w-4 h-4" />
-            Vidéos générées
-          </h2>
-
-          {/* Video grid */}
-          <div className="flex-1 overflow-y-auto">
-            {short.plans.filter(p => p.generated_video_url).length === 0 && generationProgress.size === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-slate-500">
-                <Video className="w-12 h-12 mb-3 opacity-30" />
-                <p className="text-sm">Aucune vidéo générée</p>
-                <p className="text-xs mt-1">Sélectionnez un plan et générez une vidéo</p>
-              </div>
-            ) : (
-              <div className={cn(
-                "grid gap-4",
-                // Adapt grid based on aspect ratio
-                aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '2:3'
-                  ? "grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5" // Portrait: more columns
-                  : "grid-cols-2 xl:grid-cols-3" // Landscape: fewer columns
-              )}>
-                {/* Plans currently being generated */}
-                {short.plans
-                  .filter(p => generationProgress.has(p.id))
-                  .map((plan) => {
-                    const progress = generationProgress.get(plan.id)!;
-                    return (
-                      <div key={`gen-${plan.id}`} className="relative">
-                        <VideoGenerationCard
-                          progress={progress}
-                          aspectRatio={aspectRatio}
-                        />
-                        {/* Plan info overlay */}
-                        <div className="absolute top-2 left-2 px-2 py-1 bg-black/60 rounded text-xs text-white font-medium">
-                          Plan {plan.shot_number}
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                {/* Plans with generated videos (exclude those currently generating) */}
-                {short.plans
-                  .filter(p => p.generated_video_url && !generationProgress.has(p.id))
-                  .map((plan) => (
-                    <VideoCard
-                      key={plan.id}
-                      videoUrl={plan.generated_video_url!}
-                      thumbnailUrl={plan.storyboard_image_url || undefined}
-                      title={`Plan ${plan.shot_number}`}
-                      subtitle={`${plan.duration}s`}
-                      aspectRatio={aspectRatio}
-                      onExpand={() => setExpandedVideo(plan)}
-                      onDownload={() => {
-                        const filename = `plan-${plan.shot_number}.mp4`;
-                        const downloadUrl = `/api/download?url=${encodeURIComponent(plan.generated_video_url!)}&filename=${encodeURIComponent(filename)}`;
-                        const iframe = document.createElement('iframe');
-                        iframe.style.display = 'none';
-                        iframe.src = downloadUrl;
-                        document.body.appendChild(iframe);
-                        setTimeout(() => document.body.removeChild(iframe), 5000);
-                      }}
-                    />
-                  ))}
-              </div>
-            )}
-          </div>
-        </div>
-        </div>
-      </div>
+        )}
+      </DragOverlay>
+      </DndContext>
       ) : (
-      /* MONTAGE TAB - Centered video frame */
-      <div className="flex-1 flex flex-col items-center justify-center min-h-0 py-8">
-        {/* Video frame container */}
-        <div
-          className={cn(
-            "relative rounded-xl overflow-hidden border-2 transition-all",
-            isAssembling
-              ? "border-blue-500/50"
-              : assembledVideoUrl
-                ? "border-white/10"
-                : "border-dashed border-white/10"
-          )}
-          style={{
-            width: aspectRatio === '9:16' ? '280px'
-                 : aspectRatio === '1:1' ? '400px'
-                 : '500px',
-            aspectRatio: aspectRatio === '9:16' ? '9/16'
-                       : aspectRatio === '1:1' ? '1/1'
-                       : '16/9',
-          }}
-        >
-          {assembledVideoUrl && !isAssembling ? (
-            /* Show assembled video */
-            <VideoCard
-              videoUrl={assembledVideoUrl}
-              aspectRatio={aspectRatio}
-              autoPlay={false}
-              onDownload={() => {
-                const filename = `${short.title.replace(/\s+/g, '-').toLowerCase()}.mp4`;
-                const downloadUrl = `/api/download?url=${encodeURIComponent(assembledVideoUrl)}&filename=${encodeURIComponent(filename)}`;
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.src = downloadUrl;
-                document.body.appendChild(iframe);
-                setTimeout(() => document.body.removeChild(iframe), 5000);
-              }}
-              className="w-full h-full"
-            />
-          ) : (
-            /* Empty state with effect */
-            <div className="absolute inset-0 bg-[#0a0f14]">
-              {/* Noise/grain effect */}
-              <div
-                className="absolute inset-0 opacity-[0.03]"
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-                }}
-              />
-              {/* Scanlines effect */}
-              <div
-                className="absolute inset-0 opacity-[0.02]"
-                style={{
-                  backgroundImage: 'repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(255,255,255,0.03) 2px, rgba(255,255,255,0.03) 4px)',
-                }}
-              />
-              {/* Center icon */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                <div className="flex flex-col items-center gap-3">
-                  {isAssembling ? (
-                    <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
-                  ) : (
-                    <Film className="w-10 h-10 text-white/10" />
-                  )}
-                </div>
-              </div>
-              {/* Corner marks */}
-              <div className="absolute top-3 left-3 w-4 h-4 border-l-2 border-t-2 border-white/20" />
-              <div className="absolute top-3 right-3 w-4 h-4 border-r-2 border-t-2 border-white/20" />
-              <div className="absolute bottom-3 left-3 w-4 h-4 border-l-2 border-b-2 border-white/20" />
-              <div className="absolute bottom-3 right-3 w-4 h-4 border-r-2 border-b-2 border-white/20" />
-            </div>
-          )}
-        </div>
+      /* MONTAGE TAB - Storyboard + Timeline + Preview */
+      <MontageEditor
+        short={short}
+        sequences={sequences}
+        aspectRatio={aspectRatio}
+        assembledVideoUrl={assembledVideoUrl}
+        isAssembling={isAssembling}
+        assemblyProgress={assemblyProgress}
+        sequenceAssemblyStates={sequenceAssemblyStates}
+        isSequenceAssembling={isSequenceAssembling}
+        sequenceOverallProgress={sequenceOverallProgress}
+        onAssemble={async () => {
+          setIsAssembling(true);
+          setAssemblyProgress(0);
 
-        {/* Progress bar when assembling */}
-        {isAssembling && (
-          <div className="w-[280px] mt-6">
-            <div className="h-1 bg-white/5 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-blue-500 rounded-full transition-all duration-300"
-                style={{ width: `${assemblyProgress}%` }}
-              />
-            </div>
-            <p className="text-xs text-slate-500 text-center mt-2">
-              Assemblage en cours... {Math.round(assemblyProgress)}%
-            </p>
-          </div>
-        )}
+          try {
+            const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/assemble-v2`, {
+              method: 'POST',
+            });
 
-        {/* Bottom controls */}
-        {!isAssembling && (
-          <div className="flex items-center gap-3 mt-6">
-            {assembledVideoUrl && (
-              <Button
-                variant="outline"
-                onClick={() => {
-                  const filename = `${short.title.replace(/\s+/g, '-').toLowerCase()}.mp4`;
-                  const downloadUrl = `/api/download?url=${encodeURIComponent(assembledVideoUrl)}&filename=${encodeURIComponent(filename)}`;
-                  const iframe = document.createElement('iframe');
-                  iframe.style.display = 'none';
-                  iframe.src = downloadUrl;
-                  document.body.appendChild(iframe);
-                  setTimeout(() => document.body.removeChild(iframe), 5000);
-                }}
-                className="border-white/10 text-slate-300 hover:bg-white/5"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Télécharger
-              </Button>
-            )}
-            <Button
-              disabled={short.plans.filter(p => p.generated_video_url).length === 0}
-              onClick={async () => {
-                setIsAssembling(true);
-                setAssemblyProgress(0);
+            if (!res.ok) {
+              const error = await res.json();
+              throw new Error(error.error || 'Failed to start assembly');
+            }
 
-                try {
-                  // Use queue-based assembly
-                  const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/queue-assemble`, {
-                    method: 'POST',
-                  });
+            const data = await res.json();
+            const jobId = data.jobId;
 
-                  if (!res.ok) {
-                    const error = await res.json();
-                    throw new Error(error.error || 'Failed to start assembly');
-                  }
+            if (!jobId) {
+              throw new Error('No job ID returned');
+            }
 
-                  const data = await res.json();
-                  const jobId = data.jobId;
+            toast.success('Assemblage Editly ajouté à la file d\'attente');
+            await fetchJobs();
+            startPolling();
 
-                  if (!jobId) {
-                    throw new Error('No job ID returned');
-                  }
-
-                  toast.success('Assemblage ajouté à la file d\'attente');
-
-                  // Start polling for job status
-                  await fetchJobs();
-                  startPolling();
-
-                } catch (error) {
-                  console.error('Assembly error:', error);
-                  toast.error(error instanceof Error ? error.message : 'Erreur lors de l\'assemblage');
-                  setIsAssembling(false);
-                }
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              <Play className="w-4 h-4 mr-2" />
-              {assembledVideoUrl ? 'Réassembler' : 'Assembler'}
-            </Button>
-          </div>
-        )}
-
-        {/* Warning if no videos */}
-        {!isAssembling && short.plans.filter(p => p.generated_video_url).length === 0 && (
-          <p className="text-slate-600 text-xs mt-4">
-            Générez au moins une vidéo pour assembler le short
-          </p>
-        )}
-      </div>
+          } catch (error) {
+            console.error('Assembly error:', error);
+            toast.error(error instanceof Error ? error.message : 'Erreur lors de l\'assemblage');
+            setIsAssembling(false);
+          }
+        }}
+        onDownload={() => {
+          if (!assembledVideoUrl) return;
+          const filename = `${short.title.replace(/\s+/g, '-').toLowerCase()}.mp4`;
+          const downloadUrl = `/api/download?url=${encodeURIComponent(assembledVideoUrl)}&filename=${encodeURIComponent(filename)}`;
+          const iframe = document.createElement('iframe');
+          iframe.style.display = 'none';
+          iframe.src = downloadUrl;
+          document.body.appendChild(iframe);
+          setTimeout(() => document.body.removeChild(iframe), 5000);
+        }}
+      />
       )}
 
-      {/* Video Fullscreen Overlay */}
-      {expandedVideo && expandedVideo.generated_video_url && (
+      {/* Fullscreen Gallery Carousel - Sequences */}
+      {galleryIndex !== -1 && navigableSequences.length > 0 && (
         <div
-          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
-          onClick={() => setExpandedVideo(null)}
+          className="fixed inset-0 z-50 bg-black/95 overflow-hidden"
+          onClick={closeGallery}
         >
           {/* Close button */}
           <button
-            onClick={() => setExpandedVideo(null)}
-            className="absolute top-4 right-4 z-10 w-10 h-10 rounded-full bg-white/10 backdrop-blur flex items-center justify-center hover:bg-white/20 transition-colors"
+            onClick={closeGallery}
+            className="absolute top-4 right-4 z-30 w-10 h-10 rounded-full bg-white/10 backdrop-blur flex items-center justify-center hover:bg-white/20 transition-colors"
           >
             <X className="w-5 h-5 text-white" />
           </button>
 
-          {/* Video container */}
-          <div
-            className="max-h-[90vh] flex items-center justify-center"
-            style={{
-              width: aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '2:3'
-                ? 'min(50vw, 500px)'
-                : 'min(85vw, 1200px)'
+          {/* Download button for current sequence */}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const currentSequence = navigableSequences[galleryIndex];
+              if (!currentSequence) return;
+              const assemblyState = sequenceAssemblyStates.get(currentSequence.id);
+              const url = assemblyState?.status === 'completed'
+                ? assemblyState.assembledVideoUrl
+                : currentSequence.assembled_video_url;
+              if (!url) return;
+              const filename = `${currentSequence.title || `sequence-${currentSequence.sort_order + 1}`}.mp4`;
+              const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
+              const iframe = document.createElement('iframe');
+              iframe.style.display = 'none';
+              iframe.src = downloadUrl;
+              document.body.appendChild(iframe);
+              setTimeout(() => document.body.removeChild(iframe), 5000);
             }}
-            onClick={(e) => e.stopPropagation()}
+            className="absolute top-4 left-4 z-30 w-10 h-10 rounded-full bg-white/10 backdrop-blur flex items-center justify-center hover:bg-white/20 transition-colors"
+            title="Télécharger"
           >
-            <VideoCard
-              videoUrl={expandedVideo.generated_video_url}
-              thumbnailUrl={expandedVideo.storyboard_image_url || undefined}
-              title={`Plan ${expandedVideo.shot_number}`}
-              subtitle={`${expandedVideo.duration}s`}
-              aspectRatio={aspectRatio}
-              autoPlay
-              onDownload={() => {
-                const filename = `plan-${expandedVideo.shot_number}.mp4`;
-                const downloadUrl = `/api/download?url=${encodeURIComponent(expandedVideo.generated_video_url!)}&filename=${encodeURIComponent(filename)}`;
-                const iframe = document.createElement('iframe');
-                iframe.style.display = 'none';
-                iframe.src = downloadUrl;
-                document.body.appendChild(iframe);
-                setTimeout(() => document.body.removeChild(iframe), 5000);
+            <Download className="w-5 h-5 text-white" />
+          </button>
+
+          {/* Sliding carousel track */}
+          <div className="absolute inset-0 flex items-center overflow-hidden" onClick={(e) => e.stopPropagation()}>
+            <div
+              className="flex items-center gap-10 transition-transform duration-300 ease-out"
+              style={{
+                // Each slide is slideWidth + gap, center the current slide
+                transform: `translateX(calc(50vw - ${galleryIndex} * (${
+                  aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '2:3'
+                    ? 'min(40vw, 400px) + 40px'
+                    : 'min(55vw, 650px) + 40px'
+                }) - ${
+                  aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '2:3'
+                    ? 'min(20vw, 200px)'
+                    : 'min(27.5vw, 325px)'
+                }))`,
               }}
-              className="w-full shadow-2xl"
-            />
+            >
+              {navigableSequences.map((sequence, index) => (
+                <div
+                  key={sequence.id}
+                  style={{
+                    width: aspectRatio === '9:16' || aspectRatio === '4:5' || aspectRatio === '2:3'
+                      ? 'min(40vw, 400px)'
+                      : 'min(55vw, 650px)',
+                  }}
+                  onClick={() => {
+                    if (index !== galleryIndex) {
+                      setGalleryIndex(index);
+                    }
+                  }}
+                  className={index !== galleryIndex ? 'cursor-pointer' : ''}
+                >
+                  <GallerySequenceSlide
+                    sequence={sequence}
+                    isCurrent={index === galleryIndex}
+                  />
+                </div>
+              ))}
+            </div>
           </div>
 
-          {/* Navigation hint */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 text-slate-500 text-sm">
-            Cliquez en dehors pour fermer
+          {/* Navigation arrows - hidden at boundaries */}
+          {!isFirstSequence && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigateSequence('prev');
+              }}
+              className="absolute left-4 top-1/2 -translate-y-1/2 z-30 w-12 h-12 rounded-full bg-white/10 backdrop-blur flex items-center justify-center hover:bg-white/20 transition-colors"
+              title="Séquence précédente (←)"
+            >
+              <ChevronLeft className="w-6 h-6 text-white" />
+            </button>
+          )}
+          {!isLastSequence && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                navigateSequence('next');
+              }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 z-30 w-12 h-12 rounded-full bg-white/10 backdrop-blur flex items-center justify-center hover:bg-white/20 transition-colors"
+              title="Séquence suivante (→)"
+            >
+              <ChevronRight className="w-6 h-6 text-white" />
+            </button>
+          )}
+
+          {/* Bottom bar: counter + navigation hint */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-30 flex flex-col items-center gap-2">
+            {/* Counter */}
+            {navigableSequences.length > 1 && (
+              <div className="px-3 py-1 rounded-full bg-white/10 backdrop-blur text-white text-sm">
+                {galleryIndex + 1} / {navigableSequences.length}
+              </div>
+            )}
+            {/* Hint */}
+            <div className="text-slate-500 text-xs flex items-center gap-3">
+              <span>← → Navigation</span>
+              <span>•</span>
+              <span>Échap pour fermer</span>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Cinematic Header Wizard */}
+      {/* Cinematic Header Wizard - Short level (legacy) */}
       {short && (
         <CinematicHeaderWizard
           open={showCinematicWizard}
@@ -982,61 +1868,89 @@ export default function ShortDetailPage() {
         />
       )}
 
+      {/* Cinematic Header Wizard - Sequence level */}
+      {editingSequenceCinematic && (() => {
+        const editingSeq = sequences.find(s => s.id === editingSequenceCinematic);
+        if (!editingSeq) return null;
+        // Other sequences to copy from (excluding the one being edited)
+        const otherSeqs = sequences.filter(s => s.id !== editingSequenceCinematic);
+        return (
+          <CinematicHeaderWizard
+            open={true}
+            onOpenChange={(open) => {
+              if (!open) setEditingSequenceCinematic(null);
+            }}
+            value={editingSeq.cinematic_header}
+            onChange={(config) => {
+              handleUpdateSequence(editingSequenceCinematic, { cinematic_header: config });
+              setEditingSequenceCinematic(null);
+            }}
+            projectId={projectId}
+            otherSequences={otherSeqs}
+          />
+        );
+      })()}
+
       {/* Plan Editor Modal */}
-      {selectedPlan && (
-        <PlanEditor
-          open={isModalOpen}
-          onOpenChange={setIsModalOpen}
-          mode="video-free"
-          plan={{
-            id: selectedPlan.id,
-            number: selectedPlan.shot_number,
-            duration: selectedPlan.duration,
-            storyboard_image_url: selectedPlan.storyboard_image_url,
-            first_frame_url: selectedPlan.first_frame_url,
-            last_frame_url: selectedPlan.last_frame_url,
-            animation_prompt: selectedPlan.animation_prompt,
-            description: selectedPlan.description,
-            shot_type: selectedPlan.shot_type,
-            camera_angle: selectedPlan.camera_angle,
-            camera_movement: selectedPlan.camera_movement,
-            has_dialogue: selectedPlan.has_dialogue,
-            dialogue_text: selectedPlan.dialogue_text,
-            dialogue_character_id: selectedPlan.dialogue_character_id,
-            audio_mode: selectedPlan.audio_mode,
-            audio_asset_id: selectedPlan.audio_asset_id,
-            audio_start: selectedPlan.audio_start,
-            audio_end: selectedPlan.audio_end,
-            generated_video_url: selectedPlan.generated_video_url,
-            // New segment-based fields
-            title: selectedPlan.title,
-            cinematic_header: selectedPlan.cinematic_header,
-            segments: selectedPlan.segments,
-          }}
-          previousPlan={previousPlan ? {
-            id: previousPlan.id,
-            duration: previousPlan.duration,
-            storyboard_image_url: previousPlan.storyboard_image_url,
-            first_frame_url: previousPlan.first_frame_url,
-            last_frame_url: previousPlan.last_frame_url,
-            generated_video_url: previousPlan.generated_video_url,
-          } : null}
-          projectId={projectId}
-          aspectRatio={aspectRatio}
-          locations={locations}
-          onUpdate={(updates: Partial<PlanData>) => {
-            // Convert PlanData (null | undefined) to Plan (undefined only)
-            const planUpdates: Partial<Plan> = {};
-            for (const [key, value] of Object.entries(updates)) {
-              (planUpdates as Record<string, unknown>)[key] = value === null ? undefined : value;
-            }
-            handleUpdatePlan(planUpdates);
-          }}
-          onGenerateVideo={handleGenerateVideo}
-          isGeneratingVideo={isGeneratingVideo}
-          videoGenerationProgress={selectedPlanId ? generationProgress.get(selectedPlanId) : undefined}
-        />
-      )}
+      {selectedPlan && (() => {
+        // Find the sequence this plan belongs to
+        const planSequence = sequences.find(s => s.id === selectedPlan.sequence_id);
+        return (
+          <PlanEditor
+            open={isModalOpen}
+            onOpenChange={setIsModalOpen}
+            mode="video-free"
+            plan={{
+              id: selectedPlan.id,
+              number: selectedPlan.shot_number,
+              duration: selectedPlan.duration,
+              storyboard_image_url: selectedPlan.storyboard_image_url,
+              first_frame_url: selectedPlan.first_frame_url,
+              last_frame_url: selectedPlan.last_frame_url,
+              animation_prompt: selectedPlan.animation_prompt,
+              description: selectedPlan.description,
+              shot_type: selectedPlan.shot_type,
+              camera_angle: selectedPlan.camera_angle,
+              camera_movement: selectedPlan.camera_movement,
+              has_dialogue: selectedPlan.has_dialogue,
+              dialogue_text: selectedPlan.dialogue_text,
+              dialogue_character_id: selectedPlan.dialogue_character_id,
+              audio_mode: selectedPlan.audio_mode,
+              audio_asset_id: selectedPlan.audio_asset_id,
+              audio_start: selectedPlan.audio_start,
+              audio_end: selectedPlan.audio_end,
+              generated_video_url: selectedPlan.generated_video_url,
+              // New segment-based fields
+              title: selectedPlan.title,
+              segments: selectedPlan.segments,
+            }}
+            previousPlan={previousPlan ? {
+              id: previousPlan.id,
+              duration: previousPlan.duration,
+              storyboard_image_url: previousPlan.storyboard_image_url,
+              first_frame_url: previousPlan.first_frame_url,
+              last_frame_url: previousPlan.last_frame_url,
+              generated_video_url: previousPlan.generated_video_url,
+            } : null}
+            projectId={projectId}
+            aspectRatio={aspectRatio}
+            locations={locations}
+            sequenceCinematicHeader={planSequence?.cinematic_header}
+            sequenceTitle={planSequence?.title || `Séquence ${(planSequence?.sort_order ?? 0) + 1}`}
+            onUpdate={(updates: Partial<PlanData>) => {
+              // Convert PlanData (null | undefined) to Plan (undefined only)
+              const planUpdates: Partial<Plan> = {};
+              for (const [key, value] of Object.entries(updates)) {
+                (planUpdates as Record<string, unknown>)[key] = value === null ? undefined : value;
+              }
+              handleUpdatePlan(planUpdates);
+            }}
+            onGenerateVideo={handleGenerateVideo}
+            isGeneratingVideo={isGeneratingVideo}
+            videoGenerationProgress={selectedPlanId ? generationProgress.get(selectedPlanId) : undefined}
+          />
+        );
+      })()}
     </div>
   );
 }

@@ -6,6 +6,8 @@ import type {
   DialogueLanguage,
   Segment,
   PlanTranslation,
+  Sequence,
+  TransitionType,
 } from '@/types/cinematic';
 
 // Plan (generation unit within a short, max 15s)
@@ -20,8 +22,9 @@ export interface Plan {
   // Plan title (optional, fallback: "Plan 1", "Plan 2", etc.)
   title: string | null;
 
-  // Cinematic style (belongs to plan, not short)
-  cinematic_header: CinematicHeaderConfig | null;
+  // Sequence this plan belongs to (for Editly assembly)
+  // The cinematic_header is now on the Sequence, not the Plan
+  sequence_id: string | null;
 
   // Reference frames
   storyboard_image_url: string | null; // Frame In (first frame)
@@ -70,6 +73,7 @@ export interface Short {
   scene_number: number;
   sort_order: number;
   plans: Plan[];
+  sequences: Sequence[];  // Sequences for Editly assembly
   totalDuration: number;
   assembled_video_url: string | null; // Final assembled video
   assembled_video_duration: number | null; // Duration in seconds (from FFmpeg)
@@ -77,6 +81,11 @@ export interface Short {
   updated_at: string;
   // Short-level settings (cinematic style is now on each plan)
   dialogue_language: DialogueLanguage;
+  // Music settings (for Editly background music)
+  music_asset_id: string | null;
+  music_volume: number;
+  music_fade_in: number;
+  music_fade_out: number;
   // Legacy fields (kept for backwards compatibility)
   cinematic_header?: CinematicHeaderConfig | null;
   character_mappings?: unknown[] | null;
@@ -101,6 +110,10 @@ interface ShortsStore {
     title: string;
     description: string;
     dialogue_language: DialogueLanguage;
+    music_asset_id: string | null;
+    music_volume: number;
+    music_fade_in: number;
+    music_fade_out: number;
   }>) => Promise<void>;
   deleteShort: (projectId: string, shortId: string) => Promise<void>;
   reorderShorts: (projectId: string, orderedIds: string[]) => Promise<void>;
@@ -111,17 +124,36 @@ interface ShortsStore {
   deletePlan: (projectId: string, planId: string) => Promise<void>;
   reorderPlans: (projectId: string, shortId: string, orderedIds: string[]) => Promise<void>;
 
-  // Plan cinematic actions (style belongs to plan now)
-  setPlanCinematicHeader: (projectId: string, planId: string, header: CinematicHeaderConfig | null) => Promise<void>;
+  // Note: cinematic_header is now on the Sequence level, not Plan level
   updatePlanSegments: (projectId: string, planId: string, segments: Segment[]) => Promise<void>;
+
+  // Sequence CRUD
+  createSequence: (projectId: string, shortId: string, title?: string) => Promise<Sequence | null>;
+  updateSequence: (projectId: string, shortId: string, sequenceId: string, updates: Partial<{
+    title: string | null;
+    cinematic_header: CinematicHeaderConfig | null;
+    transition_in: TransitionType | null;
+    transition_out: TransitionType | null;
+    transition_duration: number;
+  }>) => Promise<void>;
+  deleteSequence: (projectId: string, shortId: string, sequenceId: string) => Promise<void>;
+  reorderSequences: (projectId: string, shortId: string, orderedIds: string[]) => Promise<void>;
+  assignPlanToSequence: (projectId: string, planId: string, sequenceId: string | null) => Promise<void>;
 
   // Short-level settings
   setDialogueLanguage: (projectId: string, shortId: string, language: DialogueLanguage) => Promise<void>;
+  setMusicSettings: (projectId: string, shortId: string, settings: {
+    music_asset_id?: string | null;
+    music_volume?: number;
+    music_fade_in?: number;
+    music_fade_out?: number;
+  }) => Promise<void>;
 
   // Helpers
   getShortById: (shortId: string) => Short | undefined;
   getPlansByShort: (shortId: string) => Plan[];
   getPlanById: (planId: string) => Plan | undefined;
+  getSequencesByShort: (shortId: string) => Sequence[];
 }
 
 export const useShortsStore = create<ShortsStore>((set, get) => ({
@@ -163,9 +195,15 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
         const newShort: Short = {
           ...data.short,
           plans: [],
+          sequences: [],
           totalDuration: 0,
           assembled_video_url: null,
           assembled_video_duration: null,
+          // Music defaults
+          music_asset_id: data.short.music_asset_id || null,
+          music_volume: data.short.music_volume ?? 0.3,
+          music_fade_in: data.short.music_fade_in ?? 0,
+          music_fade_out: data.short.music_fade_out ?? 2,
           // Cinematic defaults
           cinematic_header: data.short.cinematic_header || null,
           character_mappings: data.short.character_mappings || null,
@@ -189,6 +227,10 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
     title: string;
     description: string;
     dialogue_language: DialogueLanguage;
+    music_asset_id: string | null;
+    music_volume: number;
+    music_fade_in: number;
+    music_fade_out: number;
   }>) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}`, {
@@ -271,8 +313,8 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           sort_order: data.plan.sort_order || 0,
           // Plan title (optional, fallback: "Plan 1", "Plan 2", etc.)
           title: data.plan.title ?? null,
-          // Cinematic style (belongs to plan, not short)
-          cinematic_header: data.plan.cinematic_header ?? null,
+          // Sequence assignment (cinematic_header is now on the Sequence)
+          sequence_id: data.plan.sequence_id ?? null,
           // Reference frames
           storyboard_image_url: data.plan.storyboard_image_url || data.plan.first_frame_url,
           first_frame_url: data.plan.first_frame_url || data.plan.storyboard_image_url,
@@ -421,37 +463,8 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
     }
   },
 
-  // Plan cinematic actions (style belongs to plan now)
-  setPlanCinematicHeader: async (projectId: string, planId: string, header: CinematicHeaderConfig | null) => {
-    // Find the short containing this plan
-    const short = get().shorts.find(s => s.plans.some(p => p.id === planId));
-    if (!short) return;
-
-    // Optimistic update
-    set((state) => ({
-      shorts: state.shorts.map((s) =>
-        s.id === short.id
-          ? {
-              ...s,
-              plans: s.plans.map((p) =>
-                p.id === planId ? { ...p, cinematic_header: header } : p
-              ),
-            }
-          : s
-      ),
-    }));
-
-    try {
-      await fetch(`/api/projects/${projectId}/shorts/${short.id}/plans/${planId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cinematic_header: header }),
-      });
-    } catch (error) {
-      console.error('Error updating plan cinematic header:', error);
-      get().fetchShorts(projectId);
-    }
-  },
+  // Note: cinematic_header is now on the Sequence level, not Plan level
+  // Use updateSequence to set cinematic_header on sequences
 
   updatePlanSegments: async (projectId: string, planId: string, segments: Segment[]) => {
     // Find the short containing this plan
@@ -512,6 +525,198 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
     }
   },
 
+  setMusicSettings: async (projectId: string, shortId: string, settings: {
+    music_asset_id?: string | null;
+    music_volume?: number;
+    music_fade_in?: number;
+    music_fade_out?: number;
+  }) => {
+    // Optimistic update
+    set((state) => ({
+      shorts: state.shorts.map((s) =>
+        s.id === shortId ? { ...s, ...settings } : s
+      ),
+    }));
+
+    try {
+      await fetch(`/api/projects/${projectId}/shorts/${shortId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings),
+      });
+    } catch (error) {
+      console.error('Error updating music settings:', error);
+      get().fetchShorts(projectId);
+    }
+  },
+
+  // Sequence CRUD
+  createSequence: async (projectId: string, shortId: string, title?: string) => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const newSequence: Sequence = {
+          id: data.sequence.id,
+          scene_id: shortId,
+          title: data.sequence.title ?? null,
+          sort_order: data.sequence.sort_order ?? 0,
+          cinematic_header: data.sequence.cinematic_header ?? null,
+          transition_in: data.sequence.transition_in ?? null,
+          transition_out: data.sequence.transition_out ?? null,
+          transition_duration: data.sequence.transition_duration ?? 0.5,
+          assembled_video_url: data.sequence.assembled_video_url ?? null,
+          assembled_plan_hash: data.sequence.assembled_plan_hash ?? null,
+          assembled_at: data.sequence.assembled_at ?? null,
+          created_at: data.sequence.created_at,
+          updated_at: data.sequence.updated_at,
+        };
+
+        set((state) => ({
+          shorts: state.shorts.map((s) =>
+            s.id === shortId
+              ? { ...s, sequences: [...s.sequences, newSequence] }
+              : s
+          ),
+        }));
+
+        return newSequence;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error creating sequence:', error);
+      return null;
+    }
+  },
+
+  updateSequence: async (
+    projectId: string,
+    shortId: string,
+    sequenceId: string,
+    updates: Partial<{
+      title: string | null;
+      transition_in: TransitionType | null;
+      transition_out: TransitionType | null;
+      transition_duration: number;
+    }>
+  ) => {
+    // Optimistic update
+    set((state) => ({
+      shorts: state.shorts.map((s) =>
+        s.id === shortId
+          ? {
+              ...s,
+              sequences: s.sequences.map((seq) =>
+                seq.id === sequenceId ? { ...seq, ...updates } : seq
+              ),
+            }
+          : s
+      ),
+    }));
+
+    try {
+      await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences/${sequenceId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates),
+      });
+    } catch (error) {
+      console.error('Error updating sequence:', error);
+      get().fetchShorts(projectId);
+    }
+  },
+
+  deleteSequence: async (projectId: string, shortId: string, sequenceId: string) => {
+    // Get plans that belong to this sequence and unassign them
+    const short = get().shorts.find((s) => s.id === shortId);
+    if (!short) return;
+
+    // Optimistic update: remove sequence and unassign plans
+    set((state) => ({
+      shorts: state.shorts.map((s) =>
+        s.id === shortId
+          ? {
+              ...s,
+              sequences: s.sequences.filter((seq) => seq.id !== sequenceId),
+              plans: s.plans.map((p) =>
+                p.sequence_id === sequenceId ? { ...p, sequence_id: null } : p
+              ),
+            }
+          : s
+      ),
+    }));
+
+    try {
+      await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences/${sequenceId}`, {
+        method: 'DELETE',
+      });
+    } catch (error) {
+      console.error('Error deleting sequence:', error);
+      get().fetchShorts(projectId);
+    }
+  },
+
+  reorderSequences: async (projectId: string, shortId: string, orderedIds: string[]) => {
+    // Optimistic update
+    set((state) => ({
+      shorts: state.shorts.map((s) => {
+        if (s.id !== shortId) return s;
+        const reordered = orderedIds.map((id, index) => {
+          const seq = s.sequences.find((seq) => seq.id === id);
+          return seq ? { ...seq, sort_order: index } : null;
+        }).filter(Boolean) as Sequence[];
+        return { ...s, sequences: reordered };
+      }),
+    }));
+
+    try {
+      await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences/reorder`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderedIds }),
+      });
+    } catch (error) {
+      console.error('Error reordering sequences:', error);
+      get().fetchShorts(projectId);
+    }
+  },
+
+  assignPlanToSequence: async (projectId: string, planId: string, sequenceId: string | null) => {
+    // Find which short contains this plan
+    const short = get().shorts.find((s) => s.plans.some((p) => p.id === planId));
+    if (!short) return;
+
+    // Optimistic update
+    set((state) => ({
+      shorts: state.shorts.map((s) =>
+        s.id === short.id
+          ? {
+              ...s,
+              plans: s.plans.map((p) =>
+                p.id === planId ? { ...p, sequence_id: sequenceId } : p
+              ),
+            }
+          : s
+      ),
+    }));
+
+    try {
+      await fetch(`/api/projects/${projectId}/shots/${planId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequence_id: sequenceId }),
+      });
+    } catch (error) {
+      console.error('Error assigning plan to sequence:', error);
+      get().fetchShorts(projectId);
+    }
+  },
+
   // Helpers
   getShortById: (shortId: string) => {
     return get().shorts.find((s) => s.id === shortId);
@@ -528,5 +733,10 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
       if (plan) return plan;
     }
     return undefined;
+  },
+
+  getSequencesByShort: (shortId: string) => {
+    const short = get().shorts.find((s) => s.id === shortId);
+    return short?.sequences || [];
   },
 }));

@@ -11,6 +11,8 @@ import { processImageGenJob, type ImageGenJobData } from '../processors/image-ge
 import { processAudioGenJob, type AudioGenJobData } from '../processors/audio-gen.processor.js';
 import { processFFmpegJob, type FFmpegJobData } from '../processors/ffmpeg.processor.js';
 import { processQuickShotGenJob, type QuickShotGenJobData } from '../processors/quick-shot-gen.processor.js';
+// Editly types only (processor is lazy-loaded to avoid gl native module issues)
+import type { EditlyJobData } from '../processors/editly.processor.js';
 
 // Get worker options for a specific queue
 function getWorkerOptions(queueName: string): WorkerOptions {
@@ -140,6 +142,31 @@ export function createWorkers(): Worker[] {
   registerWorker(quickShotGenWorker);
   workers.push(quickShotGenWorker);
   console.log(`[Worker] Quick-shot generation worker started (concurrency: ${QUEUE_CONFIG[QUEUE_NAMES.QUICK_SHOT_GEN].concurrency})`);
+
+  // Editly video assembly worker (processor is lazy-loaded to avoid gl native module issues)
+  const editlyWorker = new Worker<EditlyJobData>(
+    QUEUE_NAMES.EDITLY,
+    async (job) => {
+      const { processEditlyJob } = await import('../processors/editly.processor.js');
+      return processEditlyJob(job);
+    },
+    getWorkerOptions(QUEUE_NAMES.EDITLY)
+  );
+  editlyWorker.on('active', (job) => {
+    console.log(`[Editly] Job ${job.id} started processing`);
+  });
+  editlyWorker.on('completed', (job) => {
+    console.log(`[Editly] Job ${job.id} completed`);
+  });
+  editlyWorker.on('failed', (job, error) => {
+    console.error(`[Editly] Job ${job?.id} failed:`, error.message);
+  });
+  editlyWorker.on('error', (error) => {
+    console.error(`[Editly] Worker error:`, error);
+  });
+  registerWorker(editlyWorker);
+  workers.push(editlyWorker);
+  console.log(`[Worker] Editly video assembly worker started (concurrency: ${QUEUE_CONFIG[QUEUE_NAMES.EDITLY].concurrency})`);
 
   return workers;
 }

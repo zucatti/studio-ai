@@ -42,6 +42,7 @@ export const QUEUE_NAMES = {
   AUDIO_GEN: 'audio-gen',
   FFMPEG: 'ffmpeg',
   QUICK_SHOT_GEN: 'quick-shot-gen',
+  EDITLY: 'editly',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -52,6 +53,7 @@ export const QUEUE_CONFIG: Record<QueueName, { concurrency: number; timeout: num
   [QUEUE_NAMES.AUDIO_GEN]: { concurrency: 5, timeout: 30000 }, // 30s
   [QUEUE_NAMES.FFMPEG]: { concurrency: 2, timeout: 120000 }, // 2 min
   [QUEUE_NAMES.QUICK_SHOT_GEN]: { concurrency: 4, timeout: 120000 }, // 2 min
+  [QUEUE_NAMES.EDITLY]: { concurrency: 1, timeout: 300000 }, // 5 min (memory intensive)
 };
 
 // S3/B2 configuration

@@ -533,6 +533,100 @@ export const DIALOGUE_LANGUAGE_OPTIONS: { value: DialogueLanguage; label: string
 ];
 
 // ============================================================================
+// Sequence Transition Types
+// ============================================================================
+
+export type TransitionType =
+  // Basic
+  | 'dissolve'
+  | 'fade'
+  // Fade to/from color
+  | 'fadeblack'
+  | 'fadewhite'
+  // Zoom
+  | 'crosszoom'
+  | 'zoomin'
+  | 'zoomout'
+  // Slide
+  | 'slideleft'
+  | 'slideright'
+  | 'slideup'
+  | 'slidedown'
+  // Wipe
+  | 'directionalwipe'
+  // Shape
+  | 'circleopen'
+  | 'circleclose'
+  | 'radial'
+  // 3D
+  | 'cube';
+
+export const TRANSITION_TYPE_OPTIONS: { value: TransitionType; label: string; category: string }[] = [
+  // Basic
+  { value: 'dissolve', label: 'Dissolve', category: 'Basic' },
+  { value: 'fade', label: 'Fade', category: 'Basic' },
+  // Fade to/from color
+  { value: 'fadeblack', label: 'Fade to Black', category: 'Fade' },
+  { value: 'fadewhite', label: 'Fade to White', category: 'Fade' },
+  // Zoom
+  { value: 'crosszoom', label: 'Cross Zoom', category: 'Zoom' },
+  { value: 'zoomin', label: 'Zoom In', category: 'Zoom' },
+  { value: 'zoomout', label: 'Zoom Out', category: 'Zoom' },
+  // Slide
+  { value: 'slideleft', label: 'Slide Left', category: 'Slide' },
+  { value: 'slideright', label: 'Slide Right', category: 'Slide' },
+  { value: 'slideup', label: 'Slide Up', category: 'Slide' },
+  { value: 'slidedown', label: 'Slide Down', category: 'Slide' },
+  // Wipe
+  { value: 'directionalwipe', label: 'Directional Wipe', category: 'Wipe' },
+  // Shape
+  { value: 'circleopen', label: 'Circle Open', category: 'Shape' },
+  { value: 'circleclose', label: 'Circle Close', category: 'Shape' },
+  { value: 'radial', label: 'Radial', category: 'Shape' },
+  // 3D
+  { value: 'cube', label: 'Cube', category: '3D' },
+];
+
+// ============================================================================
+// Sequence (group of contiguous plans within a Short)
+// ============================================================================
+
+export interface Sequence {
+  id: string;
+  scene_id: string;  // Short ID (scenes table)
+  title: string | null;
+  sort_order: number;
+
+  // Cinematic style (shared by all plans in this sequence)
+  cinematic_header: CinematicHeaderConfig | null;
+
+  // Transitions
+  transition_in: TransitionType | null;   // Entrée: [<--
+  transition_out: TransitionType | null;  // Sortie: -->]
+  transition_duration: number;
+
+  // Assembly cache
+  assembled_video_url: string | null;  // B2 URL of assembled sequence
+  assembled_plan_hash: string | null;  // MD5 hash to detect plan changes
+  assembled_at: string | null;         // Last assembly timestamp
+
+  // Timestamps
+  created_at?: string;
+  updated_at?: string;
+}
+
+// ============================================================================
+// Short Music Settings
+// ============================================================================
+
+export interface ShortMusicSettings {
+  music_asset_id: string | null;
+  music_volume: number;
+  music_fade_in: number;
+  music_fade_out: number;
+}
+
+// ============================================================================
 // Helper: Create default beat
 // ============================================================================
 

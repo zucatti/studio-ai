@@ -107,6 +107,9 @@ export interface FFmpegJobData extends BaseJobData {
   // For assembly
   shortId?: string;
   shotIds?: string[];
+  // For sequence assembly
+  sequenceId?: string;
+  planHash?: string;
   // For music overlay
   shotId?: string;
   videoUrl?: string;
@@ -145,7 +148,8 @@ export type JobData =
   | ImageGenJobData
   | AudioGenJobData
   | FFmpegJobData
-  | QuickShotGenJobData;
+  | QuickShotGenJobData
+  | EditlyJobData;
 
 // Video models supported
 export type VideoModel =
@@ -167,7 +171,37 @@ export type VideoProvider = 'fal' | 'runway';
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5' | '2:3' | '21:9';
 
 // FFmpeg operations
-export type FFmpegOperation = 'assemble' | 'music-overlay' | 'extract-frame';
+export type FFmpegOperation = 'assemble' | 'assemble-sequence' | 'music-overlay' | 'extract-frame';
+
+// Editly video assembly job data
+export interface EditlyJobData extends BaseJobData {
+  type: 'editly';
+  operation: 'assemble-short';
+  projectId: string;
+  shortId: string;
+  // Sequences with their plans
+  sequences: Array<{
+    id: string;
+    title: string | null;
+    sort_order: number;
+    transition_in: string | null;
+    transition_out: string | null;
+    transition_duration: number;
+    plans: Array<{
+      id: string;
+      video_url: string;
+      duration: number;
+      sort_order: number;
+    }>;
+  }>;
+  // Optional background music
+  music?: {
+    asset_url: string;
+    volume: number;
+    fade_in: number;
+    fade_out: number;
+  };
+}
 
 // Queue names
 export const QUEUE_NAMES = {
@@ -176,6 +210,7 @@ export const QUEUE_NAMES = {
   AUDIO_GEN: 'audio-gen',
   FFMPEG: 'ffmpeg',
   QUICK_SHOT_GEN: 'quick-shot-gen',
+  EDITLY: 'editly',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -187,6 +222,7 @@ export const QUEUE_CONFIG: Record<QueueName, { concurrency: number; timeout: num
   [QUEUE_NAMES.AUDIO_GEN]: { concurrency: 5, timeout: 30000 }, // 30s
   [QUEUE_NAMES.FFMPEG]: { concurrency: 2, timeout: 120000 }, // 2 min
   [QUEUE_NAMES.QUICK_SHOT_GEN]: { concurrency: 4, timeout: 120000 }, // 2 min
+  [QUEUE_NAMES.EDITLY]: { concurrency: 1, timeout: 300000 }, // 5 min (memory intensive)
 };
 
 // Job result types
