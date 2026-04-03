@@ -209,8 +209,44 @@ function buildSegmentsPrompt(
       lines.push(`Camera: ${movementLabel}`);
     }
 
-    // Dialogue (with character reference and voice tag)
-    if (segment.dialogue) {
+    // NEW: Process beats (action/dialogue sequence)
+    if (segment.beats && segment.beats.length > 0) {
+      console.log(`[PromptBuilder] Segment ${shotNumber} has ${segment.beats.length} beats`);
+      for (const beat of segment.beats) {
+        console.log(`  Beat: type=${beat.type}, character_id=${beat.character_id}, character_name=${beat.character_name}`);
+        if (!beat.content) continue;
+
+        if (beat.type === 'dialogue' && beat.character_id) {
+          // Dialogue beat with character reference
+          const charRef = getCharacterElement(beat.character_id, characters);
+          const voiceRef = getVoiceReference(beat.character_id, characters, dialogueLanguage);
+          const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+          const offScreen = beat.presence === 'off' ? ' (V.O.)' : '';
+
+          if (voiceRef) {
+            lines.push(`${charRef}${offScreen} says${tone} ${voiceRef}:`);
+          } else {
+            lines.push(`${charRef}${offScreen} says${tone}:`);
+          }
+          lines.push(`"${beat.content}"`);
+        } else if (beat.type === 'dialogue' && beat.character_name) {
+          // Dialogue beat with character name only (no ID - fallback)
+          const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
+          const offScreen = beat.presence === 'off' ? ' (V.O.)' : '';
+          lines.push(`${beat.character_name}${offScreen} says${tone}:`);
+          lines.push(`"${beat.content}"`);
+        } else {
+          // Action beat
+          if (beat.character_name) {
+            lines.push(`${beat.character_name} ${beat.content}`);
+          } else {
+            lines.push(beat.content);
+          }
+        }
+      }
+    }
+    // LEGACY: Dialogue field (fallback if no beats)
+    else if (segment.dialogue) {
       const charRef = segment.dialogue.character_id
         ? getCharacterElement(segment.dialogue.character_id, characters)
         : segment.dialogue.character_name || '';

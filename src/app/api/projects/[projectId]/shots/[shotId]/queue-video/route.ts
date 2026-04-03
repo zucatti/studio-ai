@@ -3,11 +3,19 @@
  *
  * New async endpoint that uses BullMQ for background processing.
  * Returns immediately with a job ID that can be polled via /api/jobs.
+ *
+ * Supports both standard and cinematic modes:
+ * - Standard: Uses shot-level fields (animation_prompt, shot_type, etc.)
+ * - Cinematic: Uses segments with beats, cinematic_header, character references
  */
 
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { enqueueVideoGen, type VideoGenJobData } from '@/lib/bullmq';
+import { buildCinematicPrompt } from '@/lib/ai/cinematic-prompt-builder';
+import { cinematicHeaderToPrompt } from '@/lib/cinematic-header-to-prompt';
+import type { GlobalAsset } from '@/types/database';
+import type { Segment, CinematicHeaderConfig } from '@/types/cinematic';
 
 interface RouteParams {
   params: Promise<{ projectId: string; shotId: string }>;
@@ -112,7 +120,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    // Get shot data
+    // Get shot data with segments and cinematic_header
     const { data: shot, error: shotError } = await supabase
       .from('shots')
       .select(`
@@ -126,7 +134,9 @@ export async function POST(request: Request, { params }: RouteParams) {
         audio_mode,
         audio_asset_id,
         audio_start,
-        audio_end
+        audio_end,
+        segments,
+        cinematic_header
       `)
       .eq('id', shotId)
       .single();
@@ -164,14 +174,80 @@ export async function POST(request: Request, { params }: RouteParams) {
     };
     const aspectRatio = aspectRatioMap[project.aspect_ratio] || '16:9';
 
-    // Build prompt
-    const prompt = buildVideoPrompt({
-      animation: shot.animation_prompt,
-      description: shot.description,
-      shotType: shot.shot_type,
-      cameraAngle: shot.camera_angle,
-      cameraMovement: shot.camera_movement,
-    });
+    // Check if this is cinematic mode (has segments)
+    const segments = shot.segments as Segment[] | null;
+    const cinematicHeader = shot.cinematic_header as CinematicHeaderConfig | null;
+    const isCinematicMode = segments && segments.length > 0;
+
+    let prompt: string;
+    let characterMap = new Map<string, GlobalAsset>();
+
+    if (isCinematicMode) {
+      console.log('[QueueVideo] Cinematic mode detected, building cinematic prompt...');
+
+      // Get all project characters for reference
+      const { data: projectAssets } = await supabase
+        .from('project_assets')
+        .select(`global_asset:global_assets (*)`)
+        .eq('project_id', projectId);
+
+      const allCharacters = (projectAssets || [])
+        .map(pa => pa.global_asset as unknown as GlobalAsset)
+        .filter(a => a && a.asset_type === 'character');
+
+      console.log('[QueueVideo] Project characters available:', allCharacters.map(c => ({ id: c.id, name: c.name, hasFalVoice: !!(c.data as Record<string, unknown>)?.fal_voice_id })));
+      console.log('[QueueVideo] Segments to scan:', JSON.stringify(segments, null, 2));
+
+      // Auto-detect characters from segments
+      for (const segment of segments) {
+        if (segment.beats && Array.isArray(segment.beats)) {
+          for (const beat of segment.beats) {
+            if (beat.character_id) {
+              const char = allCharacters.find(c => c.id === beat.character_id);
+              if (char) {
+                characterMap.set(char.id, char);
+              }
+            }
+          }
+        }
+        // Legacy dialogue field
+        if (segment.dialogue?.character_id) {
+          const char = allCharacters.find(c => c.id === segment.dialogue!.character_id);
+          if (char) {
+            characterMap.set(char.id, char);
+          }
+        }
+      }
+
+      console.log('[QueueVideo] Detected characters:', Array.from(characterMap.values()).map(c => c.name));
+
+      // Build cinematic prompt using the prompt builder
+      const mockShort = { dialogue_language: 'en' };
+      const mockPlan = {
+        id: shotId,
+        shot_number: shot.shot_number || 1,
+        duration: shot.duration || videoDuration,
+        sort_order: 0,
+        segments,
+        cinematic_header: cinematicHeader,
+      };
+
+      prompt = buildCinematicPrompt(mockShort as never, [mockPlan] as never, characterMap);
+
+      console.log('[QueueVideo] Cinematic prompt built:');
+      console.log('--- START PROMPT ---');
+      console.log(prompt);
+      console.log('--- END PROMPT ---');
+    } else {
+      // Standard mode: use basic prompt builder
+      prompt = buildVideoPrompt({
+        animation: shot.animation_prompt,
+        description: shot.description,
+        shotType: shot.shot_type,
+        cameraAngle: shot.camera_angle,
+        cameraMovement: shot.camera_movement,
+      });
+    }
 
     // Create job record in Supabase
     const { data: job, error: jobError } = await supabase
@@ -208,9 +284,77 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    // Get character reference images if needed
+    // Get character reference images
     let characterReferenceImages: string[] = [];
-    if (shot.dialogue_character_id) {
+
+    // Cinematic elements and voices for Kling Omni
+    let cinematicElements: Array<{
+      characterId: string;
+      characterName: string;
+      frontalImageUrl: string;
+      referenceImageUrls?: string[];
+    }> = [];
+    let cinematicVoices: Array<{
+      characterId: string;
+      voiceId: string;
+    }> = [];
+
+    if (isCinematicMode && characterMap.size > 0) {
+      // Cinematic mode: build elements and voices for Kling Omni
+      console.log('[QueueVideo] Building cinematic elements for', characterMap.size, 'characters');
+      let elementIndex = 0;
+      for (const char of characterMap.values()) {
+        console.log(`[QueueVideo] Processing character: ${char.name} (${char.id})`);
+        console.log(`[QueueVideo] - reference_images:`, char.reference_images?.length || 0);
+        console.log(`[QueueVideo] - data:`, JSON.stringify(char.data));
+
+        if (elementIndex >= 4) {
+          console.log('[QueueVideo] - Skipped: max 4 elements reached');
+          break;
+        }
+
+        const charData = char.data as Record<string, unknown> | null;
+        const refImages = char.reference_images || [];
+
+        if (refImages.length > 0) {
+          cinematicElements.push({
+            characterId: char.id,
+            characterName: char.name,
+            frontalImageUrl: refImages[0],
+            referenceImageUrls: refImages.slice(1, 5),
+          });
+          characterReferenceImages.push(...refImages.slice(0, 2));
+          console.log(`[QueueVideo] - Added element ${elementIndex + 1}: frontal=${refImages[0]}`);
+
+          // Add voice if character has fal_voice_id (max 2 voices)
+          const falVoiceId = charData?.fal_voice_id as string | undefined;
+          console.log(`[QueueVideo] - fal_voice_id:`, falVoiceId || 'none');
+          if (falVoiceId && cinematicVoices.length < 2) {
+            cinematicVoices.push({
+              characterId: char.id,
+              voiceId: falVoiceId,
+            });
+            console.log(`[QueueVideo] - Added voice ${cinematicVoices.length}: ${falVoiceId}`);
+          }
+
+          elementIndex++;
+        } else {
+          console.log('[QueueVideo] - Skipped: no reference images');
+        }
+      }
+
+      // Limit reference images to 8
+      characterReferenceImages = characterReferenceImages.slice(0, 8);
+
+      console.log('[QueueVideo] Cinematic elements built:', cinematicElements.length);
+      console.log('[QueueVideo] Cinematic voices built:', cinematicVoices.map(v => `${v.characterId}: ${v.voiceId}`));
+      console.log('[QueueVideo] Character reference images:', characterReferenceImages.length);
+    } else if (isCinematicMode && characterMap.size === 0) {
+      console.log('[QueueVideo] WARNING: Cinematic mode but no characters detected!');
+      console.log('[QueueVideo] - Segments exist:', !!segments);
+      console.log('[QueueVideo] - Segments length:', segments?.length || 0);
+    } else if (shot.dialogue_character_id) {
+      // Standard mode: use dialogue character
       const { data: character } = await supabase
         .from('global_assets')
         .select('reference_images')
@@ -223,6 +367,12 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Build job data for BullMQ
+    console.log('[QueueVideo] Building jobData:');
+    console.log('[QueueVideo] - isCinematicMode:', isCinematicMode);
+    console.log('[QueueVideo] - characterMap.size:', characterMap.size);
+    console.log('[QueueVideo] - cinematicElements:', JSON.stringify(cinematicElements, null, 2));
+    console.log('[QueueVideo] - cinematicVoices:', JSON.stringify(cinematicVoices, null, 2));
+
     const jobData: Omit<VideoGenJobData, 'type'> = {
       userId: session.user.sub,
       jobId: job.id,
@@ -246,10 +396,16 @@ export async function POST(request: Request, { params }: RouteParams) {
       audioAssetId: shot.audio_asset_id || undefined,
       audioStart: shot.audio_start || undefined,
       audioEnd: shot.audio_end || undefined,
+      // Cinematic mode settings
+      isCinematicMode,
+      cinematicElements: isCinematicMode ? cinematicElements : undefined,
+      cinematicVoices: isCinematicMode ? cinematicVoices : undefined,
     };
 
     // Enqueue the job
     try {
+      console.log('[QueueVideo] Full jobData being enqueued:');
+      console.log(JSON.stringify(jobData, null, 2));
       await enqueueVideoGen(jobData);
       console.log(`[QueueVideo] Job ${job.id} enqueued for shot ${shotId}`);
     } catch (queueError) {

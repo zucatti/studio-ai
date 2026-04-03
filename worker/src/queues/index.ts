@@ -37,6 +37,12 @@ export function createWorkers(): Worker[] {
     processVideoGenJob,
     getWorkerOptions(QUEUE_NAMES.VIDEO_GEN)
   );
+  videoGenWorker.on('active', (job) => {
+    console.log(`[VideoGen] Job ${job.id} started processing`);
+  });
+  videoGenWorker.on('waiting', (job) => {
+    console.log(`[VideoGen] Job ${job.id} waiting in queue`);
+  });
   videoGenWorker.on('completed', (job) => {
     console.log(`[VideoGen] Job ${job.id} completed`);
   });
@@ -45,6 +51,9 @@ export function createWorkers(): Worker[] {
   });
   videoGenWorker.on('error', (error) => {
     console.error(`[VideoGen] Worker error:`, error);
+  });
+  videoGenWorker.on('stalled', (jobId) => {
+    console.warn(`[VideoGen] Job ${jobId} stalled - might be stuck`);
   });
   registerWorker(videoGenWorker);
   workers.push(videoGenWorker);

@@ -27,6 +27,19 @@ export interface VideoGenerationRequest {
 
   // For cancellation support
   jobId?: string;
+
+  // Cinematic mode (Kling Omni elements + voices)
+  isCinematicMode?: boolean;
+  cinematicElements?: Array<{
+    characterId: string;
+    characterName: string;
+    frontalImageUrl: string;
+    referenceImageUrls?: string[];
+  }>;
+  cinematicVoices?: Array<{
+    characterId: string;
+    voiceId: string;  // fal_voice_id
+  }>;
 }
 
 export interface VideoGenerationResult {

@@ -291,7 +291,7 @@ export default function ShortDetailPage() {
     });
 
     try {
-      // Use the queue endpoint instead of SSE
+      // Use the queue endpoint (supports both standard and cinematic modes)
       const res = await fetch(`/api/projects/${projectId}/shots/${planId}/queue-video`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -409,10 +409,51 @@ export default function ShortDetailPage() {
       setGenerationProgress(new Map());
     };
 
+    const handleJobFailed = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        jobId: string;
+        assetId: string;
+        assetType: string;
+        jobType: string;
+        jobSubtype: string;
+        shotId?: string;
+        assetName?: string;
+        errorMessage: string;
+      }>;
+      const { assetType, jobType, jobSubtype, shotId, assetName, errorMessage } = customEvent.detail;
+
+      // Check if this is a video job for a shot
+      if (assetType === 'shot' && jobType === 'video' && shotId) {
+        console.log('[Video Gen] Job failed for shot:', shotId, errorMessage);
+
+        // Clear generation progress for this shot
+        setGenerationProgress(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(shotId);
+          return newMap;
+        });
+
+        // Show error toast
+        toast.error(`Échec de la génération vidéo`, {
+          description: assetName ? `${assetName}: ${errorMessage}` : errorMessage,
+        });
+      }
+
+      // Check if this is an assembly job
+      if (assetType === 'short' && jobSubtype === 'assembly') {
+        console.log('[Assembly] Job failed:', errorMessage);
+        setIsAssembling(false);
+        setAssemblyProgress(0);
+        toast.error('Échec de l\'assemblage', { description: errorMessage });
+      }
+    };
+
     window.addEventListener('job-completed', handleJobCompleted);
+    window.addEventListener('job-failed', handleJobFailed);
 
     return () => {
       window.removeEventListener('job-completed', handleJobCompleted);
+      window.removeEventListener('job-failed', handleJobFailed);
     };
   }, [projectId, fetchShorts]);
 

@@ -34,6 +34,18 @@ export interface VideoGenJobData extends BaseJobData {
   audioAssetId?: string;
   audioStart?: number;
   audioEnd?: number;
+  // Cinematic mode settings (Kling Omni elements + voices)
+  isCinematicMode?: boolean;
+  cinematicElements?: Array<{
+    characterId: string;
+    characterName: string;
+    frontalImageUrl: string;
+    referenceImageUrls?: string[];
+  }>;
+  cinematicVoices?: Array<{
+    characterId: string;
+    voiceId: string;  // fal_voice_id
+  }>;
 }
 
 // Image generation job data (character refs, etc.)

@@ -35,6 +35,18 @@ export interface VideoGenJobData {
   audioAssetId?: string;
   audioStart?: number;
   audioEnd?: number;
+  // Cinematic mode settings (Kling Omni elements + voices)
+  isCinematicMode?: boolean;
+  cinematicElements?: Array<{
+    characterId: string;
+    characterName: string;
+    frontalImageUrl: string;
+    referenceImageUrls?: string[];
+  }>;
+  cinematicVoices?: Array<{
+    characterId: string;
+    voiceId: string;
+  }>;
 }
 
 /**
@@ -61,10 +73,18 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
     audioAssetId,
     audioStart,
     audioEnd,
+    isCinematicMode,
+    cinematicElements,
+    cinematicVoices,
   } = data;
 
   console.log(`[VideoGen] Processing job ${jobId} for shot ${shotId}`);
   console.log(`[VideoGen] Provider: ${providerName}, Model: ${model}, Duration: ${duration}s`);
+  console.log(`[VideoGen] Cinematic mode: ${isCinematicMode ? 'YES' : 'NO'}`);
+  if (isCinematicMode) {
+    console.log(`[VideoGen] Cinematic elements received:`, cinematicElements?.length || 0);
+    console.log(`[VideoGen] Cinematic voices received:`, cinematicVoices?.map(v => v.voiceId) || 'none');
+  }
 
   const supabase = getSupabase();
 
@@ -135,6 +155,24 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
       }
     }
 
+    // Convert cinematic elements URLs to public URLs
+    let cinematicElementsPublic: typeof cinematicElements = undefined;
+    if (isCinematicMode && cinematicElements && cinematicElements.length > 0) {
+      console.log(`[VideoGen] Cinematic mode: converting ${cinematicElements.length} elements to public URLs`);
+      cinematicElementsPublic = await Promise.all(
+        cinematicElements.map(async (el) => ({
+          characterId: el.characterId,
+          characterName: el.characterName,
+          frontalImageUrl: await getPublicUrl(el.frontalImageUrl),
+          referenceImageUrls: el.referenceImageUrls
+            ? await Promise.all(el.referenceImageUrls.map(url => getPublicUrl(url)))
+            : undefined,
+        }))
+      );
+      console.log(`[VideoGen] Cinematic elements ready:`, cinematicElementsPublic.map(e => e.characterName));
+      console.log(`[VideoGen] Cinematic voices:`, cinematicVoices?.map(v => v.voiceId) || 'none');
+    }
+
     // Build generation request with all public URLs
     const request: VideoGenerationRequest = {
       prompt,
@@ -150,6 +188,10 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
       audioStart,
       audioEnd,
       jobId, // For cancellation support
+      // Cinematic mode
+      isCinematicMode,
+      cinematicElements: cinematicElementsPublic,
+      cinematicVoices,
     };
 
     // Generate video

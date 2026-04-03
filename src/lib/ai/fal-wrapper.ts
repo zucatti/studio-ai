@@ -956,9 +956,10 @@ export async function generateKlingOmniVideoFal(
   }
 
   console.log(`[fal.ai] Generating Kling Omni video...`);
-  console.log(`[fal.ai] Prompt: ${prompt.substring(0, 100)}...`);
   console.log(`[fal.ai] Duration: ${duration}s, Elements: ${falElements.length}, Voices: ${falVoices.length}`);
   console.log(`[fal.ai] Generate audio: ${generateAudio}`);
+  console.log(`[fal.ai] FULL INPUT TO FAL.AI:`);
+  console.log(JSON.stringify(falInput, null, 2));
 
   const result = await wrapper.subscribe<KlingOmniInput, KlingOmniOutput>({
     endpoint: FAL_KLING_OMNI_I2V,

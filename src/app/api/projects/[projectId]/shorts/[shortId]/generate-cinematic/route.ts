@@ -36,7 +36,7 @@ async function translateDialogue(
   context?: { characterName?: string; tone?: string }
 ): Promise<string> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001';
     const response = await fetch(`${baseUrl}/api/translate-dialogue`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -133,7 +133,7 @@ function autoDetectCharacters(
       }
     }
 
-    // NEW: Check segments for @mentions and dialogues
+    // NEW: Check segments for @mentions, dialogues, and beats
     const segments = (plan as unknown as { segments?: Segment[] }).segments;
     if (segments && Array.isArray(segments)) {
       for (const segment of segments) {
@@ -141,11 +141,36 @@ function autoDetectCharacters(
         for (const name of extractMentions(segment.subject)) {
           mentionedNames.add(name.toLowerCase());
         }
+        // Check segment description for @mentions
+        for (const name of extractMentions(segment.description)) {
+          mentionedNames.add(name.toLowerCase());
+        }
         // Check segment action for @mentions
         for (const name of extractMentions(segment.action)) {
           mentionedNames.add(name.toLowerCase());
         }
-        // Check segment dialogue
+
+        // Check segment.beats (NEW format)
+        if (segment.beats && Array.isArray(segment.beats)) {
+          for (const beat of segment.beats) {
+            // Check beat content for @mentions
+            for (const name of extractMentions(beat.content)) {
+              mentionedNames.add(name.toLowerCase());
+            }
+            // If beat has character_id, add directly
+            if (beat.character_id) {
+              const char = allCharacters.find(c => c.id === beat.character_id);
+              if (char) {
+                mentionedNames.add(char.name.toLowerCase());
+                if (beat.type === 'dialogue') {
+                  charactersWithDialogue.add(char.name.toLowerCase());
+                }
+              }
+            }
+          }
+        }
+
+        // Check segment.dialogue (LEGACY format)
         if (segment.dialogue?.character_id) {
           const char = allCharacters.find(c => c.id === segment.dialogue!.character_id);
           if (char) {
@@ -162,19 +187,32 @@ function autoDetectCharacters(
   }
 
   // Match mentioned names to actual characters (fuzzy match)
+  // Normalize by removing spaces for comparison (e.g., "Kael Blackthorne" matches "@KaelBlackthorne")
   const result: { character: GlobalAsset; hasDialogue: boolean }[] = [];
 
   for (const char of allCharacters) {
     const charNameLower = char.name.toLowerCase();
-    // Check if any mention matches this character (full name or partial)
-    const isMatched = Array.from(mentionedNames).some(mention =>
-      charNameLower.includes(mention) || mention.includes(charNameLower)
-    );
+    const charNameNoSpaces = charNameLower.replace(/\s+/g, '');
+
+    // Check if any mention matches this character (full name, partial, or without spaces)
+    const isMatched = Array.from(mentionedNames).some(mention => {
+      const mentionNoSpaces = mention.replace(/\s+/g, '');
+      return charNameLower.includes(mention) ||
+             mention.includes(charNameLower) ||
+             charNameNoSpaces === mentionNoSpaces ||
+             charNameNoSpaces.includes(mentionNoSpaces) ||
+             mentionNoSpaces.includes(charNameNoSpaces);
+    });
 
     if (isMatched) {
-      const hasDialogue = Array.from(charactersWithDialogue).some(mention =>
-        charNameLower.includes(mention) || mention.includes(charNameLower)
-      );
+      const hasDialogue = Array.from(charactersWithDialogue).some(mention => {
+        const mentionNoSpaces = mention.replace(/\s+/g, '');
+        return charNameLower.includes(mention) ||
+               mention.includes(charNameLower) ||
+               charNameNoSpaces === mentionNoSpaces ||
+               charNameNoSpaces.includes(mentionNoSpaces) ||
+               mentionNoSpaces.includes(charNameNoSpaces);
+      });
       result.push({ character: char, hasDialogue });
     }
   }
@@ -338,7 +376,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         for (const imgUrl of referenceImages.slice(0, 5)) {
           if (imgUrl.startsWith('b2://')) {
             const signRes = await fetch(
-              `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/storage/sign`,
+              `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/api/storage/sign`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -394,7 +432,21 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Build the mega-prompt (now with English dialogues)
     const megaPrompt = buildCinematicPrompt(short, plans, characterMap);
-    console.log('[Cinematic] Generated mega-prompt:', megaPrompt.substring(0, 500) + '...');
+
+    // === DETAILED LOGGING ===
+    console.log('\n========== CINEMATIC GENERATION DEBUG ==========');
+    console.log('[Cinematic] Dialogue language:', dialogueLanguage);
+    console.log('[Cinematic] Character map size:', characterMap.size);
+    for (const [id, char] of characterMap) {
+      const charData = char.data as Record<string, unknown> | null;
+      console.log(`  - ${char.name} (${id})`);
+      console.log(`    fal_voice_id: ${charData?.fal_voice_id || 'NONE'}`);
+      console.log(`    reference_images: ${char.reference_images?.length || 0}`);
+    }
+    console.log('\n[Cinematic] FULL MEGA-PROMPT:');
+    console.log('--- START PROMPT ---');
+    console.log(megaPrompt);
+    console.log('--- END PROMPT ---\n');
 
     // Calculate total duration
     const totalDuration = plans.reduce((total, plan) => total + plan.duration, 0);
@@ -407,7 +459,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       const imgUrl = firstPlan.storyboard_image_url;
       if (imgUrl.startsWith('b2://')) {
         const signRes = await fetch(
-          `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/storage/sign`,
+          `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/api/storage/sign`,
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -436,6 +488,21 @@ export async function POST(request: Request, { params }: RouteParams) {
     });
 
     // Generate video with Kling Omni
+    console.log('[Cinematic] Elements to send:', elements.length);
+    for (let i = 0; i < elements.length; i++) {
+      console.log(`  Element ${i + 1}:`);
+      console.log(`    frontalImageUrl: ${elements[i].frontalImageUrl?.substring(0, 80)}...`);
+      console.log(`    referenceImageUrls: ${elements[i].referenceImageUrls?.length || 0}`);
+    }
+    console.log('[Cinematic] Voices to send:', voices.length);
+    for (let i = 0; i < voices.length; i++) {
+      console.log(`  Voice ${i + 1}: ${voices[i].voiceId}`);
+    }
+    console.log('[Cinematic] Start image URL:', startImageUrl?.substring(0, 80) || 'NONE');
+    console.log('[Cinematic] Duration:', clampedDuration, 'seconds');
+    console.log('[Cinematic] Generate audio:', generateAudio);
+    console.log('=================================================\n');
+
     console.log('[Cinematic] Generating with Kling Omni...');
     const { videoUrl: generatedVideoUrl, cost: videoCost } = await generateKlingOmniVideoFal(
       falWrapper,
@@ -502,7 +569,7 @@ export async function POST(request: Request, { params }: RouteParams) {
               let signedAudioUrl = audioUrl;
               if (audioUrl.startsWith('b2://')) {
                 const signRes = await fetch(
-                  `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/storage/sign`,
+                  `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3001'}/api/storage/sign`,
                   {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },

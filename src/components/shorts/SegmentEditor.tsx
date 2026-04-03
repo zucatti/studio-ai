@@ -496,6 +496,14 @@ export function SegmentEditor({
 
     // Beats
     const beatsToRender = formData.beats || [];
+    // Track which characters have dialogue for voice assignment
+    const dialogueCharacterIds: string[] = [];
+    for (const beat of beatsToRender) {
+      if (beat.type === 'dialogue' && beat.character_id && !dialogueCharacterIds.includes(beat.character_id)) {
+        dialogueCharacterIds.push(beat.character_id);
+      }
+    }
+
     for (const beat of beatsToRender) {
       if (!beat.content) continue;
 
@@ -504,8 +512,15 @@ export function SegmentEditor({
       if (beat.type === 'dialogue') {
         // Dialogue beat
         const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
-        const offScreen = beat.presence === 'off' ? ' (off)' : '';
-        if (beat.character_name) {
+        const offScreen = beat.presence === 'off' ? ' (V.O.)' : '';
+
+        if (beat.character_id && beat.character_name) {
+          // Has character_id - will use @Element and voice
+          const voiceIndex = dialogueCharacterIds.indexOf(beat.character_id) + 1;
+          const voiceTag = voiceIndex <= 2 ? ` <<<voice_${voiceIndex}>>>` : '';
+          beatLine = `@${beat.character_name}${offScreen} says${tone}${voiceTag}:\n"${beat.content}"`;
+        } else if (beat.character_name) {
+          // Only character_name - no element/voice mapping
           beatLine = `${beat.character_name}${offScreen} says${tone}:\n"${beat.content}"`;
         } else {
           beatLine = `Says${offScreen}${tone}: "${beat.content}"`;
@@ -513,7 +528,7 @@ export function SegmentEditor({
       } else {
         // Action beat
         if (beat.character_name) {
-          beatLine = `${beat.character_name} ${beat.content}`;
+          beatLine = `@${beat.character_name} ${beat.content}`;
         } else {
           beatLine = beat.content;
         }
