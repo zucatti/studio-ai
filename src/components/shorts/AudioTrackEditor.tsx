@@ -76,6 +76,7 @@ export function AudioTrackEditor({
   // State
   const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [audioDuration, setAudioDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
   const [isDraggingOffset, setIsDraggingOffset] = useState(false);
@@ -98,7 +99,9 @@ export function AudioTrackEditor({
     // Wait until we have a valid signed URL (not loading, no error)
     if (!waveformRef.current || !signedAudioUrl || isLoadingAudioUrl) return;
 
+    console.log('[AudioTrackEditor] Initializing with URL:', signedAudioUrl.substring(0, 100) + '...');
     setIsLoading(true);
+    setLoadError(null);
 
     // Destroy existing instance
     if (wavesurferRef.current) {
@@ -110,7 +113,7 @@ export function AudioTrackEditor({
     const regions = RegionsPlugin.create();
     regionsRef.current = regions;
 
-    // Create WaveSurfer
+    // Create WaveSurfer with MediaElement backend for better CORS handling
     const ws = WaveSurfer.create({
       container: waveformRef.current,
       waveColor: '#4f46e5',
@@ -121,6 +124,12 @@ export function AudioTrackEditor({
       barGap: 1,
       barRadius: 2,
       normalize: true,
+      // Use media element backend - more forgiving with CORS
+      backend: 'MediaElement',
+      // Fetch with credentials for signed URLs
+      fetchParams: {
+        mode: 'cors',
+      },
       plugins: [regions],
     });
 
@@ -128,16 +137,21 @@ export function AudioTrackEditor({
 
     // Handle load errors
     ws.on('error', (err) => {
-      console.error('[AudioTrackEditor] WaveSurfer error:', err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      console.error('[AudioTrackEditor] WaveSurfer error:', errorMsg);
+      setLoadError(errorMsg);
       setIsLoading(false);
     });
 
     // Load audio
+    console.log('[AudioTrackEditor] Loading audio...');
     ws.load(signedAudioUrl);
 
     // Events
     ws.on('ready', () => {
+      console.log('[AudioTrackEditor] Audio ready, duration:', ws.getDuration());
       setIsLoading(false);
+      setLoadError(null);
       setAudioDuration(ws.getDuration());
 
       // Create initial region if we have settings
@@ -307,14 +321,73 @@ export function AudioTrackEditor({
 
   // Generate video thumbnails (filmstrip)
   const thumbnailCount = compact ? 6 : 10;
+  const [videoThumbnails, setVideoThumbnails] = useState<string[]>([]);
+
+  // Extract thumbnails from video
+  useEffect(() => {
+    if (!signedVideoUrl || videoDuration <= 0) {
+      setVideoThumbnails([]);
+      return;
+    }
+
+    const video = document.createElement('video');
+    video.crossOrigin = 'anonymous';
+    video.muted = true;
+    video.preload = 'metadata';
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Small thumbnails for filmstrip
+    canvas.width = 80;
+    canvas.height = 45;
+
+    const extractedThumbnails: string[] = [];
+    let currentIndex = 0;
+
+    const extractFrame = () => {
+      if (currentIndex >= thumbnailCount) {
+        setVideoThumbnails(extractedThumbnails);
+        video.src = ''; // Cleanup
+        return;
+      }
+
+      const time = (currentIndex / thumbnailCount) * videoDuration;
+      video.currentTime = time;
+    };
+
+    video.onseeked = () => {
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      extractedThumbnails.push(canvas.toDataURL('image/jpeg', 0.6));
+      currentIndex++;
+      extractFrame();
+    };
+
+    video.onloadedmetadata = () => {
+      extractFrame();
+    };
+
+    video.onerror = (e) => {
+      console.error('[AudioTrackEditor] Video thumbnail error:', e);
+      setVideoThumbnails([]);
+    };
+
+    video.src = signedVideoUrl;
+
+    return () => {
+      video.src = '';
+    };
+  }, [signedVideoUrl, videoDuration, thumbnailCount]);
+
+  // Fallback placeholder thumbnails when video not available
   const thumbnails = useMemo(() => {
-    if (!signedVideoUrl) return [];
-    // We'll generate placeholder thumbnails - actual implementation would use video frames
     return Array.from({ length: thumbnailCount }, (_, i) => ({
       time: (i / thumbnailCount) * videoDuration,
       index: i,
+      dataUrl: videoThumbnails[i] || null,
     }));
-  }, [signedVideoUrl, videoDuration, thumbnailCount]);
+  }, [videoDuration, thumbnailCount, videoThumbnails]);
 
   // Calculate audio block position and width on timeline
   const audioBlockStyle = useMemo(() => {
@@ -392,7 +465,13 @@ export function AudioTrackEditor({
 
       {audioAssetId && audioUrlError && (
         <div className="py-2 px-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-xs">
-          Erreur de chargement: {audioUrlError.message}
+          Erreur URL: {audioUrlError.message}
+        </div>
+      )}
+
+      {audioAssetId && loadError && (
+        <div className="py-2 px-3 bg-orange-500/10 border border-orange-500/30 rounded text-orange-400 text-xs">
+          Erreur audio: {loadError}
         </div>
       )}
 
@@ -412,7 +491,13 @@ export function AudioTrackEditor({
                 {thumbnails.map((thumb) => (
                   <div
                     key={thumb.index}
-                    className="flex-1 border-r border-white/5 bg-gradient-to-b from-slate-700/30 to-slate-800/30"
+                    className="flex-1 border-r border-white/5 overflow-hidden"
+                    style={{
+                      backgroundImage: thumb.dataUrl ? `url(${thumb.dataUrl})` : undefined,
+                      backgroundSize: 'cover',
+                      backgroundPosition: 'center',
+                      backgroundColor: thumb.dataUrl ? undefined : 'rgba(51, 65, 85, 0.3)',
+                    }}
                   />
                 ))}
               </div>
