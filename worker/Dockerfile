@@ -6,6 +6,7 @@ WORKDIR /app
 # Install build dependencies for native modules (gl, etc.)
 RUN apt-get update && apt-get install -y \
     python3 \
+    python-is-python3 \
     build-essential \
     pkg-config \
     libxi-dev \
