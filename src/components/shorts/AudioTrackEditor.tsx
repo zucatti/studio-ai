@@ -86,7 +86,14 @@ export function AudioTrackEditor({
   const selectedAsset = audioAssets.find(a => a.id === audioAssetId);
   const audioFileUrl = selectedAsset?.file_url && selectedAsset.file_url.length > 0 ? selectedAsset.file_url : null;
   const { signedUrl: signedAudioUrl, isLoading: isLoadingAudioUrl, error: audioUrlError } = useSignedUrl(audioFileUrl);
-  const { signedUrl: signedVideoUrl } = useSignedUrl(videoUrl || null);
+  const { signedUrl: signedVideoUrl, error: videoUrlError } = useSignedUrl(videoUrl || null);
+
+  // Debug video URL
+  useEffect(() => {
+    console.log('[AudioTrackEditor] videoUrl prop:', videoUrl?.substring(0, 50));
+    console.log('[AudioTrackEditor] signedVideoUrl:', signedVideoUrl?.substring(0, 50));
+    if (videoUrlError) console.error('[AudioTrackEditor] videoUrlError:', videoUrlError);
+  }, [videoUrl, signedVideoUrl, videoUrlError]);
 
   // Proxy the audio URL to bypass CORS (WaveSurfer needs to fetch audio data)
   const proxiedAudioUrl = signedAudioUrl
