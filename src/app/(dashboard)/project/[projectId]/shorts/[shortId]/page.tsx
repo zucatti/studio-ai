@@ -1304,9 +1304,9 @@ export default function ShortDetailPage() {
   }
 
   return (
-    <div className="h-full flex flex-col overflow-hidden -my-6 py-6">
-      {/* Compact Header with integrated tabs */}
-      <div className="flex-shrink-0 flex items-center justify-between pb-3">
+    <div className="h-full flex flex-col overflow-hidden -m-6">
+      {/* Compact Header with integrated tabs - same as Timeline */}
+      <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"
@@ -1399,9 +1399,9 @@ export default function ShortDetailPage() {
         onDragStart={handleDragStart}
         onDragEnd={handleDragEnd}
       >
-      <div className="flex-1 flex flex-col gap-4 min-h-0">
+      <div className="flex-1 flex flex-col gap-4 min-h-0 p-4">
         {/* Two columns layout */}
-        <div className="flex-1 flex gap-6 min-h-0">
+        <div className="flex-1 flex gap-4 min-h-0">
 
         {/* LEFT: Sequences + Plans hierarchical */}
         <div className="w-[340px] flex-shrink-0 rounded-xl bg-[#151d28] border border-white/5 p-4 flex flex-col overflow-hidden">
