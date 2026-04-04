@@ -240,6 +240,22 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
     fetchImages();
   }, [projectId, setAssets]);
 
+  // Helper to get audio duration from URL
+  const getAudioDuration = async (url: string): Promise<number> => {
+    return new Promise((resolve) => {
+      const audio = new Audio();
+      audio.addEventListener('loadedmetadata', () => {
+        resolve(audio.duration || 0);
+      });
+      audio.addEventListener('error', () => {
+        resolve(0);
+      });
+      // Set a timeout in case the audio never loads
+      setTimeout(() => resolve(0), 5000);
+      audio.src = url;
+    });
+  };
+
   // Fetch audio from project assets (Bible du projet)
   useEffect(() => {
     const fetchAudio = async () => {
@@ -251,25 +267,46 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
 
         const audioAssets: MontageAsset[] = [];
 
-        (data.assets || []).forEach((asset: any) => {
+        for (const asset of data.assets || []) {
           // Only include audio assets
           if (asset.asset_type === 'audio') {
-            // Debug: log audio asset data
-            console.log('[MontageSidebar] Audio asset:', asset.name, 'duration:', asset.data?.duration, 'data:', asset.data);
+            let duration = asset.data?.duration || 0;
+            const fileUrl = asset.data?.fileUrl || asset.data?.url || '';
+
+            // If duration is 0, try to load the audio to get the real duration
+            if (duration === 0 && fileUrl) {
+              // Sign the URL first if it's a B2 URL
+              let signedUrl = fileUrl;
+              if (fileUrl.startsWith('b2://')) {
+                try {
+                  const signRes = await fetch(`/api/storage/sign?url=${encodeURIComponent(fileUrl)}`);
+                  if (signRes.ok) {
+                    const signData = await signRes.json();
+                    signedUrl = signData.signedUrl || fileUrl;
+                  }
+                } catch (e) {
+                  console.error('[MontageSidebar] Failed to sign audio URL:', e);
+                }
+              }
+
+              // Get duration from audio element
+              duration = await getAudioDuration(signedUrl);
+              console.log('[MontageSidebar] Loaded audio duration:', asset.name, duration);
+            }
 
             audioAssets.push({
               id: asset.id,
               type: 'audio',
               name: asset.name,
-              url: asset.data?.fileUrl || asset.data?.url || '',
-              duration: asset.data?.duration || 0,
+              url: fileUrl,
+              duration,
               metadata: {
                 artist: asset.data?.artist,
                 album: asset.data?.album,
               },
             });
           }
-        });
+        }
 
         // Update store
         const currentAssets = useMontageStore.getState().assets;
