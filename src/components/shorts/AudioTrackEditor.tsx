@@ -347,6 +347,7 @@ export function AudioTrackEditor({
       return;
     }
 
+    let cancelled = false;
     const video = document.createElement('video');
     video.crossOrigin = 'anonymous';
     video.muted = true;
@@ -364,9 +365,9 @@ export function AudioTrackEditor({
     let currentIndex = 0;
 
     const extractFrame = () => {
+      if (cancelled) return;
       if (currentIndex >= thumbnailCount) {
         setVideoThumbnails(extractedThumbnails);
-        video.src = ''; // Cleanup
         return;
       }
 
@@ -375,6 +376,7 @@ export function AudioTrackEditor({
     };
 
     video.onseeked = () => {
+      if (cancelled) return;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       extractedThumbnails.push(canvas.toDataURL('image/jpeg', 0.6));
       currentIndex++;
@@ -382,10 +384,12 @@ export function AudioTrackEditor({
     };
 
     video.onloadedmetadata = () => {
+      if (cancelled) return;
       extractFrame();
     };
 
     video.onerror = () => {
+      if (cancelled) return;
       const error = video.error;
       console.error('[AudioTrackEditor] Video thumbnail error:', {
         code: error?.code,
@@ -398,7 +402,10 @@ export function AudioTrackEditor({
     video.src = proxiedVideoUrl;
 
     return () => {
-      video.src = '';
+      cancelled = true;
+      video.onloadedmetadata = null;
+      video.onseeked = null;
+      video.onerror = null;
     };
   }, [proxiedVideoUrl, videoDuration, thumbnailCount]);
 
