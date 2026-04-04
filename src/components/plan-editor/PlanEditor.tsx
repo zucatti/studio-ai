@@ -150,6 +150,9 @@ export function PlanEditor({
   // Cinematic style wizard state
   const [showStyleWizard, setShowStyleWizard] = useState(false);
 
+  // Editor tab state: 'plan' for frames/video, 'montage' for audio timeline
+  const [editorTab, setEditorTab] = useState<'plan' | 'montage'>('plan');
+
   // Sticky generating state to prevent flickering
   // Once we start generating, stay in that mode until video URL changes
   const [stickyGenerating, setStickyGenerating] = useState(false);
@@ -716,6 +719,34 @@ export function PlanEditor({
               </div>
             )}
 
+            {/* Plan / Montage tab toggle */}
+            {mode === 'video-free' && (
+              <div className="inline-flex rounded-lg bg-white/5 p-0.5">
+                <button
+                  onClick={() => setEditorTab('plan')}
+                  className={cn(
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                    editorTab === 'plan'
+                      ? 'bg-blue-500/20 text-blue-300'
+                      : 'text-slate-400 hover:text-white'
+                  )}
+                >
+                  Plan
+                </button>
+                <button
+                  onClick={() => setEditorTab('montage')}
+                  className={cn(
+                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
+                    editorTab === 'montage'
+                      ? 'bg-blue-500/20 text-blue-300'
+                      : 'text-slate-400 hover:text-white'
+                  )}
+                >
+                  Montage
+                </button>
+              </div>
+            )}
+
             {/* Sequence Cinematic Header Display (click to view prompt) */}
             {mode === 'video-free' && sequenceCinematicHeader && (
               <button
@@ -739,6 +770,9 @@ export function PlanEditor({
 
         {/* MAIN CONTENT */}
         <div className="flex flex-col flex-1 overflow-hidden">
+          {/* Plan Tab Content */}
+          {(mode !== 'video-free' || editorTab === 'plan') && (
+          <>
           {/* Frames Row */}
           <div className="flex flex-1 overflow-hidden">
             {/* CENTER: Frames Area */}
@@ -1130,13 +1164,16 @@ export function PlanEditor({
               />
             </div>
           )}
+          </>
+          )}
 
-          {/* Audio Track Editor (video-free mode only) */}
-          {mode === 'video-free' && (
-            <div className="flex-shrink-0 px-6 py-4 border-t border-white/10 bg-[#0a0e12]">
+          {/* Montage Tab Content - Audio Track Editor (video-free mode only) */}
+          {mode === 'video-free' && editorTab === 'montage' && (
+            <div className="flex-1 flex flex-col p-6 bg-[#0a0e12] overflow-auto">
               <AudioTrackEditor
                 videoUrl={plan.generated_video_url || undefined}
                 videoDuration={plan.duration}
+                aspectRatio={aspectRatio}
                 audioAssetId={plan.audio_asset_id || null}
                 audioStart={plan.audio_start || 0}
                 audioEnd={plan.audio_end || null}

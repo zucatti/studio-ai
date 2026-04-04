@@ -1306,7 +1306,7 @@ export default function ShortDetailPage() {
   return (
     <div className="h-full flex flex-col overflow-hidden -m-6">
       {/* Compact Header with integrated tabs - same as Timeline */}
-      <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10">
+      <div className="flex-shrink-0 flex items-center justify-between px-3 py-2 border-b border-white/10 bg-[#0d1520] relative z-20">
         <div className="flex items-center gap-3">
           <Button
             variant="ghost"

@@ -81,6 +81,7 @@ export function DurationPicker({ value, onChange, className, compact }: Duration
           onChange={handleSliderChange}
           className={cn(
             'absolute inset-0 w-full appearance-none bg-transparent cursor-pointer z-10',
+            'focus:outline-none focus:ring-0',
             // Thumb styling - centered with margin-top trick
             '[&::-webkit-slider-thumb]:appearance-none',
             '[&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4',

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import WaveSurfer from 'wavesurfer.js';
 import RegionsPlugin, { Region } from 'wavesurfer.js/dist/plugins/regions.js';
 import { Button } from '@/components/ui/button';
@@ -13,9 +13,20 @@ import {
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
 import { Label } from '@/components/ui/label';
-import { Play, Pause, Volume2, Music, X, GripHorizontal } from 'lucide-react';
+import { Play, Pause, Volume2, Music, X, Film } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSignedUrl } from '@/hooks/use-signed-url';
+import type { AspectRatio } from '@/types/database';
+
+// Video aspect ratio values
+const ASPECT_RATIO_VALUES: Record<AspectRatio, number> = {
+  '16:9': 16 / 9,
+  '9:16': 9 / 16,
+  '1:1': 1,
+  '4:5': 4 / 5,
+  '21:9': 21 / 9,
+  '2:3': 2 / 3,
+};
 
 interface AudioAsset {
   id: string;
@@ -28,6 +39,7 @@ interface AudioTrackEditorProps {
   // Video info
   videoUrl?: string;
   videoDuration: number; // seconds
+  aspectRatio?: AspectRatio;
 
   // Current audio settings
   audioAssetId: string | null;
@@ -56,6 +68,7 @@ interface AudioTrackEditorProps {
 export function AudioTrackEditor({
   videoUrl,
   videoDuration,
+  aspectRatio = '16:9',
   audioAssetId,
   audioStart,
   audioEnd,
@@ -72,6 +85,10 @@ export function AudioTrackEditor({
   const regionsRef = useRef<RegionsPlugin | null>(null);
   const regionRef = useRef<Region | null>(null);
   const timelineRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Get signed URL for video preview
+  const { signedUrl: signedVideoUrl, isLoading: isLoadingVideoUrl } = useSignedUrl(videoUrl || null);
 
   // State
   const [isPlaying, setIsPlaying] = useState(false);
@@ -79,21 +96,11 @@ export function AudioTrackEditor({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [audioDuration, setAudioDuration] = useState(0);
   const [currentTime, setCurrentTime] = useState(0);
-  const [isDraggingOffset, setIsDraggingOffset] = useState(false);
-  const [localOffset, setLocalOffset] = useState(audioOffset);
 
   // Get selected audio asset
   const selectedAsset = audioAssets.find(a => a.id === audioAssetId);
   const audioFileUrl = selectedAsset?.file_url && selectedAsset.file_url.length > 0 ? selectedAsset.file_url : null;
   const { signedUrl: signedAudioUrl, isLoading: isLoadingAudioUrl, error: audioUrlError } = useSignedUrl(audioFileUrl);
-  const { signedUrl: signedVideoUrl, error: videoUrlError } = useSignedUrl(videoUrl || null);
-
-  // Debug video URL
-  useEffect(() => {
-    console.log('[AudioTrackEditor] videoUrl prop:', videoUrl?.substring(0, 50));
-    console.log('[AudioTrackEditor] signedVideoUrl:', signedVideoUrl?.substring(0, 50));
-    if (videoUrlError) console.error('[AudioTrackEditor] videoUrlError:', videoUrlError);
-  }, [videoUrl, signedVideoUrl, videoUrlError]);
 
   // Proxy the audio URL to bypass CORS (WaveSurfer needs to fetch audio data)
   const proxiedAudioUrl = signedAudioUrl
@@ -104,7 +111,7 @@ export function AudioTrackEditor({
   const regionDuration = audioEnd ? audioEnd - audioStart : 0;
 
   // Max allowed region duration (can't exceed video duration minus offset)
-  const maxRegionDuration = videoDuration - localOffset;
+  const maxRegionDuration = videoDuration - audioOffset;
 
   // Initialize WaveSurfer
   useEffect(() => {
@@ -201,7 +208,7 @@ export function AudioTrackEditor({
         audio_asset_id: audioAssetId,
         audio_start: region.start,
         audio_end: newEnd,
-        audio_offset: localOffset,
+        audio_offset: audioOffset,
         audio_volume: audioVolume,
       });
     });
@@ -229,11 +236,6 @@ export function AudioTrackEditor({
       regionRef.current = region;
     }
   }, [audioStart, audioEnd, audioDuration, maxRegionDuration]);
-
-  // Sync localOffset with prop
-  useEffect(() => {
-    setLocalOffset(audioOffset);
-  }, [audioOffset]);
 
   // Handle play/pause
   const togglePlayback = () => {
@@ -270,58 +272,10 @@ export function AudioTrackEditor({
       audio_asset_id: audioAssetId,
       audio_start: audioStart,
       audio_end: audioEnd,
-      audio_offset: localOffset,
+      audio_offset: audioOffset,
       audio_volume: value[0],
     });
   };
-
-  // Handle offset drag
-  const handleOffsetDrag = useCallback((e: React.MouseEvent) => {
-    if (!timelineRef.current) return;
-
-    const rect = timelineRef.current.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, x / rect.width));
-    const newOffset = percentage * videoDuration;
-
-    // Ensure audio doesn't exceed video duration
-    const maxOffset = videoDuration - regionDuration;
-    const constrainedOffset = Math.max(0, Math.min(newOffset, maxOffset));
-
-    setLocalOffset(constrainedOffset);
-  }, [videoDuration, regionDuration]);
-
-  const handleOffsetDragEnd = useCallback(() => {
-    setIsDraggingOffset(false);
-    onAudioChange({
-      audio_asset_id: audioAssetId,
-      audio_start: audioStart,
-      audio_end: audioEnd,
-      audio_offset: localOffset,
-      audio_volume: audioVolume,
-    });
-  }, [audioAssetId, audioStart, audioEnd, localOffset, audioVolume, onAudioChange]);
-
-  // Mouse move handler for dragging
-  useEffect(() => {
-    if (!isDraggingOffset) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      handleOffsetDrag(e as unknown as React.MouseEvent);
-    };
-
-    const handleMouseUp = () => {
-      handleOffsetDragEnd();
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDraggingOffset, handleOffsetDrag, handleOffsetDragEnd]);
 
   // Format time as mm:ss.ms
   const formatTime = (seconds: number) => {
@@ -331,124 +285,214 @@ export function AudioTrackEditor({
     return `${mins}:${secs.toString().padStart(2, '0')}.${ms}`;
   };
 
-  // Generate video thumbnails (filmstrip)
-  const thumbnailCount = compact ? 6 : 10;
-  const [videoThumbnails, setVideoThumbnails] = useState<string[]>([]);
+  // Generate video filmstrip via server-side FFmpeg
+  const [filmstripUrl, setFilmstripUrl] = useState<string | null>(null);
+  const [isLoadingFilmstrip, setIsLoadingFilmstrip] = useState(false);
+  const [filmstripLoaded, setFilmstripLoaded] = useState(false);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
 
-  // Proxy the video URL for canvas access (CORS)
-  const proxiedVideoUrl = signedVideoUrl
-    ? `/api/storage/proxy?url=${encodeURIComponent(signedVideoUrl)}`
-    : null;
+  // Extract projectId from the current URL
+  const projectId = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    const match = window.location.pathname.match(/\/project\/([^/]+)/);
+    return match ? match[1] : null;
+  }, []);
 
-  // Extract thumbnails from video
+  // Measure container width once (with threshold to prevent flickering)
   useEffect(() => {
-    if (!proxiedVideoUrl || videoDuration <= 0) {
-      setVideoThumbnails([]);
+    if (!timelineRef.current) return;
+
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0].contentRect.width;
+      setContainerWidth(prev => {
+        // Only update if significantly different (>20px) to prevent flickering
+        if (prev === null || Math.abs(prev - width) > 20) {
+          return Math.round(width);
+        }
+        return prev;
+      });
+    });
+
+    observer.observe(timelineRef.current);
+    return () => observer.disconnect();
+  }, []);
+
+  // Fixed height for filmstrip, width fills container
+  const filmstripHeight = compact ? 60 : 80;
+
+  // Fetch filmstrip from server (with hash-based caching)
+  useEffect(() => {
+    if (!videoUrl || videoDuration <= 0 || !projectId || !containerWidth) {
+      setFilmstripUrl(null);
+      setFilmstripLoaded(false);
       return;
     }
 
     let cancelled = false;
-    const video = document.createElement('video');
-    video.crossOrigin = 'anonymous';
-    video.muted = true;
-    video.preload = 'auto'; // Need full video data for frame extraction
+    setIsLoadingFilmstrip(true);
+    setFilmstripLoaded(false);
 
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const fetchFilmstrip = async () => {
+      try {
+        const response = await fetch(`/api/projects/${projectId}/video-thumbnails`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            videoUrl,
+            timelineWidth: containerWidth,
+            height: filmstripHeight,
+          }),
+        });
 
-    const extractedThumbnails: string[] = [];
-    let currentIndex = 0;
-
-    const extractFrame = () => {
-      if (cancelled) return;
-      if (currentIndex >= thumbnailCount) {
-        setVideoThumbnails(extractedThumbnails);
-        return;
-      }
-
-      const time = (currentIndex / thumbnailCount) * videoDuration;
-      video.currentTime = time;
-    };
-
-    video.onseeked = () => {
-      if (cancelled) return;
-      // Wait for frame to be fully decoded before capturing
-      const captureFrame = () => {
         if (cancelled) return;
-        // readyState 2+ means we have current frame data
-        if (video.readyState >= 2) {
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          extractedThumbnails.push(canvas.toDataURL('image/jpeg', 0.6));
-          currentIndex++;
-          extractFrame();
-        } else {
-          // Frame not ready, wait and retry
-          requestAnimationFrame(captureFrame);
+
+        if (!response.ok) {
+          const error = await response.json();
+          console.error('[AudioTrackEditor] Filmstrip API error:', error);
+          setFilmstripUrl(null);
+          return;
         }
-      };
-      requestAnimationFrame(captureFrame);
+
+        const data = await response.json();
+
+        if (!cancelled) {
+          setFilmstripUrl(data.filmstripUrl || null);
+        }
+      } catch (error) {
+        console.error('[AudioTrackEditor] Failed to fetch filmstrip:', error);
+        if (!cancelled) {
+          setFilmstripUrl(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingFilmstrip(false);
+        }
+      }
     };
 
-    video.oncanplaythrough = () => {
-      if (cancelled) return;
-      // Set canvas dimensions based on actual video aspect ratio
-      // Height: 2x container height (h-10 = 40px) for retina quality
-      // Width: calculated from video's actual aspect ratio
-      const videoAspect = video.videoWidth / video.videoHeight;
-      const thumbHeight = 80;
-      const thumbWidth = Math.round(thumbHeight * videoAspect);
-      canvas.width = thumbWidth;
-      canvas.height = thumbHeight;
-      extractFrame();
-    };
-
-    video.onerror = () => {
-      if (cancelled) return;
-      const error = video.error;
-      console.error('[AudioTrackEditor] Video thumbnail error:', {
-        code: error?.code,
-        message: error?.message,
-        proxiedUrl: proxiedVideoUrl?.substring(0, 100),
-      });
-      setVideoThumbnails([]);
-    };
-
-    video.src = proxiedVideoUrl;
+    fetchFilmstrip();
 
     return () => {
       cancelled = true;
-      video.oncanplaythrough = null;
-      video.onseeked = null;
-      video.onerror = null;
     };
-  }, [proxiedVideoUrl, videoDuration, thumbnailCount]);
+  }, [videoUrl, videoDuration, projectId, containerWidth, filmstripHeight]);
 
-  // Fallback placeholder thumbnails when video not available
-  const thumbnails = useMemo(() => {
-    return Array.from({ length: thumbnailCount }, (_, i) => ({
-      time: (i / thumbnailCount) * videoDuration,
-      index: i,
-      dataUrl: videoThumbnails[i] || null,
-    }));
-  }, [videoDuration, thumbnailCount, videoThumbnails]);
+  // Sync video with audio playback
+  useEffect(() => {
+    if (!videoRef.current || !wavesurferRef.current) return;
 
-  // Calculate audio block position and width on timeline
-  const audioBlockStyle = useMemo(() => {
-    if (!audioEnd) return { display: 'none' };
+    // Sync video time with audio time (accounting for audio offset)
+    const syncTime = currentTime - audioOffset;
+    if (syncTime >= 0 && syncTime <= videoDuration) {
+      videoRef.current.currentTime = syncTime;
+    }
+  }, [currentTime, audioOffset, videoDuration]);
 
-    const offsetPercent = (localOffset / videoDuration) * 100;
-    const widthPercent = (regionDuration / videoDuration) * 100;
+  // Play/pause video in sync with audio
+  useEffect(() => {
+    if (!videoRef.current) return;
 
-    return {
-      left: `${offsetPercent}%`,
-      width: `${Math.min(widthPercent, 100 - offsetPercent)}%`,
-    };
-  }, [localOffset, regionDuration, videoDuration, audioEnd]);
+    if (isPlaying) {
+      videoRef.current.play().catch(() => {});
+    } else {
+      videoRef.current.pause();
+    }
+  }, [isPlaying]);
+
+  // Calculate preview dimensions
+  const previewHeight = compact ? 120 : 180;
+  const videoAspectRatio = ASPECT_RATIO_VALUES[aspectRatio];
+  const previewWidth = Math.round(previewHeight * videoAspectRatio);
 
   return (
     <div className={cn('space-y-3 p-3 bg-[#0d1218] rounded-lg border border-white/5', className)}>
-      {/* Header: Asset selector + Volume */}
+      {/* Video Preview - Centered */}
+      <div className="flex justify-center">
+        <div
+          className="relative bg-black rounded-lg border border-white/10 overflow-hidden"
+          style={{ width: previewWidth, height: previewHeight }}
+        >
+          {signedVideoUrl ? (
+            <video
+              ref={videoRef}
+              src={signedVideoUrl}
+              className="w-full h-full object-contain"
+              muted
+              playsInline
+              preload="metadata"
+            />
+          ) : isLoadingVideoUrl ? (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div className="animate-spin w-6 h-6 border-2 border-purple-500 border-t-transparent rounded-full" />
+            </div>
+          ) : (
+            <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500">
+              <Film className="w-8 h-8 mb-2 opacity-50" />
+              <span className="text-xs">Aucune vidéo</span>
+            </div>
+          )}
+
+          {/* Time overlay */}
+          {signedVideoUrl && (
+            <div className="absolute bottom-2 right-2 px-2 py-0.5 bg-black/70 rounded text-[10px] text-white/80 font-mono">
+              {formatTime(currentTime > 0 ? Math.max(0, currentTime - audioOffset) : 0)}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Video Timeline (filmstrip) - Always visible */}
+      <div className="space-y-1">
+        <Label className="text-[10px] text-slate-500 uppercase tracking-wider">
+          Vidéo ({formatTime(videoDuration)})
+        </Label>
+        <div
+          ref={timelineRef}
+          className={cn(
+            "relative bg-[#1a2433] rounded border border-white/10",
+            compact ? "h-[60px]" : "h-20"
+          )}
+        >
+          {/* Filmstrip */}
+          {filmstripUrl ? (
+            <div className="relative w-full h-full">
+              <img
+                src={filmstripUrl}
+                alt=""
+                className="w-full h-full object-cover"
+                onLoad={() => setFilmstripLoaded(true)}
+                style={{ display: filmstripLoaded ? 'block' : 'none' }}
+              />
+              {/* Loading placeholder while image loads */}
+              {!filmstripLoaded && (
+                <div className="absolute inset-0 flex items-center justify-center bg-slate-800/50">
+                  <div className="animate-spin w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full" />
+                </div>
+              )}
+              {/* Time markers overlay */}
+              {filmstripLoaded && (
+                <div className="absolute bottom-0 left-0 right-0 flex justify-between px-2 py-0.5 text-[9px] text-white/70 bg-gradient-to-t from-black/50 to-transparent pointer-events-none">
+                  <span>0s</span>
+                  <span>{formatTime(videoDuration / 2)}</span>
+                  <span>{formatTime(videoDuration)}</span>
+                </div>
+              )}
+            </div>
+          ) : isLoadingFilmstrip || !containerWidth ? (
+            <div className="absolute inset-0 flex items-center justify-center bg-slate-800/50">
+              <div className="animate-spin w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full" />
+            </div>
+          ) : !videoUrl ? (
+            <div className="h-full w-full flex items-center justify-center text-slate-500 text-xs">
+              Aucune vidéo
+            </div>
+          ) : (
+            <div className="h-full w-full bg-slate-800/30" />
+          )}
+        </div>
+      </div>
+
+      {/* Audio selector */}
       <div className="flex items-center gap-3">
         <Music className="w-4 h-4 text-purple-400 flex-shrink-0" />
 
@@ -500,133 +544,73 @@ export function AudioTrackEditor({
         )}
       </div>
 
-      {audioAssetId && isLoadingAudioUrl && (
-        <div className="flex items-center justify-center py-4 text-slate-500 text-sm">
-          <div className="animate-spin w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full mr-2" />
-          Chargement de l'audio...
-        </div>
-      )}
-
-      {audioAssetId && audioUrlError && (
-        <div className="py-2 px-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-xs">
-          Erreur URL: {audioUrlError.message}
-        </div>
-      )}
-
-      {audioAssetId && loadError && (
-        <div className="py-2 px-3 bg-orange-500/10 border border-orange-500/30 rounded text-orange-400 text-xs">
-          Erreur audio: {loadError}
-        </div>
-      )}
-
-      {audioAssetId && signedAudioUrl && !isLoadingAudioUrl && (
+      {/* Audio waveform section - Only when audio is selected */}
+      {audioAssetId && (
         <>
-          {/* Video Timeline (filmstrip placeholder) */}
-          <div className="space-y-1">
-            <Label className="text-[10px] text-slate-500 uppercase tracking-wider">
-              Vidéo ({formatTime(videoDuration)})
-            </Label>
-            <div
-              ref={timelineRef}
-              className="relative h-10 bg-[#1a2433] rounded border border-white/10 overflow-hidden"
-            >
-              {/* Filmstrip thumbnails */}
-              <div className="absolute inset-0 flex">
-                {thumbnails.map((thumb) => (
-                  <div
-                    key={thumb.index}
-                    className="flex-1 border-r border-white/5 overflow-hidden"
-                    style={{
-                      backgroundImage: thumb.dataUrl ? `url(${thumb.dataUrl})` : undefined,
-                      backgroundSize: 'cover',
-                      backgroundPosition: 'center',
-                      backgroundColor: thumb.dataUrl ? undefined : 'rgba(51, 65, 85, 0.3)',
-                    }}
-                  />
-                ))}
-              </div>
+          {isLoadingAudioUrl && (
+            <div className="flex items-center justify-center py-4 text-slate-500 text-sm">
+              <div className="animate-spin w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full mr-2" />
+              Chargement de l'audio...
+            </div>
+          )}
 
-              {/* Time markers */}
-              <div className="absolute bottom-0 left-0 right-0 flex justify-between px-1 text-[8px] text-slate-500">
-                <span>0s</span>
-                <span>{formatTime(videoDuration / 2)}</span>
-                <span>{formatTime(videoDuration)}</span>
-              </div>
+          {audioUrlError && (
+            <div className="py-2 px-3 bg-red-500/10 border border-red-500/30 rounded text-red-400 text-xs">
+              Erreur URL: {audioUrlError.message}
+            </div>
+          )}
 
-              {/* Audio block (draggable) */}
-              {audioEnd && (
-                <div
-                  className={cn(
-                    'absolute top-1 bottom-1 rounded cursor-grab active:cursor-grabbing',
-                    'bg-purple-500/40 border border-purple-400/50',
-                    'flex items-center justify-center',
-                    isDraggingOffset && 'ring-2 ring-purple-400'
-                  )}
-                  style={audioBlockStyle}
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    setIsDraggingOffset(true);
-                  }}
+          {loadError && (
+            <div className="py-2 px-3 bg-orange-500/10 border border-orange-500/30 rounded text-orange-400 text-xs">
+              Erreur audio: {loadError}
+            </div>
+          )}
+
+          {signedAudioUrl && !isLoadingAudioUrl && (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <Label className="text-[10px] text-slate-500 uppercase tracking-wider">
+                  Source audio ({formatTime(audioDuration)})
+                </Label>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-6 w-6"
+                  onClick={togglePlayback}
+                  disabled={isLoading}
                 >
-                  <GripHorizontal className="w-3 h-3 text-purple-300/70" />
+                  {isPlaying ? (
+                    <Pause className="w-3.5 h-3.5" />
+                  ) : (
+                    <Play className="w-3.5 h-3.5" />
+                  )}
+                </Button>
+              </div>
+
+              <div
+                ref={waveformRef}
+                className={cn(
+                  'rounded border border-white/10 bg-[#1a2433]',
+                  isLoading && 'animate-pulse'
+                )}
+              />
+
+              {/* Region info */}
+              {audioEnd && (
+                <div className="flex justify-between text-[10px] text-slate-500">
+                  <span>Région: {formatTime(audioStart)} → {formatTime(audioEnd)}</span>
+                  <span className="text-purple-400">
+                    Sélection: {formatTime(regionDuration)}
+                  </span>
                 </div>
               )}
+
+              {/* Instructions */}
+              <p className="text-[10px] text-slate-600 italic">
+                Glissez sur la waveform pour sélectionner la région audio.
+              </p>
             </div>
-
-            {/* Offset indicator */}
-            {audioEnd && (
-              <div className="flex justify-between text-[10px] text-slate-500">
-                <span>Début audio: {formatTime(localOffset)}</span>
-                <span>Durée: {formatTime(regionDuration)}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Audio Waveform with Region Selector */}
-          <div className="space-y-1">
-            <div className="flex items-center justify-between">
-              <Label className="text-[10px] text-slate-500 uppercase tracking-wider">
-                Source audio ({formatTime(audioDuration)})
-              </Label>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                onClick={togglePlayback}
-                disabled={isLoading}
-              >
-                {isPlaying ? (
-                  <Pause className="w-3.5 h-3.5" />
-                ) : (
-                  <Play className="w-3.5 h-3.5" />
-                )}
-              </Button>
-            </div>
-
-            <div
-              ref={waveformRef}
-              className={cn(
-                'rounded border border-white/10 bg-[#1a2433]',
-                isLoading && 'animate-pulse'
-              )}
-            />
-
-            {/* Region info */}
-            {audioEnd && (
-              <div className="flex justify-between text-[10px] text-slate-500">
-                <span>Région: {formatTime(audioStart)} → {formatTime(audioEnd)}</span>
-                <span className="text-purple-400">
-                  Sélection: {formatTime(regionDuration)}
-                </span>
-              </div>
-            )}
-          </div>
-
-          {/* Instructions */}
-          <p className="text-[10px] text-slate-600 italic">
-            Glissez sur la waveform pour sélectionner la région audio.
-            Déplacez le bloc violet pour positionner l'audio dans la vidéo.
-          </p>
+          )}
         </>
       )}
     </div>
