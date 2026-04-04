@@ -373,14 +373,21 @@ export function AudioTrackEditor({
 
     video.onseeked = () => {
       if (cancelled) return;
-      // Wait a frame for the video to fully decode after seeking
-      requestAnimationFrame(() => {
+      // Wait for frame to be fully decoded before capturing
+      const captureFrame = () => {
         if (cancelled) return;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        extractedThumbnails.push(canvas.toDataURL('image/jpeg', 0.6));
-        currentIndex++;
-        extractFrame();
-      });
+        // readyState 2+ means we have current frame data
+        if (video.readyState >= 2) {
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          extractedThumbnails.push(canvas.toDataURL('image/jpeg', 0.6));
+          currentIndex++;
+          extractFrame();
+        } else {
+          // Frame not ready, wait and retry
+          requestAnimationFrame(captureFrame);
+        }
+      };
+      requestAnimationFrame(captureFrame);
     };
 
     video.oncanplaythrough = () => {
