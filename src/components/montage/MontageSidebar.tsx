@@ -118,21 +118,51 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
     fetchSequences();
   }, [projectId, shortId, short?.plans, setAssets]);
 
-  // Fetch videos from plans that have generated videos
+  // Helper to check if URL is a video
+  const isVideoUrl = (url: string): boolean => {
+    if (!url) return false;
+    const lower = url.toLowerCase();
+    return (
+      lower.includes('/videos/') ||
+      lower.endsWith('.mp4') ||
+      lower.endsWith('.webm') ||
+      lower.endsWith('.mov') ||
+      lower.endsWith('.avi')
+    );
+  };
+
+  // Fetch videos from rush and plans
   useEffect(() => {
     const fetchVideos = async () => {
       setIsLoadingVideos(true);
       try {
         const videoAssets: MontageAsset[] = [];
 
-        // Get videos from all shorts in this project
+        // 1. Get videos from rush (url can be image or video)
+        const rushRes = await fetch(`/api/projects/${projectId}/rush`);
+        const rushData = rushRes.ok ? await rushRes.json() : { images: [] };
+        const rushImages = rushData.images || [];
+
+        for (const rush of rushImages) {
+          if (rush.url && isVideoUrl(rush.url)) {
+            videoAssets.push({
+              id: rush.id,
+              type: 'rush',
+              name: rush.prompt?.substring(0, 30) || 'Rush vidéo',
+              url: rush.url,
+              thumbnailUrl: rush.thumbnail_url,
+              duration: rush.duration,
+              metadata: { prompt: rush.prompt, source: 'rush' },
+            });
+          }
+        }
+
+        // 2. Get videos from all shorts plans
         const shortsRes = await fetch(`/api/projects/${projectId}/shorts`);
         const shortsData = shortsRes.ok ? await shortsRes.json() : { shorts: [] };
         const shorts = shortsData.shorts || [];
 
-        // Collect all plans with generated videos
         for (const s of shorts) {
-          // API returns 'plans', not 'shots'
           const plans = s.plans || [];
           for (const plan of plans) {
             if (plan.generated_video_url) {
@@ -147,6 +177,7 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
                   shortId: s.id,
                   shortTitle: s.title,
                   shotNumber: plan.shot_number,
+                  source: 'plan',
                 },
               });
             }
