@@ -254,12 +254,15 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
         (data.assets || []).forEach((asset: any) => {
           // Only include audio assets
           if (asset.asset_type === 'audio') {
+            // Debug: log audio asset data
+            console.log('[MontageSidebar] Audio asset:', asset.name, 'duration:', asset.data?.duration, 'data:', asset.data);
+
             audioAssets.push({
               id: asset.id,
               type: 'audio',
               name: asset.name,
               url: asset.data?.fileUrl || asset.data?.url || '',
-              duration: asset.data?.duration,
+              duration: asset.data?.duration || 0,
               metadata: {
                 artist: asset.data?.artist,
                 album: asset.data?.album,
