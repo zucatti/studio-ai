@@ -1385,6 +1385,7 @@ export default function ShortDetailPage() {
               <Pencil className="w-3.5 h-3.5" />
               Édition
             </button>
+            {/* Old Montage tab - hidden for now
             <button
               onClick={() => setActiveTab('montage')}
               className={cn(
@@ -1397,9 +1398,17 @@ export default function ShortDetailPage() {
               <Clapperboard className="w-3.5 h-3.5" />
               Montage
             </button>
+            */}
+            <button
+              onClick={() => router.push(`/project/${projectId}/shorts/${shortId}/timeline`)}
+              className="flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5"
+            >
+              <Layers className="w-3.5 h-3.5" />
+              Timeline
+            </button>
           </div>
 
-          {/* Music Selector */}
+          {/* Music Selector - hidden for now, moved to Timeline editor
           <MusicSelector
             projectId={projectId}
             selectedAssetId={short.music_asset_id || null}
@@ -1411,6 +1420,7 @@ export default function ShortDetailPage() {
             onFadeInChange={handleMusicFadeInChange}
             onFadeOutChange={handleMusicFadeOutChange}
           />
+          */}
         </div>
 
         <Button
