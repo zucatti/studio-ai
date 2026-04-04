@@ -165,11 +165,13 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
         for (const s of shorts) {
           const plans = s.plans || [];
           for (const plan of plans) {
-            if (plan.generated_video_url) {
+            // Only include if has valid video URL and some metadata
+            if (plan.generated_video_url && (plan.storyboard_image_url || plan.first_frame_url || plan.description)) {
+              const name = plan.title || plan.description?.substring(0, 30) || `${s.title} - Plan ${plan.shot_number}`;
               videoAssets.push({
                 id: plan.id,
                 type: 'video',
-                name: plan.title || plan.description?.substring(0, 30) || `Plan ${plan.shot_number}`,
+                name,
                 url: plan.generated_video_url,
                 thumbnailUrl: plan.storyboard_image_url || plan.first_frame_url,
                 duration: plan.duration,
