@@ -105,10 +105,9 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
         }
 
         // Update store - merge with existing assets
-        setAssets((prev: MontageAsset[]) => {
-          const filtered = prev.filter(a => a.type !== 'sequence');
-          return [...filtered, ...sequenceAssets];
-        });
+        const currentAssets = useMontageStore.getState().assets;
+        const filtered = currentAssets.filter(a => a.type !== 'sequence');
+        setAssets([...filtered, ...sequenceAssets]);
       } catch (error) {
         console.error('[MontageSidebar] Failed to fetch sequences:', error);
       } finally {
@@ -151,10 +150,9 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
         // TODO: Add shots from other sources if needed
 
         // Update store
-        setAssets((prev: MontageAsset[]) => {
-          const filtered = prev.filter(a => a.type !== 'rush' && a.type !== 'video');
-          return [...filtered, ...videoAssets];
-        });
+        const currentAssets = useMontageStore.getState().assets;
+        const filtered = currentAssets.filter(a => a.type !== 'rush' && a.type !== 'video');
+        setAssets([...filtered, ...videoAssets]);
       } catch (error) {
         console.error('[MontageSidebar] Failed to fetch videos:', error);
       } finally {
@@ -192,10 +190,9 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
         }));
 
         // Update store
-        setAssets((prev: MontageAsset[]) => {
-          const filtered = prev.filter(a => a.type !== 'image' && a.type !== 'storyboard');
-          return [...filtered, ...imageAssets];
-        });
+        const currentAssets = useMontageStore.getState().assets;
+        const filtered = currentAssets.filter(a => a.type !== 'image' && a.type !== 'storyboard');
+        setAssets([...filtered, ...imageAssets]);
       } catch (error) {
         console.error('[MontageSidebar] Failed to fetch images:', error);
       } finally {
@@ -233,10 +230,9 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
         });
 
         // Update store
-        setAssets((prev: MontageAsset[]) => {
-          const filtered = prev.filter(a => a.type !== 'audio');
-          return [...filtered, ...audioAssets];
-        });
+        const currentAssets = useMontageStore.getState().assets;
+        const filtered = currentAssets.filter(a => a.type !== 'audio');
+        setAssets([...filtered, ...audioAssets]);
       } catch (error) {
         console.error('[MontageSidebar] Failed to fetch audio:', error);
       } finally {
