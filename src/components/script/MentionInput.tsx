@@ -4,8 +4,9 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { User, Users, Mic, Baby, Radio, BookOpen, MapPin, Package } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { generateReferenceName } from '@/lib/reference-name';
-import { GENERIC_CHARACTERS } from '@/lib/generic-characters';
+import { getGenericCharacter } from '@/lib/generic-characters';
 import type { ProjectAssetFlat, GlobalAssetType } from '@/types/database';
+import type { ImportedGenericCharacter } from '@/store/bible-store';
 
 // Icons for generic characters
 const GENERIC_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -45,7 +46,7 @@ interface MentionInputProps {
   multiline?: boolean;
   className?: string;
   assets: ProjectAssetFlat[]; // All project assets (characters, locations, props)
-  importedGenericIds: Set<string>;
+  projectGenericAssets: ImportedGenericCharacter[];
 }
 
 // Parse text and extract mentions (@ for characters, # for locations/props)
@@ -86,15 +87,18 @@ const normalizeRef = (ref: string) => ref.toLowerCase().replace(/_/g, '');
 function MentionText({
   text,
   assets,
-  importedGenericIds,
+  projectGenericAssets,
   className,
 }: {
   text: string;
   assets: ProjectAssetFlat[];
-  importedGenericIds: Set<string>;
+  projectGenericAssets: ImportedGenericCharacter[];
   className?: string;
 }) {
   const parts = parseMentions(text);
+
+  // Get figurants with name_override only
+  const figurants = projectGenericAssets.filter(pa => pa.name_override);
 
   // Build maps for @ mentions (characters) and # mentions (locations/props)
   const { atMap, hashMap } = useMemo(() => {
@@ -113,16 +117,15 @@ function MentionText({
       }
     }
 
-    // Add generic characters (@ prefix)
-    for (const generic of GENERIC_CHARACTERS) {
-      if (importedGenericIds.has(generic.id)) {
-        const ref = generateReferenceName(generic.name, '@').slice(1);
-        atMap.set(normalizeRef(ref), { name: generic.name, assetType: 'generic', icon: generic.icon });
-      }
+    // Add figurants with name_override (@ prefix)
+    for (const figurant of figurants) {
+      const generic = getGenericCharacter(figurant.id);
+      const ref = generateReferenceName(figurant.name_override!, '@').slice(1);
+      atMap.set(normalizeRef(ref), { name: figurant.name_override!, assetType: 'generic', icon: generic?.icon });
     }
 
     return { atMap, hashMap };
-  }, [assets, importedGenericIds]);
+  }, [assets, figurants]);
 
   return (
     <span className={className}>
@@ -178,7 +181,7 @@ export function MentionInput({
   multiline = false,
   className,
   assets,
-  importedGenericIds,
+  projectGenericAssets,
 }: MentionInputProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [localValue, setLocalValue] = useState(value);
@@ -189,6 +192,9 @@ export function MentionInput({
   const [currentTrigger, setCurrentTrigger] = useState<'@' | '#' | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | HTMLInputElement>(null);
   const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // Get figurants with name_override only
+  const figurants = projectGenericAssets.filter(pa => pa.name_override);
 
   // Build mentions lists separated by prefix
   const { atMentions, hashMentions } = useMemo(() => {
@@ -212,21 +218,20 @@ export function MentionInput({
       }
     }
 
-    // Add generic characters (@ prefix)
-    for (const generic of GENERIC_CHARACTERS) {
-      if (importedGenericIds.has(generic.id)) {
-        atItems.push({
-          id: generic.id,
-          name: generic.name,
-          reference: generateReferenceName(generic.name, '@'),
-          assetType: 'generic',
-          icon: generic.icon as keyof typeof GENERIC_ICONS,
-        });
-      }
+    // Add figurants with name_override (@ prefix)
+    for (const figurant of figurants) {
+      const generic = getGenericCharacter(figurant.id);
+      atItems.push({
+        id: figurant.project_generic_asset_id,
+        name: figurant.name_override!,
+        reference: generateReferenceName(figurant.name_override!, '@'),
+        assetType: 'generic',
+        icon: generic?.icon as keyof typeof GENERIC_ICONS,
+      });
     }
 
     return { atMentions: atItems, hashMentions: hashItems };
-  }, [assets, importedGenericIds]);
+  }, [assets, figurants]);
 
   // Normalize for comparison (lowercase, no underscores)
   const normalize = (s: string) => s.toLowerCase().replace(/_/g, '');
@@ -479,7 +484,7 @@ export function MentionInput({
         <MentionText
           text={value}
           assets={assets}
-          importedGenericIds={importedGenericIds}
+          projectGenericAssets={projectGenericAssets}
         />
       ) : (
         placeholder

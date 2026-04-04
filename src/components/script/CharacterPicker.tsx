@@ -9,13 +9,10 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { useBibleStore, type ImportedGenericCharacter } from '@/store/bible-store';
+import { useBibleStore } from '@/store/bible-store';
 import { cn } from '@/lib/utils';
 import {
-  GENERIC_CHARACTERS,
-  isGenericCharacter,
   getGenericCharacter,
-  type GenericCharacter,
 } from '@/lib/generic-characters';
 
 interface Character {
@@ -73,8 +70,8 @@ export function CharacterPicker({
       data: asset.data as Character['data'],
     }));
 
-  // Get imported generic characters IDs
-  const importedGenericIds = new Set(projectGenericAssets.map((pa) => pa.id));
+  // Get figurants with name_override only (not base types like FEMME)
+  const figurants = projectGenericAssets.filter((pa) => pa.name_override);
 
   useEffect(() => {
     if (projectId) {
@@ -84,15 +81,11 @@ export function CharacterPicker({
   }, [projectId, fetchProjectAssets, fetchProjectGenericAssets]);
 
   const selectedCharacter = characters.find((c) => c.id === characterId);
-  const selectedGeneric = characterId ? getGenericCharacter(characterId) : undefined;
+  const selectedFigurant = figurants.find((f) => f.project_generic_asset_id === characterId);
+  const selectedGeneric = selectedFigurant ? getGenericCharacter(selectedFigurant.id) : (characterId ? getGenericCharacter(characterId) : undefined);
 
   const handleSelect = (character: Character) => {
     onChange(character.id, character.name);
-    setOpen(false);
-  };
-
-  const handleSelectGeneric = (generic: GenericCharacter) => {
-    onChange(generic.id, generic.name);
     setOpen(false);
   };
 
@@ -111,14 +104,14 @@ export function CharacterPicker({
           aria-expanded={open}
           className={cn(
             'justify-between bg-white/5 border-white/10 text-white hover:bg-white/10',
-            !selectedCharacter && !selectedGeneric && 'text-slate-500',
+            !selectedCharacter && !selectedFigurant && !selectedGeneric && 'text-slate-500',
             className
           )}
         >
           <div className="flex items-center gap-2 truncate">
-            {selectedGeneric ? (
+            {selectedGeneric || selectedFigurant ? (
               (() => {
-                const GenericIcon = GENERIC_ICONS[selectedGeneric.icon] || User;
+                const GenericIcon = selectedGeneric ? (GENERIC_ICONS[selectedGeneric.icon] || User) : User;
                 return <GenericIcon className="w-4 h-4 flex-shrink-0 text-purple-400" />;
               })()
             ) : (
@@ -126,9 +119,9 @@ export function CharacterPicker({
             )}
             <span className={cn(
               'truncate uppercase',
-              selectedGeneric && 'text-purple-300'
+              (selectedGeneric || selectedFigurant) && 'text-purple-300'
             )}>
-              {selectedCharacter?.name || selectedGeneric?.name || value || placeholder}
+              {selectedCharacter?.name || selectedFigurant?.name_override || selectedGeneric?.name || value || placeholder}
             </span>
           </div>
           <ChevronDown className="w-4 h-4 ml-2 flex-shrink-0 text-slate-400" />
@@ -196,49 +189,56 @@ export function CharacterPicker({
             </>
           )}
 
-          {/* Generic characters section - only imported ones */}
-          {importedGenericIds.size > 0 && (
+          {/* Figurants section - only those with name_override */}
+          {figurants.length > 0 && (
             <>
               <div className="px-3 py-2 text-xs font-semibold text-purple-400 uppercase tracking-wider bg-purple-500/10 border-t border-white/10">
-                Personnages generiques
+                Figurants
               </div>
-              {GENERIC_CHARACTERS.filter(g => importedGenericIds.has(g.id)).map((generic) => {
-                const GenericIcon = GENERIC_ICONS[generic.icon] || User;
+              {figurants.map((figurant) => {
+                const generic = getGenericCharacter(figurant.id);
+                const GenericIcon = generic ? (GENERIC_ICONS[generic.icon] || User) : User;
+                const description = figurant.local_overrides?.visual_description || generic?.description || '';
                 return (
                   <div
-                    key={generic.id}
+                    key={figurant.project_generic_asset_id}
                     role="button"
                     tabIndex={0}
                     onMouseDown={(e) => {
                       e.preventDefault();
-                      handleSelectGeneric(generic);
+                      // Use figurant's name_override when selecting
+                      onChange(figurant.project_generic_asset_id, figurant.name_override!);
+                      setOpen(false);
                     }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        handleSelectGeneric(generic);
+                        onChange(figurant.project_generic_asset_id, figurant.name_override!);
+                        setOpen(false);
                       }
                     }}
                     className={cn(
                       'w-full flex items-center gap-3 px-3 py-2.5 text-left transition-colors cursor-pointer select-none',
-                      generic.id === characterId
+                      figurant.project_generic_asset_id === characterId
                         ? 'bg-purple-500/20 text-purple-300'
                         : 'text-slate-300 hover:bg-white/5'
                     )}
                   >
                     <div className={cn(
                       'w-8 h-8 rounded-full flex items-center justify-center pointer-events-none',
-                      generic.id === characterId ? 'bg-purple-500/30' : 'bg-purple-500/15'
+                      figurant.project_generic_asset_id === characterId ? 'bg-purple-500/30' : 'bg-purple-500/15'
                     )}>
                       <GenericIcon className="w-4 h-4 text-purple-400" />
                     </div>
                     <div className="flex-1 min-w-0 pointer-events-none">
                       <p className="text-sm font-medium uppercase truncate">
-                        {generic.name}
+                        {figurant.name_override}
                       </p>
-                      <p className="text-xs text-slate-500 truncate">
-                        {generic.description}
-                      </p>
+                      {description && (
+                        <p className="text-xs text-slate-500 truncate">
+                          {description}
+                        </p>
+                      )}
                     </div>
                   </div>
                 );
@@ -247,7 +247,7 @@ export function CharacterPicker({
           )}
 
           {/* Empty state */}
-          {characters.length === 0 && importedGenericIds.size === 0 && (
+          {characters.length === 0 && figurants.length === 0 && (
             <div className="px-3 py-6 text-center text-sm text-slate-500">
               Aucun personnage dans le projet.
               <br />

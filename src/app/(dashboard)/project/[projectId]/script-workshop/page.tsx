@@ -1,9 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import {
@@ -12,14 +11,14 @@ import {
   RotateCcw,
   Sparkles,
   FileText,
-  Plus,
   Check,
   X,
-  Copy,
   ChevronDown,
   ChevronRight,
   Users,
   MapPin,
+  Clapperboard,
+  Package,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -28,20 +27,14 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp?: string;
-  suggestion?: ScriptSuggestion | null;
+  toolResults?: ToolResult[];
 }
 
-interface ScriptSuggestion {
-  type: 'scene' | 'dialogue' | 'action' | 'transition' | 'full';
-  content: string;
-  targetScene?: number; // Scene number to insert into (null = new scene)
-  position?: 'start' | 'end' | 'replace';
-}
-
-interface ExtractedEntity {
-  type: 'character' | 'location';
-  name: string;
-  description?: string;
+interface ToolResult {
+  tool: string;
+  success: boolean;
+  result?: unknown;
+  error?: string;
 }
 
 interface Scene {
@@ -64,6 +57,20 @@ interface ScriptElement {
   sort_order: number;
 }
 
+// Tool display config
+const TOOL_CONFIG: Record<string, { icon: typeof Users; label: string; color: string }> = {
+  add_character: { icon: Users, label: 'Personnage ajouté', color: 'green' },
+  add_location: { icon: MapPin, label: 'Lieu ajouté', color: 'green' },
+  add_prop: { icon: Package, label: 'Accessoire ajouté', color: 'green' },
+  add_scene: { icon: Clapperboard, label: 'Scène ajoutée', color: 'blue' },
+  update_scene: { icon: Clapperboard, label: 'Scène modifiée', color: 'yellow' },
+  delete_scene: { icon: Clapperboard, label: 'Scène supprimée', color: 'red' },
+  add_dialogue: { icon: Users, label: 'Dialogue ajouté', color: 'blue' },
+  add_action: { icon: FileText, label: 'Action ajoutée', color: 'blue' },
+  add_transition: { icon: FileText, label: 'Transition ajoutée', color: 'blue' },
+  delete_element: { icon: X, label: 'Élément supprimé', color: 'red' },
+};
+
 export default function ScriptWorkshopPage() {
   const params = useParams();
   const projectId = params.projectId as string;
@@ -74,7 +81,7 @@ export default function ScriptWorkshopPage() {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // Script state
   const [scenes, setScenes] = useState<Scene[]>([]);
@@ -82,45 +89,13 @@ export default function ScriptWorkshopPage() {
   const [isLoadingScript, setIsLoadingScript] = useState(true);
   const [expandedScenes, setExpandedScenes] = useState<Set<string>>(new Set());
 
-  // Extracted entities
-  const [extractedEntities, setExtractedEntities] = useState<ExtractedEntity[]>([]);
-  const [showEntities, setShowEntities] = useState(false);
-
   // Load initial data
   useEffect(() => {
     const loadData = async () => {
       if (!projectId) return;
 
       try {
-        // Load scenes
-        const scenesRes = await fetch(`/api/projects/${projectId}/scenes`);
-        if (scenesRes.ok) {
-          const data = await scenesRes.json();
-          setScenes(data.scenes || []);
-          // Expand all scenes by default
-          setExpandedScenes(new Set((data.scenes || []).map((s: Scene) => s.id)));
-        }
-
-        // Load script elements
-        const elementsRes = await fetch(`/api/projects/${projectId}/script-elements`);
-        if (elementsRes.ok) {
-          const data = await elementsRes.json();
-          const grouped: Record<string, ScriptElement[]> = {};
-          for (const element of data.elements || []) {
-            if (!grouped[element.scene_id]) {
-              grouped[element.scene_id] = [];
-            }
-            grouped[element.scene_id].push(element);
-          }
-          setElementsByScene(grouped);
-        }
-
-        // Load chat history
-        const chatRes = await fetch(`/api/projects/${projectId}/script-workshop`);
-        if (chatRes.ok) {
-          const data = await chatRes.json();
-          setMessages(data.messages || []);
-        }
+        await Promise.all([loadScriptData(), loadChatHistory()]);
       } catch (error) {
         console.error('Error loading data:', error);
       } finally {
@@ -130,6 +105,39 @@ export default function ScriptWorkshopPage() {
 
     loadData();
   }, [projectId]);
+
+  const loadScriptData = async () => {
+    const [scenesRes, elementsRes] = await Promise.all([
+      fetch(`/api/projects/${projectId}/scenes`),
+      fetch(`/api/projects/${projectId}/script-elements`),
+    ]);
+
+    if (scenesRes.ok) {
+      const data = await scenesRes.json();
+      setScenes(data.scenes || []);
+      setExpandedScenes(new Set((data.scenes || []).map((s: Scene) => s.id)));
+    }
+
+    if (elementsRes.ok) {
+      const data = await elementsRes.json();
+      const grouped: Record<string, ScriptElement[]> = {};
+      for (const element of data.elements || []) {
+        if (!grouped[element.scene_id]) {
+          grouped[element.scene_id] = [];
+        }
+        grouped[element.scene_id].push(element);
+      }
+      setElementsByScene(grouped);
+    }
+  };
+
+  const loadChatHistory = async () => {
+    const chatRes = await fetch(`/api/projects/${projectId}/script-workshop`);
+    if (chatRes.ok) {
+      const data = await chatRes.json();
+      setMessages(data.messages || []);
+    }
+  };
 
   // Auto-scroll chat
   useEffect(() => {
@@ -143,23 +151,20 @@ export default function ScriptWorkshopPage() {
     }
   }, [isChatLoading, messages.length]);
 
-  // Convert script to Fountain format for display
+  // Convert script to Fountain format
   const fountainScript = useMemo(() => {
     const lines: string[] = [];
 
     for (const scene of scenes.sort((a, b) => a.scene_number - b.scene_number)) {
-      // Scene heading
       const heading = `${scene.int_ext}. ${scene.location} - ${scene.time_of_day}`;
       lines.push(heading.toUpperCase());
       lines.push('');
 
-      // Scene description
       if (scene.description) {
         lines.push(scene.description);
         lines.push('');
       }
 
-      // Elements
       const elements = (elementsByScene[scene.id] || []).sort((a, b) => a.sort_order - b.sort_order);
       for (const element of elements) {
         switch (element.type) {
@@ -169,13 +174,9 @@ export default function ScriptWorkshopPage() {
             break;
           case 'dialogue':
             let charLine = (element.character_name || 'PERSONNAGE').toUpperCase();
-            if (element.extension) {
-              charLine += ` (${element.extension})`;
-            }
+            if (element.extension) charLine += ` (${element.extension})`;
             lines.push(charLine);
-            if (element.parenthetical) {
-              lines.push(`(${element.parenthetical})`);
-            }
+            if (element.parenthetical) lines.push(`(${element.parenthetical})`);
             lines.push(element.content);
             lines.push('');
             break;
@@ -189,68 +190,24 @@ export default function ScriptWorkshopPage() {
             break;
         }
       }
-
       lines.push('');
     }
 
     return lines.join('\n').trim();
   }, [scenes, elementsByScene]);
 
-  // Start conversation
-  const startChat = async () => {
-    setIsChatLoading(true);
-    setChatError(null);
+  // Send message (handles both start and continue)
+  const sendMessage = async (userMessage?: string) => {
+    const messageToSend = userMessage || inputValue.trim();
+    if (!messageToSend && messages.length > 0) return;
 
-    try {
-      const res = await fetch(`/api/projects/${projectId}/script-workshop/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          messages: [],
-          currentScript: fountainScript,
-          scenes: scenes.map(s => ({
-            number: s.scene_number,
-            heading: `${s.int_ext}. ${s.location} - ${s.time_of_day}`,
-          })),
-        }),
-      });
+    if (inputValue) setInputValue('');
 
-      const data = await res.json();
+    const newMessages: ChatMessage[] = messageToSend
+      ? [...messages, { role: 'user', content: messageToSend, timestamp: new Date().toISOString() }]
+      : messages;
 
-      if (!res.ok) {
-        throw new Error(data.error || 'Erreur');
-      }
-
-      const assistantMessage: ChatMessage = {
-        role: 'assistant',
-        content: data.message,
-        suggestion: data.suggestion,
-        timestamp: new Date().toISOString(),
-      };
-
-      setMessages([assistantMessage]);
-      if (data.extractedEntities?.length > 0) {
-        setExtractedEntities(data.extractedEntities);
-      }
-    } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'Erreur inconnue');
-    } finally {
-      setIsChatLoading(false);
-    }
-  };
-
-  // Send message
-  const sendMessage = async () => {
-    if (!inputValue.trim() || isChatLoading) return;
-
-    const userMessage = inputValue.trim();
-    setInputValue('');
-
-    const newMessages: ChatMessage[] = [
-      ...messages,
-      { role: 'user', content: userMessage, timestamp: new Date().toISOString() },
-    ];
-    setMessages(newMessages);
+    if (messageToSend) setMessages(newMessages);
     setIsChatLoading(true);
     setChatError(null);
 
@@ -274,74 +231,36 @@ export default function ScriptWorkshopPage() {
         throw new Error(data.error || 'Erreur');
       }
 
+      // Show tool results as toasts
+      const toolResults: ToolResult[] = data.toolResults || [];
+      for (const tr of toolResults) {
+        const config = TOOL_CONFIG[tr.tool];
+        if (tr.success) {
+          toast.success(config?.label || tr.tool);
+        } else {
+          toast.error(`Échec: ${tr.error}`);
+        }
+      }
+
+      // Refresh script data if any tools were executed
+      if (toolResults.length > 0) {
+        await loadScriptData();
+      }
+
       const assistantMessage: ChatMessage = {
         role: 'assistant',
         content: data.message,
-        suggestion: data.suggestion,
+        toolResults,
         timestamp: new Date().toISOString(),
       };
 
-      setMessages([...newMessages, assistantMessage]);
-      if (data.extractedEntities?.length > 0) {
-        setExtractedEntities(prev => {
-          const existingNames = new Set(prev.map(e => e.name.toLowerCase()));
-          const newEntities = data.extractedEntities.filter(
-            (e: ExtractedEntity) => !existingNames.has(e.name.toLowerCase())
-          );
-          return [...prev, ...newEntities];
-        });
-      }
+      setMessages(messageToSend ? [...newMessages, assistantMessage] : [assistantMessage]);
     } catch (error) {
-      setChatError(error instanceof Error ? error.message : 'Erreur inconnue');
+      const errorMessage = error instanceof Error ? error.message : 'Erreur inconnue';
+      setChatError(errorMessage);
+      toast.error(errorMessage);
     } finally {
       setIsChatLoading(false);
-    }
-  };
-
-  // Apply suggestion to script
-  const applySuggestion = async (suggestion: ScriptSuggestion) => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}/script-workshop/apply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ suggestion }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || 'Erreur');
-      }
-
-      const data = await res.json();
-
-      // Refresh scenes and elements
-      if (data.newScene) {
-        setScenes(prev => [...prev, data.newScene]);
-        setExpandedScenes(prev => new Set([...prev, data.newScene.id]));
-      }
-      if (data.newElements) {
-        setElementsByScene(prev => {
-          const updated = { ...prev };
-          for (const element of data.newElements) {
-            if (!updated[element.scene_id]) {
-              updated[element.scene_id] = [];
-            }
-            updated[element.scene_id] = [...updated[element.scene_id], element];
-          }
-          return updated;
-        });
-      }
-
-      // Mark suggestion as applied in the message
-      setMessages(prev =>
-        prev.map(msg =>
-          msg.suggestion === suggestion ? { ...msg, suggestion: null } : msg
-        )
-      );
-
-      toast.success('Suggestion appliquee au script');
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Erreur');
     }
   };
 
@@ -349,37 +268,9 @@ export default function ScriptWorkshopPage() {
   const resetChat = async () => {
     setMessages([]);
     setChatError(null);
-    setExtractedEntities([]);
 
     if (projectId) {
-      await fetch(`/api/projects/${projectId}/script-workshop`, {
-        method: 'DELETE',
-      });
-    }
-  };
-
-  // Add entity to Bible
-  const addEntityToBible = async (entity: ExtractedEntity) => {
-    try {
-      const endpoint = entity.type === 'character'
-        ? `/api/projects/${projectId}/characters`
-        : `/api/projects/${projectId}/locations`;
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: entity.name,
-          description: entity.description || '',
-        }),
-      });
-
-      if (res.ok) {
-        toast.success(`${entity.name} ajoute a la Bible`);
-        setExtractedEntities(prev => prev.filter(e => e !== entity));
-      }
-    } catch (error) {
-      toast.error('Erreur lors de l\'ajout');
+      await fetch(`/api/projects/${projectId}/script-workshop`, { method: 'DELETE' });
     }
   };
 
@@ -446,10 +337,10 @@ export default function ScriptWorkshopPage() {
                   Construisons ton script
                 </h3>
                 <p className="text-sm text-slate-400 mb-4 max-w-[320px]">
-                  Discutons de ton histoire. Je t'aide a structurer les scenes, dialogues et actions.
+                  Discutons de ton histoire. Je peux ajouter des personnages à la Bible, créer des scènes, et écrire des dialogues.
                 </p>
                 <Button
-                  onClick={startChat}
+                  onClick={() => sendMessage()}
                   disabled={isChatLoading}
                   className="bg-purple-600 hover:bg-purple-700 text-white"
                 >
@@ -486,39 +377,49 @@ export default function ScriptWorkshopPage() {
                         </div>
                       </div>
 
-                      {/* Suggestion card */}
-                      {message.suggestion && (
-                        <div className="mt-2 ml-2 bg-green-500/10 border border-green-500/30 rounded-lg p-3">
-                          <div className="flex items-center gap-2 mb-2">
-                            <FileText className="w-4 h-4 text-green-400" />
-                            <span className="text-xs text-green-400 font-medium">
-                              Suggestion: {message.suggestion.type === 'scene' ? 'Nouvelle scene' : message.suggestion.type}
-                            </span>
-                          </div>
-                          <pre className="text-xs text-slate-300 font-mono whitespace-pre-wrap bg-black/20 p-2 rounded max-h-32 overflow-y-auto">
-                            {message.suggestion.content}
-                          </pre>
-                          <div className="flex gap-2 mt-2">
-                            <Button
-                              size="sm"
-                              onClick={() => applySuggestion(message.suggestion!)}
-                              className="flex-1 h-7 bg-green-600 hover:bg-green-700"
-                            >
-                              <Plus className="w-3 h-3 mr-1" />
-                              Appliquer
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => {
-                                navigator.clipboard.writeText(message.suggestion!.content);
-                                toast.success('Copie');
-                              }}
-                              className="h-7 text-slate-400 hover:text-white"
-                            >
-                              <Copy className="w-3 h-3" />
-                            </Button>
-                          </div>
+                      {/* Tool Results */}
+                      {message.toolResults && message.toolResults.length > 0 && (
+                        <div className="mt-2 ml-2 space-y-1">
+                          {message.toolResults.map((tr, idx) => {
+                            const config = TOOL_CONFIG[tr.tool] || {
+                              icon: Check,
+                              label: tr.tool,
+                              color: 'gray',
+                            };
+                            const Icon = config.icon;
+                            const colorClass = tr.success
+                              ? config.color === 'green'
+                                ? 'bg-green-500/10 border-green-500/30 text-green-400'
+                                : config.color === 'blue'
+                                ? 'bg-blue-500/10 border-blue-500/30 text-blue-400'
+                                : config.color === 'yellow'
+                                ? 'bg-yellow-500/10 border-yellow-500/30 text-yellow-400'
+                                : config.color === 'red'
+                                ? 'bg-red-500/10 border-red-500/30 text-red-400'
+                                : 'bg-slate-500/10 border-slate-500/30 text-slate-400'
+                              : 'bg-red-500/10 border-red-500/30 text-red-400';
+
+                            return (
+                              <div
+                                key={idx}
+                                className={cn(
+                                  'flex items-center gap-2 px-2 py-1 rounded border text-xs',
+                                  colorClass
+                                )}
+                              >
+                                {tr.success ? (
+                                  <Check className="w-3 h-3" />
+                                ) : (
+                                  <X className="w-3 h-3" />
+                                )}
+                                <Icon className="w-3 h-3" />
+                                <span>{config.label}</span>
+                                {tr.error && (
+                                  <span className="text-red-400">: {tr.error}</span>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -546,67 +447,23 @@ export default function ScriptWorkshopPage() {
                   <div ref={chatEndRef} />
                 </div>
 
-                {/* Extracted entities */}
-                {extractedEntities.length > 0 && (
-                  <div className="px-3 py-2 border-t border-purple-500/10">
-                    <button
-                      onClick={() => setShowEntities(!showEntities)}
-                      className="flex items-center gap-2 text-xs text-slate-400 hover:text-white"
-                    >
-                      {showEntities ? (
-                        <ChevronDown className="w-3 h-3" />
-                      ) : (
-                        <ChevronRight className="w-3 h-3" />
-                      )}
-                      {extractedEntities.length} element(s) detecte(s)
-                    </button>
-                    {showEntities && (
-                      <div className="mt-2 space-y-1">
-                        {extractedEntities.map((entity, i) => (
-                          <div
-                            key={i}
-                            className="flex items-center justify-between text-xs bg-white/5 rounded px-2 py-1"
-                          >
-                            <div className="flex items-center gap-2">
-                              {entity.type === 'character' ? (
-                                <Users className="w-3 h-3 text-blue-400" />
-                              ) : (
-                                <MapPin className="w-3 h-3 text-green-400" />
-                              )}
-                              <span className="text-white">{entity.name}</span>
-                            </div>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => addEntityToBible(entity)}
-                              className="h-5 px-2 text-xs text-slate-400 hover:text-white"
-                            >
-                              <Plus className="w-3 h-3 mr-1" />
-                              Bible
-                            </Button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
                 {/* Input */}
                 <div className="flex-shrink-0 p-3 border-t border-purple-500/10">
-                  <div className="flex gap-2">
-                    <Input
+                  <div className="flex gap-2 items-end">
+                    <Textarea
                       ref={inputRef}
                       value={inputValue}
                       onChange={(e) => setInputValue(e.target.value)}
                       onKeyDown={handleKeyDown}
-                      placeholder="Decris la scene, le dialogue..."
+                      placeholder="Décris une scène, demande d'ajouter un personnage... (Shift+Enter pour saut de ligne)"
                       disabled={isChatLoading}
-                      className="flex-1 h-9 bg-white/5 border-white/10 text-white placeholder:text-slate-500"
+                      rows={3}
+                      className="flex-1 min-h-[80px] max-h-[200px] resize-y bg-white/5 border-white/10 text-white placeholder:text-slate-500"
                     />
                     <Button
-                      onClick={sendMessage}
+                      onClick={() => sendMessage()}
                       disabled={isChatLoading || !inputValue.trim()}
-                      className="h-9 w-9 p-0 bg-purple-600 hover:bg-purple-700"
+                      className="h-10 w-10 p-0 bg-purple-600 hover:bg-purple-700 flex-shrink-0"
                     >
                       <Send className="w-4 h-4" />
                     </Button>
@@ -626,7 +483,7 @@ export default function ScriptWorkshopPage() {
               <FileText className="w-5 h-5 text-blue-400" />
               Script
               <span className="text-sm text-slate-400 font-normal ml-2">
-                {scenes.length} scene{scenes.length > 1 ? 's' : ''}
+                {scenes.length} scène{scenes.length > 1 ? 's' : ''}
               </span>
             </CardTitle>
           </CardHeader>
@@ -634,9 +491,9 @@ export default function ScriptWorkshopPage() {
             {scenes.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center p-6">
                 <FileText className="w-12 h-12 text-slate-600 mb-4" />
-                <p className="text-slate-400">Ton script apparaitra ici</p>
+                <p className="text-slate-400">Ton script apparaîtra ici</p>
                 <p className="text-sm text-slate-600 mt-1">
-                  Commence a discuter avec l'assistant pour construire ton histoire
+                  Commence à discuter avec l'assistant pour construire ton histoire
                 </p>
               </div>
             ) : (
@@ -713,7 +570,7 @@ export default function ScriptWorkshopPage() {
                               </div>
                             ) : (
                               <p className="text-sm text-slate-600 pl-8 italic">
-                                Aucun element dans cette scene
+                                Aucun élément dans cette scène
                               </p>
                             )}
                           </div>

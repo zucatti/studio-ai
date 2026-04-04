@@ -226,6 +226,30 @@ export function MentionInput({
             }));
         }
 
+        // For @ trigger, also fetch generic characters with name_override (real figurants only)
+        if (trigger === '@') {
+          const genericRes = await fetch(`/api/projects/${projectId}/generic-assets`);
+          if (genericRes.ok) {
+            const genericData = await genericRes.json();
+            const genericAssets = genericData.assets || [];
+
+            // Only include figurants with name_override (not base types like FEMME, HOMME)
+            const genericSuggestions: MentionSuggestion[] = genericAssets
+              .filter((g: any) => g.name_override)
+              .map((g: any) => ({
+                id: g.project_generic_asset_id,
+                reference: generateReference(g.name, '@'),
+                name: g.name,
+                type: 'character' as const,
+                image: g.reference_images?.[0],
+                description: g.description,
+                looks: g.local_overrides?.looks || [],
+              }));
+
+            suggestions = [...suggestions, ...genericSuggestions];
+          }
+        }
+
         setCachedSuggestions(cacheKey, suggestions);
       } else if (trigger === '!') {
         // For ! trigger, find the last @Character and show their looks
@@ -243,13 +267,15 @@ export function MentionInput({
         let characters: MentionSuggestion[] | null = getCachedSuggestions(cacheKey);
 
         if (!characters) {
-          // Fetch and cache characters with their looks
+          // Fetch and cache characters with their looks (including generic characters)
           const res = await fetch(`/api/projects/${projectId}/assets`);
+          let fetchedCharacters: MentionSuggestion[] = [];
+
           if (res.ok) {
             const data = await res.json();
             const assets = data.assets || [];
 
-            const fetchedCharacters: MentionSuggestion[] = assets
+            fetchedCharacters = assets
               .filter((a: any) => a.asset_type === 'character')
               .map((a: any) => ({
                 id: a.id,
@@ -261,9 +287,33 @@ export function MentionInput({
                 looks: a.data?.looks || [],
                 selectedLookIds: a.selected_look_ids || [],
               }));
-            setCachedSuggestions(cacheKey, fetchedCharacters);
-            characters = fetchedCharacters;
           }
+
+          // Also fetch generic characters (only those with name_override)
+          const genericRes = await fetch(`/api/projects/${projectId}/generic-assets`);
+          if (genericRes.ok) {
+            const genericData = await genericRes.json();
+            const genericAssets = genericData.assets || [];
+
+            // Only include figurants with name_override (not base types)
+            const genericCharacters: MentionSuggestion[] = genericAssets
+              .filter((g: any) => g.name_override)
+              .map((g: any) => ({
+                id: g.project_generic_asset_id,
+                reference: generateReference(g.name, '@'),
+                name: g.name,
+                type: 'character' as const,
+                image: g.reference_images?.[0],
+                description: g.description,
+                looks: g.local_overrides?.looks || [],
+                selectedLookIds: [],
+              }));
+
+            fetchedCharacters = [...fetchedCharacters, ...genericCharacters];
+          }
+
+          setCachedSuggestions(cacheKey, fetchedCharacters);
+          characters = fetchedCharacters;
         }
 
         if (characters && characters.length > 0) {

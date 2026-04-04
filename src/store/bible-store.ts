@@ -7,10 +7,30 @@ import { useJobsStore } from '@/store/jobs-store';
 
 export type BibleTab = 'characters' | 'locations' | 'props' | 'audio';
 
-// Imported generic character (with project link ID)
+// Local overrides for generic characters in a project
+export interface GenericAssetLocalOverrides {
+  description?: string;
+  visual_description?: string;
+  age?: string;
+  gender?: string;
+  reference_images_metadata?: ReferenceImage[];
+  looks?: LookVariation[];
+  voice_id?: string;
+  voice_name?: string;
+}
+
+// Imported generic character (with project link ID and customization)
 export interface ImportedGenericCharacter extends GenericCharacter {
   project_generic_asset_id: string;
   created_at: string;
+  // Customization fields
+  name_override?: string;
+  local_overrides?: GenericAssetLocalOverrides;
+  // Computed fields
+  originalName?: string;
+  originalDescription?: string;
+  hasReferenceImages?: boolean;
+  reference_images?: string[];
 }
 
 // Reference image types for characters
@@ -129,9 +149,12 @@ interface BibleStore {
   removeProjectAsset: (projectId: string, projectAssetId: string) => Promise<boolean>;
 
   // Generic character operations
-  importGenericAsset: (projectId: string, genericAssetId: string) => Promise<ImportedGenericCharacter | null>;
+  importGenericAsset: (projectId: string, genericAssetId: string, nameOverride?: string, localOverrides?: GenericAssetLocalOverrides) => Promise<ImportedGenericCharacter | null>;
   removeGenericAsset: (projectId: string, projectGenericAssetId: string) => Promise<boolean>;
   isGenericAssetInProject: (genericAssetId: string) => boolean;
+  updateGenericAsset: (projectId: string, projectGenericAssetId: string, updates: { nameOverride?: string; localOverrides?: Partial<GenericAssetLocalOverrides> }) => Promise<ImportedGenericCharacter | null>;
+  duplicateGenericAsset: (projectId: string, projectGenericAssetId: string, newName: string) => Promise<ImportedGenericCharacter | null>;
+  generateGenericCharacterImages: (projectId: string, projectGenericAssetId: string, input: GenerateImagesInput) => Promise<string | null>;
 
   // Character CRUD
   createCharacter: (input: CreateCharacterInput) => Promise<GlobalAsset | null>;
@@ -283,13 +306,13 @@ export const useBibleStore = create<BibleStore>()(
       },
 
       // Generic character operations
-      importGenericAsset: async (projectId: string, genericAssetId: string) => {
-        console.log('[BibleStore] importGenericAsset called:', { projectId, genericAssetId });
+      importGenericAsset: async (projectId: string, genericAssetId: string, nameOverride?: string, localOverrides?: GenericAssetLocalOverrides) => {
+        console.log('[BibleStore] importGenericAsset called:', { projectId, genericAssetId, nameOverride });
         try {
           const res = await fetch(`/api/projects/${projectId}/generic-assets`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ genericAssetId }),
+            body: JSON.stringify({ genericAssetId, nameOverride, localOverrides }),
           });
 
           console.log('[BibleStore] importGenericAsset response:', res.status);
@@ -298,6 +321,8 @@ export const useBibleStore = create<BibleStore>()(
             const data = await res.json();
             console.log('[BibleStore] importGenericAsset data:', data);
             const newAsset = data.projectAsset as ImportedGenericCharacter;
+            // Invalidate mention cache so MentionInput shows the new asset
+            invalidateMentionCache(projectId);
             set((state) => ({
               projectGenericAssets: [...state.projectGenericAssets, newAsset],
             }));
@@ -315,11 +340,13 @@ export const useBibleStore = create<BibleStore>()(
 
       removeGenericAsset: async (projectId: string, projectGenericAssetId: string) => {
         try {
-          const res = await fetch(`/api/projects/${projectId}/generic-assets?id=${projectGenericAssetId}`, {
+          const res = await fetch(`/api/projects/${projectId}/generic-assets/${projectGenericAssetId}`, {
             method: 'DELETE',
           });
 
           if (res.ok) {
+            // Invalidate mention cache
+            invalidateMentionCache(projectId);
             set((state) => ({
               projectGenericAssets: state.projectGenericAssets.filter(
                 (a) => a.project_generic_asset_id !== projectGenericAssetId
@@ -336,6 +363,101 @@ export const useBibleStore = create<BibleStore>()(
 
       isGenericAssetInProject: (genericAssetId: string) => {
         return get().projectGenericAssets.some((pa) => pa.id === genericAssetId);
+      },
+
+      updateGenericAsset: async (projectId: string, projectGenericAssetId: string, updates: { nameOverride?: string; localOverrides?: Partial<GenericAssetLocalOverrides> }) => {
+        try {
+          const res = await fetch(`/api/projects/${projectId}/generic-assets/${projectGenericAssetId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(updates),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const updatedAsset = data.asset as ImportedGenericCharacter;
+            // Invalidate mention cache to reflect name changes
+            invalidateMentionCache(projectId);
+            set((state) => ({
+              projectGenericAssets: state.projectGenericAssets.map((a) =>
+                a.project_generic_asset_id === projectGenericAssetId ? updatedAsset : a
+              ),
+            }));
+            return updatedAsset;
+          }
+          return null;
+        } catch (error) {
+          console.error('Error updating generic asset:', error);
+          return null;
+        }
+      },
+
+      duplicateGenericAsset: async (projectId: string, projectGenericAssetId: string, newName: string) => {
+        try {
+          const res = await fetch(`/api/projects/${projectId}/generic-assets/${projectGenericAssetId}/duplicate`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ newName }),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const newAsset = data.asset as ImportedGenericCharacter;
+            // Invalidate mention cache
+            invalidateMentionCache(projectId);
+            set((state) => ({
+              projectGenericAssets: [...state.projectGenericAssets, newAsset],
+            }));
+            return newAsset;
+          } else {
+            const errorData = await res.json();
+            console.error('[BibleStore] duplicateGenericAsset error:', errorData);
+          }
+          return null;
+        } catch (error) {
+          console.error('Error duplicating generic asset:', error);
+          return null;
+        }
+      },
+
+      generateGenericCharacterImages: async (projectId: string, projectGenericAssetId: string, input: GenerateImagesInput) => {
+        try {
+          const res = await fetch(`/api/projects/${projectId}/generic-assets/${projectGenericAssetId}/generate-images`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(input),
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            const jobId = data.jobId;
+
+            if (jobId) {
+              // Fetch the full job data and add to jobs store
+              const jobRes = await fetch(`/api/jobs/${jobId}`);
+              if (jobRes.ok) {
+                const jobData = await jobRes.json();
+                const job = jobData.job;
+                if (job) {
+                  console.log('[BibleStore] Adding generic asset job to queue:', job.id);
+                  useJobsStore.setState((state) => ({
+                    jobs: [job, ...state.jobs.filter((j) => j.id !== job.id)],
+                  }));
+                  useJobsStore.getState().startPolling();
+                }
+              }
+            }
+
+            return jobId || null;
+          } else {
+            const errorText = await res.text();
+            console.error('Error generating generic character images:', res.status, errorText);
+            return null;
+          }
+        } catch (error) {
+          console.error('Error generating generic character images:', error);
+          return null;
+        }
       },
 
       // Character CRUD

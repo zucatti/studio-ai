@@ -443,7 +443,7 @@ export function BibleCharacters({ projectId, onInsertReference, showGlobalOnly =
                       key={character.id}
                       character={character}
                       isInProject={false}
-                      onImport={projectId ? () => handleImportGeneric(character.id) : undefined}
+                      // Import disabled - use "Ajouter un figurant" in Project Bible instead
                     />
                   ))}
                 </div>

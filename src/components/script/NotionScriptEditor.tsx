@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { Plus, GripVertical, X, User, Type, MessageSquare, ArrowRight, StickyNote, MoreHorizontal, Trash2, Users, Mic, Baby, Radio, BookOpen } from 'lucide-react';
-import { useBibleStore } from '@/store/bible-store';
+import { useBibleStore, type ImportedGenericCharacter } from '@/store/bible-store';
 import type { ScriptElement, ScriptElementType } from '@/types/script';
 import type { ProjectAssetFlat } from '@/types/database';
-import { GENERIC_CHARACTERS, getGenericCharacter, isGenericCharacter } from '@/lib/generic-characters';
+import { getGenericCharacter, isGenericCharacter } from '@/lib/generic-characters';
 import { cn } from '@/lib/utils';
 import { MentionInput } from './MentionInput';
 
@@ -155,7 +155,7 @@ function CharacterTag({
   characterId,
   characterName,
   characters,
-  importedGenericIds,
+  projectGenericAssets,
   isLoading,
   onRemove,
   onSelect,
@@ -163,13 +163,16 @@ function CharacterTag({
   characterId: string | null;
   characterName: string | null;
   characters: ProjectAssetFlat[];
-  importedGenericIds: Set<string>;
+  projectGenericAssets: ImportedGenericCharacter[];
   isLoading?: boolean;
   onRemove: () => void;
   onSelect: (id: string, name: string) => void;
 }) {
   const [showPicker, setShowPicker] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
+
+  // Get figurants with name_override only (not base types like FEMME)
+  const figurants = projectGenericAssets.filter((pa) => pa.name_override);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -181,9 +184,10 @@ function CharacterTag({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Check if selected character is generic
-  const isGeneric = characterId ? isGenericCharacter(characterId) : false;
-  const genericChar = characterId ? getGenericCharacter(characterId) : undefined;
+  // Check if selected character is a figurant or generic
+  const selectedFigurant = figurants.find((f) => f.project_generic_asset_id === characterId);
+  const isGeneric = selectedFigurant ? true : (characterId ? isGenericCharacter(characterId) : false);
+  const genericChar = selectedFigurant ? getGenericCharacter(selectedFigurant.id) : (characterId ? getGenericCharacter(characterId) : undefined);
   const GenericIcon = genericChar ? (GENERIC_ICONS[genericChar.icon] || User) : User;
 
   if (characterName) {
@@ -246,31 +250,32 @@ function CharacterTag({
               </>
             )}
 
-            {/* Generic characters section - only imported ones */}
-            {importedGenericIds.size > 0 && (
+            {/* Figurants section - only those with name_override */}
+            {figurants.length > 0 && (
               <>
                 <div className="px-3 py-2 text-xs font-semibold text-purple-400 uppercase tracking-wider bg-purple-500/10 border-t border-white/10">
-                  Personnages generiques
+                  Figurants
                 </div>
-                {GENERIC_CHARACTERS.filter(g => importedGenericIds.has(g.id)).map((generic) => {
-                  const Icon = GENERIC_ICONS[generic.icon] || User;
+                {figurants.map((figurant) => {
+                  const generic = getGenericCharacter(figurant.id);
+                  const Icon = generic ? (GENERIC_ICONS[generic.icon] || User) : User;
                   return (
                     <button
-                      key={generic.id}
+                      key={figurant.project_generic_asset_id}
                       type="button"
                       onMouseDown={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                       }}
                       onClick={() => {
-                        console.log('[CharacterTag] Selecting generic:', generic.id, generic.name);
-                        onSelect(generic.id, generic.name);
+                        console.log('[CharacterTag] Selecting figurant:', figurant.project_generic_asset_id, figurant.name_override);
+                        onSelect(figurant.project_generic_asset_id, figurant.name_override!);
                         setTimeout(() => setShowPicker(false), 10);
                       }}
                       className="w-full flex items-center gap-2 px-3 py-2 text-left text-sm text-slate-300 hover:bg-white/5 transition-colors"
                     >
                       <Icon className="w-4 h-4 text-purple-400" />
-                      <span className="uppercase">{generic.name}</span>
+                      <span className="uppercase">{figurant.name_override}</span>
                     </button>
                   );
                 })}
@@ -278,7 +283,7 @@ function CharacterTag({
             )}
 
             {/* Empty state */}
-            {characters.length === 0 && importedGenericIds.size === 0 && (
+            {characters.length === 0 && figurants.length === 0 && (
               <div className="px-3 py-4 text-center text-xs text-slate-500">
                 Aucun personnage. Importez-en depuis la Bible.
               </div>
@@ -295,7 +300,7 @@ function ElementBlock({
   element,
   allAssets,
   characters,
-  importedGenericIds,
+  projectGenericAssets,
   isLoading,
   onUpdate,
   onDelete,
@@ -303,7 +308,7 @@ function ElementBlock({
   element: ScriptElement;
   allAssets: ProjectAssetFlat[];
   characters: ProjectAssetFlat[];
-  importedGenericIds: Set<string>;
+  projectGenericAssets: ImportedGenericCharacter[];
   isLoading?: boolean;
   onUpdate: (updates: Partial<ScriptElement>) => void;
   onDelete: () => void;
@@ -344,7 +349,7 @@ function ElementBlock({
               characterId={element.character_id ?? null}
               characterName={element.character_name ?? null}
               characters={characters}
-              importedGenericIds={importedGenericIds}
+              projectGenericAssets={projectGenericAssets}
               isLoading={isLoading}
               onRemove={() => onUpdate({ character_id: null, character_name: null })}
               onSelect={(id, name) => onUpdate({ character_id: id, character_name: name })}
@@ -370,7 +375,7 @@ function ElementBlock({
               multiline
               className="text-white leading-relaxed"
               assets={allAssets}
-              importedGenericIds={importedGenericIds}
+              projectGenericAssets={projectGenericAssets}
             />
           </div>
         ) : element.type === 'transition' ? (
@@ -401,7 +406,7 @@ function ElementBlock({
             multiline
             className="text-slate-300 leading-relaxed"
             assets={allAssets}
-            importedGenericIds={importedGenericIds}
+            projectGenericAssets={projectGenericAssets}
           />
         )}
       </div>
@@ -500,7 +505,6 @@ export function NotionScriptEditor({
   // All assets for mentions (characters use @, locations/props use #)
   const allAssets = projectAssets;
   const characters = projectAssets.filter(a => a.asset_type === 'character');
-  const importedGenericIds = new Set(projectGenericAssets.map(pa => pa.id));
 
   const sortedElements = [...elements].sort((a, b) => a.sort_order - b.sort_order);
 
@@ -519,7 +523,7 @@ export function NotionScriptEditor({
                 element={element}
                 allAssets={allAssets}
                 characters={characters}
-                importedGenericIds={importedGenericIds}
+                projectGenericAssets={projectGenericAssets}
                 isLoading={isLoading}
                 onUpdate={(updates) => onUpdateElement(element.id, updates)}
                 onDelete={() => onDeleteElement(element.id)}

@@ -17,7 +17,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useBibleStore } from '@/store/bible-store';
-import { GENERIC_CHARACTERS, type GenericCharacter } from '@/lib/generic-characters';
+import { getGenericCharacter } from '@/lib/generic-characters';
 import { generateReferenceName } from '@/lib/reference-name';
 import { cn } from '@/lib/utils';
 
@@ -45,7 +45,6 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
     fetchProjectGenericAssets,
     removeProjectAsset,
     removeGenericAsset,
-    isGenericAssetInProject,
     setOpen: openGlobalBible,
   } = useBibleStore();
 
@@ -63,7 +62,8 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
   const locations = projectAssets.filter(a => a.asset_type === 'location');
   const props = projectAssets.filter(a => a.asset_type === 'prop');
   const audio = projectAssets.filter(a => a.asset_type === 'audio');
-  const genericCharacters = GENERIC_CHARACTERS.filter(g => isGenericAssetInProject(g.id));
+  // Only show figurants with name_override (not base types like FEMME)
+  const figurants = projectGenericAssets.filter(g => g.name_override);
 
   const isCharacterUsed = (id: string) => usedCharacterIds.has(id);
 
@@ -80,7 +80,7 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
     openGlobalBible(true);
   };
 
-  const totalAssets = characters.length + locations.length + props.length + audio.length + genericCharacters.length;
+  const totalAssets = characters.length + locations.length + props.length + audio.length + figurants.length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -120,11 +120,11 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
           ) : (
             <div className="space-y-6">
               {/* Characters */}
-              {(characters.length > 0 || genericCharacters.length > 0) && (
+              {(characters.length > 0 || figurants.length > 0) && (
                 <Section
                   icon={User}
                   title="Personnages"
-                  count={characters.length + genericCharacters.length}
+                  count={characters.length + figurants.length}
                   color="blue"
                 >
                   <div className="grid grid-cols-2 gap-3">
@@ -138,18 +138,19 @@ export function ProjectBible({ projectId, open, onOpenChange }: ProjectBibleProp
                         onRemove={!isCharacterUsed(char.id) ? () => handleRemoveAsset(char.project_asset_id) : undefined}
                       />
                     ))}
-                    {genericCharacters.map((char) => {
-                      const projectAsset = projectGenericAssets.find(pa => pa.id === char.id);
-                      const Icon = GENERIC_ICONS[char.icon] || User;
+                    {figurants.map((figurant) => {
+                      const generic = getGenericCharacter(figurant.id);
+                      const Icon = generic ? (GENERIC_ICONS[generic.icon] || User) : User;
+                      const description = figurant.local_overrides?.visual_description || generic?.description || '';
                       return (
                         <GenericCard
-                          key={char.id}
-                          name={char.name}
-                          description={char.description}
-                          reference={generateReferenceName(char.name)}
+                          key={figurant.project_generic_asset_id}
+                          name={figurant.name_override!}
+                          description={description}
+                          reference={generateReferenceName(figurant.name_override!)}
                           icon={Icon}
-                          isUsed={isCharacterUsed(char.id)}
-                          onRemove={!isCharacterUsed(char.id) && projectAsset ? () => handleRemoveGeneric(projectAsset.project_generic_asset_id) : undefined}
+                          isUsed={isCharacterUsed(figurant.project_generic_asset_id)}
+                          onRemove={!isCharacterUsed(figurant.project_generic_asset_id) ? () => handleRemoveGeneric(figurant.project_generic_asset_id) : undefined}
                         />
                       );
                     })}

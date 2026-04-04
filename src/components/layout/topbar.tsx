@@ -15,6 +15,7 @@ import {
 import { useEffect, useState } from 'react';
 import { useSidebarStore } from '@/store/sidebar-store';
 import { BibleToggleButton } from '@/components/bible/BibleSidebar';
+import { ProjectBibleToggleButton } from '@/components/bible/ProjectBibleSidebar';
 import { GalleryToggleButton } from '@/components/gallery/GlobalGallery';
 import { QueueBadge } from '@/components/queue/QueuePanel';
 
@@ -110,6 +111,9 @@ export function Topbar() {
       <div className="flex items-center gap-2 ml-auto">
         {/* Queue badge */}
         <QueueBadge />
+
+        {/* Project Bible toggle - only when project is open */}
+        {projectId && <ProjectBibleToggleButton projectId={projectId} />}
 
         {/* Bible toggle - always available for global library */}
         <BibleToggleButton />

@@ -40,6 +40,8 @@ export interface ClaudeMessageOptions {
   temperature?: number;
   top_p?: number;
   stop_sequences?: string[];
+  tools?: Anthropic.Tool[];
+  tool_choice?: Anthropic.ToolChoice;
 }
 
 export interface ClaudeWrapperResult {
@@ -166,6 +168,8 @@ export class ClaudeWrapper {
         temperature: options.temperature,
         top_p: options.top_p,
         stop_sequences: options.stop_sequences,
+        tools: options.tools,
+        tool_choice: options.tool_choice,
       });
     } catch (error) {
       // Log failed call

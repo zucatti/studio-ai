@@ -164,7 +164,7 @@ export function PlanEditor({
   const [generationElapsedSeconds, setGenerationElapsedSeconds] = useState(0);
 
   // Bible store
-  const { projectAssets, fetchProjectAssets } = useBibleStore();
+  const { projectAssets, projectGenericAssets, fetchProjectAssets, fetchProjectGenericAssets } = useBibleStore();
 
   // Signed URL for video (b2:// -> https://)
   const { signedUrl: signedVideoUrl } = useSignedUrl(plan?.generated_video_url);
@@ -174,7 +174,8 @@ export function PlanEditor({
   // Fetch project assets
   useEffect(() => {
     fetchProjectAssets(projectId);
-  }, [projectId, fetchProjectAssets]);
+    fetchProjectGenericAssets(projectId);
+  }, [projectId, fetchProjectAssets, fetchProjectGenericAssets]);
 
   // Sync state with plan
   useEffect(() => {
@@ -622,15 +623,25 @@ export function PlanEditor({
     setEditingSegment(null);
   }, [plan?.segments, onUpdate]);
 
-  // Get characters for segment dialogue
+  // Get characters for segment dialogue (custom characters + figurants with name_override)
   const segmentCharacters = useMemo(() => {
-    return projectAssets
+    const customCharacters = projectAssets
       .filter((asset) => asset.asset_type === 'character')
       .map((asset) => ({
         id: asset.id,
         name: asset.name,
       }));
-  }, [projectAssets]);
+
+    // Add figurants with name_override
+    const figurants = projectGenericAssets
+      .filter((g) => g.name_override)
+      .map((g) => ({
+        id: g.project_generic_asset_id,
+        name: g.name_override!,
+      }));
+
+    return [...customCharacters, ...figurants];
+  }, [projectAssets, projectGenericAssets]);
 
   // Get audio assets from Bible for AudioTrackEditor
   const audioAssets = useMemo(() => {

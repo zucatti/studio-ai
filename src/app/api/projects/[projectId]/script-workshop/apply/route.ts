@@ -6,11 +6,21 @@ interface RouteParams {
   params: Promise<{ projectId: string }>;
 }
 
-interface ScriptSuggestion {
-  type: 'scene' | 'dialogue' | 'action' | 'transition' | 'full';
-  content: string;
+interface ScriptAction {
+  action: 'add' | 'modify' | 'delete';
+  type: 'scene' | 'dialogue' | 'action' | 'transition' | 'full' | 'element';
+  content?: string;
   targetScene?: number | null;
-  position?: 'start' | 'end' | 'replace';
+  targetDescription?: string;
+  position?: 'start' | 'end';
+}
+
+interface BibleAction {
+  action: 'add';
+  type: 'character' | 'location' | 'prop';
+  name: string;
+  description?: string;
+  imagePrompt?: string;
 }
 
 // Parse Fountain content into structured elements
@@ -47,7 +57,6 @@ function parseFountainContent(content: string): {
         time_of_day: sceneMatch[3].trim().toUpperCase(),
       };
       i++;
-      // Next line might be scene description (if it's action-like and short)
       if (i < lines.length && !lines[i].match(/^[A-Z\s]{2,}$/) && lines[i].length < 200) {
         sceneHeading.description = lines[i];
         i++;
@@ -55,7 +64,7 @@ function parseFountainContent(content: string): {
       continue;
     }
 
-    // Transition: ends with : or is a known transition
+    // Transition
     if (line.match(/^(CUT TO|FADE TO|FADE OUT|FADE IN|DISSOLVE TO|SMASH CUT|MATCH CUT|JUMP CUT)[:.]?$/i) ||
         line.match(/^[A-Z\s]+:$/)) {
       elements.push({
@@ -66,34 +75,29 @@ function parseFountainContent(content: string): {
       continue;
     }
 
-    // Character name (all caps, possibly with extension)
-    const charMatch = line.match(/^([A-Z][A-Z\s]+)(?:\s*\(([^)]+)\))?$/);
+    // Character name for dialogue
+    const charMatch = line.match(/^([A-Z][A-Z\s']+)(?:\s*\(([^)]+)\))?$/);
     if (charMatch && i + 1 < lines.length) {
       const characterName = charMatch[1].trim();
       const extension = charMatch[2]?.trim();
       i++;
 
-      // Check for parenthetical
       let parenthetical: string | undefined;
       if (lines[i] && lines[i].match(/^\([^)]+\)$/)) {
         parenthetical = lines[i].replace(/^\(|\)$/g, '');
         i++;
       }
 
-      // Dialogue content
       const dialogueLines: string[] = [];
-      while (i < lines.length && !lines[i].match(/^[A-Z][A-Z\s]+$/) && !lines[i].match(/^(INT\.|EXT\.)/i)) {
+      while (i < lines.length && !lines[i].match(/^[A-Z][A-Z\s']+$/) && !lines[i].match(/^(INT\.|EXT\.)/i)) {
         if (lines[i].match(/^\([^)]+\)$/)) {
-          // Inline parenthetical - add to dialogue
           dialogueLines.push(lines[i]);
         } else if (lines[i].match(/^[A-Z\s]+:$/)) {
-          // Transition - stop
           break;
         } else {
           dialogueLines.push(lines[i]);
         }
         i++;
-        // Only take a reasonable amount of dialogue
         if (dialogueLines.length > 10) break;
       }
 
@@ -109,7 +113,7 @@ function parseFountainContent(content: string): {
       }
     }
 
-    // Note: [[text]]
+    // Note
     const noteMatch = line.match(/^\[\[(.+)\]\]$/);
     if (noteMatch) {
       elements.push({
@@ -123,19 +127,17 @@ function parseFountainContent(content: string): {
     // Default: action
     const actionLines: string[] = [line];
     i++;
-    // Collect consecutive action lines
     while (i < lines.length) {
       const nextLine = lines[i];
-      // Stop if it looks like a new element type
       if (nextLine.match(/^(INT\.|EXT\.)/i) ||
-          nextLine.match(/^[A-Z][A-Z\s]+$/) ||
+          nextLine.match(/^[A-Z][A-Z\s']+$/) ||
           nextLine.match(/^\[\[/) ||
           nextLine.match(/^[A-Z\s]+:$/)) {
         break;
       }
       actionLines.push(nextLine);
       i++;
-      if (actionLines.length > 5) break; // Limit action paragraphs
+      if (actionLines.length > 5) break;
     }
 
     elements.push({
@@ -155,11 +157,11 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     const { projectId } = await params;
-    const { suggestion } = await request.json() as { suggestion: ScriptSuggestion };
-
-    if (!suggestion || !suggestion.content) {
-      return NextResponse.json({ error: 'No suggestion provided' }, { status: 400 });
-    }
+    const body = await request.json();
+    const { scriptAction, bibleAction } = body as {
+      scriptAction?: ScriptAction;
+      bibleAction?: BibleAction;
+    };
 
     const supabase = createServerSupabaseClient();
 
@@ -175,138 +177,299 @@ export async function POST(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Parse the suggestion content
-    const parsed = parseFountainContent(suggestion.content);
+    const results: {
+      scriptResult?: object;
+      bibleResult?: object;
+    } = {};
 
-    let targetSceneId: string | null = null;
-    let newScene: object | null = null;
-    const newElements: object[] = [];
+    // Handle Bible action
+    if (bibleAction) {
+      const { type, name, description, imagePrompt } = bibleAction;
+      console.log('[Apply] Bible action:', { type, name, description, projectId });
 
-    // If we have a scene heading or type is 'scene' or 'full', create a new scene
-    if (parsed.sceneHeading || suggestion.type === 'scene' || suggestion.type === 'full') {
-      // Get next scene number
-      const { data: existingScenes } = await supabase
-        .from('scenes')
-        .select('scene_number')
-        .eq('project_id', projectId)
-        .order('scene_number', { ascending: false })
-        .limit(1);
+      if (type === 'character') {
+        const { data, error } = await supabase
+          .from('characters')
+          .insert({
+            project_id: projectId,
+            name,
+            description: description || '',
+            visual_description: imagePrompt || '', // imagePrompt goes to visual_description
+          })
+          .select()
+          .single();
 
-      const nextNumber = (existingScenes?.[0]?.scene_number || 0) + 1;
+        if (error) {
+          console.error('[Apply] Error adding character:', error);
+          return NextResponse.json(
+            { error: `Erreur ajout personnage: ${error.message}` },
+            { status: 500 }
+          );
+        }
+        console.log('[Apply] Character added:', data);
+        results.bibleResult = { type: 'character', data };
+      } else if (type === 'location') {
+        const { data, error } = await supabase
+          .from('locations')
+          .insert({
+            project_id: projectId,
+            name,
+            description: description || '',
+          })
+          .select()
+          .single();
 
-      const sceneData = parsed.sceneHeading || {
-        int_ext: 'INT',
-        location: 'LIEU',
-        time_of_day: 'JOUR',
-      };
+        if (error) {
+          console.error('[Apply] Error adding location:', error);
+          return NextResponse.json(
+            { error: `Erreur ajout lieu: ${error.message}` },
+            { status: 500 }
+          );
+        }
+        console.log('[Apply] Location added:', data);
+        results.bibleResult = { type: 'location', data };
+      } else if (type === 'prop') {
+        const { data, error } = await supabase
+          .from('props')
+          .insert({
+            project_id: projectId,
+            name,
+            description: description || '',
+          })
+          .select()
+          .single();
 
-      const { data: createdScene, error: sceneError } = await supabase
-        .from('scenes')
-        .insert({
-          project_id: projectId,
-          scene_number: suggestion.targetScene || nextNumber,
-          int_ext: sceneData.int_ext,
-          location: sceneData.location,
-          time_of_day: sceneData.time_of_day,
-          description: sceneData.description || null,
-        })
-        .select()
-        .single();
-
-      if (sceneError) {
-        throw sceneError;
-      }
-
-      targetSceneId = createdScene.id;
-      newScene = createdScene;
-    } else if (suggestion.targetScene) {
-      // Find the target scene
-      const { data: scene } = await supabase
-        .from('scenes')
-        .select('id')
-        .eq('project_id', projectId)
-        .eq('scene_number', suggestion.targetScene)
-        .single();
-
-      if (scene) {
-        targetSceneId = scene.id;
+        if (error) {
+          console.error('[Apply] Error adding prop:', error);
+          return NextResponse.json(
+            { error: `Erreur ajout accessoire: ${error.message}` },
+            { status: 500 }
+          );
+        }
+        console.log('[Apply] Prop added:', data);
+        results.bibleResult = { type: 'prop', data };
       }
     }
 
-    // If we still don't have a target scene, use the first/last scene or create one
-    if (!targetSceneId) {
-      const { data: scenes } = await supabase
-        .from('scenes')
-        .select('id, scene_number')
-        .eq('project_id', projectId)
-        .order('scene_number', { ascending: suggestion.position === 'start' });
+    // Handle Script action
+    if (scriptAction) {
+      const { action, type, content, targetScene, targetDescription, position } = scriptAction;
 
-      if (scenes && scenes.length > 0) {
-        targetSceneId = scenes[0].id;
-      } else {
-        // Create a default scene
-        const { data: createdScene } = await supabase
-          .from('scenes')
-          .insert({
-            project_id: projectId,
-            scene_number: 1,
+      if (action === 'add') {
+        // ADD: Create new content
+        let targetSceneId: string | null = null;
+        let newScene: object | null = null;
+        const newElements: object[] = [];
+
+        const parsed = content ? parseFountainContent(content) : { elements: [] };
+
+        // Create new scene if needed
+        if (parsed.sceneHeading || type === 'scene' || type === 'full' || !targetScene) {
+          const { data: existingScenes } = await supabase
+            .from('scenes')
+            .select('scene_number')
+            .eq('project_id', projectId)
+            .order('scene_number', { ascending: false })
+            .limit(1);
+
+          const nextNumber = targetScene || (existingScenes?.[0]?.scene_number || 0) + 1;
+
+          const sceneData = parsed.sceneHeading || {
             int_ext: 'INT',
             location: 'LIEU',
             time_of_day: 'JOUR',
-          })
-          .select()
-          .single();
+          };
 
-        if (createdScene) {
-          targetSceneId = createdScene.id;
-          newScene = createdScene;
+          const { data: createdScene, error: sceneError } = await supabase
+            .from('scenes')
+            .insert({
+              project_id: projectId,
+              scene_number: nextNumber,
+              int_ext: sceneData.int_ext,
+              location: sceneData.location,
+              time_of_day: sceneData.time_of_day,
+              description: sceneData.description || null,
+            })
+            .select()
+            .single();
+
+          if (!sceneError && createdScene) {
+            targetSceneId = createdScene.id;
+            newScene = createdScene;
+          }
+        } else if (targetScene) {
+          const { data: scene } = await supabase
+            .from('scenes')
+            .select('id')
+            .eq('project_id', projectId)
+            .eq('scene_number', targetScene)
+            .single();
+
+          if (scene) {
+            targetSceneId = scene.id;
+          }
         }
-      }
-    }
 
-    // Insert elements
-    if (targetSceneId && parsed.elements.length > 0) {
-      // Get current max sort order
-      const { data: existingElements } = await supabase
-        .from('script_elements')
-        .select('sort_order')
-        .eq('scene_id', targetSceneId)
-        .order('sort_order', { ascending: false })
-        .limit(1);
+        // Insert elements
+        if (targetSceneId && parsed.elements.length > 0) {
+          const { data: existingElements } = await supabase
+            .from('script_elements')
+            .select('sort_order')
+            .eq('scene_id', targetSceneId)
+            .order('sort_order', { ascending: position === 'start' })
+            .limit(1);
 
-      let sortOrder = (existingElements?.[0]?.sort_order || 0) + 1;
+          let sortOrder = position === 'start'
+            ? 0
+            : (existingElements?.[0]?.sort_order || 0) + 1;
 
-      for (const element of parsed.elements) {
-        const { data: createdElement, error: elementError } = await supabase
-          .from('script_elements')
-          .insert({
-            scene_id: targetSceneId,
-            type: element.type,
-            content: element.content,
-            character_name: element.character_name || null,
-            parenthetical: element.parenthetical || null,
-            extension: element.extension || null,
-            sort_order: sortOrder++,
-          })
-          .select()
+          for (const element of parsed.elements) {
+            const { data: createdElement, error: elementError } = await supabase
+              .from('script_elements')
+              .insert({
+                scene_id: targetSceneId,
+                type: element.type,
+                content: element.content,
+                character_name: element.character_name || null,
+                parenthetical: element.parenthetical || null,
+                extension: element.extension || null,
+                sort_order: sortOrder++,
+              })
+              .select()
+              .single();
+
+            if (!elementError && createdElement) {
+              newElements.push(createdElement);
+            }
+          }
+        }
+
+        results.scriptResult = { action: 'add', newScene, newElements, targetSceneId };
+
+      } else if (action === 'modify') {
+        // MODIFY: Update existing content
+        if (!targetScene || !targetDescription) {
+          return NextResponse.json({
+            error: 'targetScene and targetDescription required for modify'
+          }, { status: 400 });
+        }
+
+        // Find the scene
+        const { data: scene } = await supabase
+          .from('scenes')
+          .select('id')
+          .eq('project_id', projectId)
+          .eq('scene_number', targetScene)
           .single();
 
-        if (!elementError && createdElement) {
-          newElements.push(createdElement);
+        if (!scene) {
+          return NextResponse.json({ error: 'Scene not found' }, { status: 404 });
+        }
+
+        // Get all elements in the scene
+        const { data: elements } = await supabase
+          .from('script_elements')
+          .select('*')
+          .eq('scene_id', scene.id)
+          .order('sort_order');
+
+        // Find the element that matches the description (simple text match)
+        const targetElement = elements?.find(el =>
+          el.content?.toLowerCase().includes(targetDescription.toLowerCase()) ||
+          el.character_name?.toLowerCase().includes(targetDescription.toLowerCase())
+        );
+
+        if (targetElement && content) {
+          const parsed = parseFountainContent(content);
+          const newContent = parsed.elements[0];
+
+          if (newContent) {
+            const { data: updated } = await supabase
+              .from('script_elements')
+              .update({
+                type: newContent.type,
+                content: newContent.content,
+                character_name: newContent.character_name || null,
+                parenthetical: newContent.parenthetical || null,
+                extension: newContent.extension || null,
+              })
+              .eq('id', targetElement.id)
+              .select()
+              .single();
+
+            results.scriptResult = { action: 'modify', updated };
+          }
+        } else {
+          results.scriptResult = { action: 'modify', error: 'Element not found' };
+        }
+
+      } else if (action === 'delete') {
+        // DELETE: Remove content
+        if (!targetScene) {
+          return NextResponse.json({
+            error: 'targetScene required for delete'
+          }, { status: 400 });
+        }
+
+        // Find the scene
+        const { data: scene } = await supabase
+          .from('scenes')
+          .select('id')
+          .eq('project_id', projectId)
+          .eq('scene_number', targetScene)
+          .single();
+
+        if (!scene) {
+          return NextResponse.json({ error: 'Scene not found' }, { status: 404 });
+        }
+
+        if (!targetDescription) {
+          // Delete entire scene
+          await supabase
+            .from('script_elements')
+            .delete()
+            .eq('scene_id', scene.id);
+
+          await supabase
+            .from('scenes')
+            .delete()
+            .eq('id', scene.id);
+
+          results.scriptResult = { action: 'delete', deletedScene: targetScene };
+        } else {
+          // Delete specific element
+          const { data: elements } = await supabase
+            .from('script_elements')
+            .select('*')
+            .eq('scene_id', scene.id);
+
+          const targetElement = elements?.find(el =>
+            el.content?.toLowerCase().includes(targetDescription.toLowerCase()) ||
+            el.character_name?.toLowerCase().includes(targetDescription.toLowerCase())
+          );
+
+          if (targetElement) {
+            await supabase
+              .from('script_elements')
+              .delete()
+              .eq('id', targetElement.id);
+
+            results.scriptResult = { action: 'delete', deletedElement: targetElement.id };
+          } else {
+            results.scriptResult = { action: 'delete', error: 'Element not found' };
+          }
         }
       }
     }
 
     return NextResponse.json({
       success: true,
-      newScene,
-      newElements,
-      targetSceneId,
+      ...results,
     });
   } catch (error) {
-    console.error('Error applying suggestion:', error);
+    console.error('Error applying action:', error);
     return NextResponse.json(
-      { error: 'Failed to apply suggestion' },
+      { error: 'Failed to apply action' },
       { status: 500 }
     );
   }
