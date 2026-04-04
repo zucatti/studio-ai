@@ -189,11 +189,12 @@ export async function GET() {
       }
     }
 
-    // Fetch rush images
+    // Fetch rush images - only selected ones (approved for gallery)
     const { data: rushImages, error: rushError } = await supabase
       .from('rush_images')
       .select('id, url, prompt, aspect_ratio, project_id, created_at')
       .in('project_id', projectIds)
+      .eq('status', 'selected')
       .order('created_at', { ascending: false });
 
     if (!rushError && rushImages) {

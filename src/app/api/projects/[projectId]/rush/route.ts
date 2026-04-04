@@ -420,6 +420,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 }
 
 // GET /api/projects/[projectId]/rush - List rush images
+// Query params: ?status=pending|selected|rejected (default: pending)
 export async function GET(request: Request, { params }: RouteParams) {
   try {
     const session = await auth0.getSession();
@@ -428,6 +429,14 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
 
     const { projectId } = await params;
+    const url = new URL(request.url);
+    const statusParam = url.searchParams.get('status') || 'pending';
+
+    // Validate status
+    if (!['pending', 'selected', 'rejected'].includes(statusParam)) {
+      return NextResponse.json({ error: 'Invalid status' }, { status: 400 });
+    }
+
     const supabase = createServerSupabaseClient();
 
     // Verify project ownership and get aspect ratio
@@ -442,25 +451,94 @@ export async function GET(request: Request, { params }: RouteParams) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Fetch rush images
-    const { data: images, error } = await supabase
+    // Fetch rush images filtered by status
+    // Note: NULL status is treated as 'pending' for backwards compatibility
+    let query = supabase
       .from('rush_images')
       .select('*')
-      .eq('project_id', projectId)
-      .order('created_at', { ascending: false });
+      .eq('project_id', projectId);
+
+    if (statusParam === 'pending') {
+      // Include both 'pending' and NULL (old records)
+      query = query.or('status.eq.pending,status.is.null');
+    } else {
+      query = query.eq('status', statusParam);
+    }
+
+    const { data: images, error } = await query.order('created_at', { ascending: false });
 
     if (error) {
       console.error('Error fetching rush images:', error);
       return NextResponse.json({ error: 'Failed to fetch rush images' }, { status: 500 });
     }
 
+    // Filter out videos (Rush is for images only)
+    const VIDEO_EXTENSIONS = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
+    const filteredImages = (images || []).filter(img => {
+      const url = img.url?.toLowerCase() || '';
+      return !VIDEO_EXTENSIONS.some(ext => url.includes(ext));
+    });
+
     return NextResponse.json({
-      images: images || [],
-      count: images?.length || 0,
+      images: filteredImages,
+      count: filteredImages.length,
       aspectRatio: project.aspect_ratio || '16:9',
     });
   } catch (error) {
     console.error('Error in rush GET:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// PATCH /api/projects/[projectId]/rush - Update status of multiple images
+export async function PATCH(request: Request, { params }: RouteParams) {
+  try {
+    const session = await auth0.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { projectId } = await params;
+    const body = await request.json();
+    const { imageIds, status } = body;
+
+    if (!imageIds || !Array.isArray(imageIds) || imageIds.length === 0) {
+      return NextResponse.json({ error: 'imageIds array required' }, { status: 400 });
+    }
+
+    if (!status || !['selected', 'rejected', 'pending'].includes(status)) {
+      return NextResponse.json({ error: 'Valid status required (selected, rejected, pending)' }, { status: 400 });
+    }
+
+    const supabase = createServerSupabaseClient();
+
+    // Verify project ownership
+    const { data: project } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', session.user.sub)
+      .single();
+
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // Update status for all specified images
+    const { error } = await supabase
+      .from('rush_images')
+      .update({ status })
+      .eq('project_id', projectId)
+      .in('id', imageIds);
+
+    if (error) {
+      console.error('Error updating rush images status:', error);
+      return NextResponse.json({ error: 'Failed to update status' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, updated: imageIds.length });
+  } catch (error) {
+    console.error('Error in rush PATCH:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

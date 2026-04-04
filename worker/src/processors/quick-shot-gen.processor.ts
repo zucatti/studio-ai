@@ -86,7 +86,7 @@ export async function processQuickShotGenJob(job: Job<QuickShotGenJobData>): Pro
 
     console.log(`[QuickShotGen] Image saved to B2: ${b2Url}`);
 
-    // Save to rush_images table (project rush)
+    // Save to rush_images table (project rush) with pending status
     await updateJobProgress(jobId, 80, 'Enregistrement dans les rushes...');
     const { data: rushImage, error: rushError } = await supabase
       .from('rush_images')
@@ -97,6 +97,7 @@ export async function processQuickShotGenJob(job: Job<QuickShotGenJobData>): Pro
         prompt: prompt,
         aspect_ratio: aspectRatio,
         model: result.model,
+        status: 'pending', // Awaiting selection in Rush page
       })
       .select('id')
       .single();

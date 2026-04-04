@@ -23,6 +23,7 @@ import {
   Play,
   BookOpen,
   Music,
+  MessageSquareText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -57,6 +58,7 @@ const fullPipelineNavigation: NavSection = {
   title: 'PROJET',
   items: [
     { name: 'Brainstorming', href: '/brainstorming', icon: Lightbulb },
+    { name: 'Script Workshop', href: '/script-workshop', icon: MessageSquareText },
     { name: 'Script', href: '/script', icon: Clapperboard },
     { name: 'Storyboard', href: '/storyboard', icon: ImageIcon },
     { name: 'Preprod', href: '/preprod', icon: Frame },
@@ -79,8 +81,9 @@ const shortsNavigation: NavSection = {
   title: 'PROJET',
   items: [
     { name: 'Mes Shorts', href: '/shorts', icon: Play },
-    { name: 'Rush', href: '/rush', icon: Zap },
+    { name: 'Quick Shot', href: '/quick-shot', icon: Zap },
     { name: 'Gallery', href: '/gallery', icon: Grid3X3 },
+    { name: 'Rush', href: '/rush', icon: Archive },
     { name: 'Bible', href: '/bible', icon: BookOpen },
   ],
 };
