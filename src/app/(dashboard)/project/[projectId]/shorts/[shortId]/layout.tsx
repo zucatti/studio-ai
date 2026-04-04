@@ -2,7 +2,7 @@
 
 import { useSidebarStore } from '@/store/sidebar-store';
 
-export default function TimelineLayout({
+export default function ShortDetailLayout({
   children,
 }: {
   children: React.ReactNode;
