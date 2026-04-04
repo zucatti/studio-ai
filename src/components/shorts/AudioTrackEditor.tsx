@@ -386,8 +386,10 @@ export function AudioTrackEditor({
     video.oncanplaythrough = () => {
       if (cancelled) return;
       // Set canvas dimensions based on actual video aspect ratio
+      // Height: 2x container height (h-10 = 40px) for retina quality
+      // Width: calculated from video's actual aspect ratio
       const videoAspect = video.videoWidth / video.videoHeight;
-      const thumbHeight = 45;
+      const thumbHeight = 80;
       const thumbWidth = Math.round(thumbHeight * videoAspect);
       canvas.width = thumbWidth;
       canvas.height = thumbHeight;
