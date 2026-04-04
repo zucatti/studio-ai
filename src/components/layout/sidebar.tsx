@@ -116,6 +116,10 @@ export function Sidebar() {
   const projectId = projectMatch?.[1];
   const isInProject = !!projectId;
 
+  // Check if we're in a short context
+  const shortMatch = pathname.match(/\/shorts\/([^/]+)/);
+  const isInShort = !!shortMatch?.[1];
+
   // Fetch project type when in a project
   useEffect(() => {
     if (!projectId) {
@@ -266,6 +270,8 @@ export function Sidebar() {
                 {projectNavigation.items.map((item) => {
                   const fullHref = `/project/${projectId}${item.href}`;
                   const isActive = pathname === fullHref;
+                  // Change "Bible" to "Bible du short" when in a short context
+                  const displayName = item.name === 'Bible' && isInShort ? 'Bible du short' : item.name;
                   return (
                     <Link
                       key={item.name}
@@ -279,7 +285,7 @@ export function Sidebar() {
                       )}
                     >
                       <item.icon className="w-4 h-4 flex-shrink-0" />
-                      <span className="whitespace-nowrap">{item.name}</span>
+                      <span className="whitespace-nowrap">{displayName}</span>
                     </Link>
                   );
                 })}

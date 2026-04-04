@@ -9,7 +9,7 @@ import { VideoCard } from '@/components/shorts/VideoCard';
 import { MontageEditor } from '@/components/shorts/MontageEditor';
 import { useSignedUrl, isB2Url } from '@/hooks/use-signed-url';
 import { useSequenceAssembly } from '@/hooks/use-sequence-assembly';
-import { ProjectBibleButton } from '@/components/bible/ProjectBible';
+// ProjectBibleButton removed - use sidebar Bible instead
 import { formatDuration } from '@/components/shorts/DurationPicker';
 import { CinematicHeaderWizard } from '@/components/shorts/CinematicHeaderWizard';
 import { PlanCard } from '@/components/shorts/PlanCard';
@@ -1305,146 +1305,89 @@ export default function ShortDetailPage() {
 
   return (
     <div className="h-full flex flex-col overflow-hidden -my-6 py-6">
-      {/* Header */}
-      <div className="flex-shrink-0 flex items-start justify-between pb-4">
-        <div className="flex items-center gap-4">
+      {/* Compact Header with integrated tabs */}
+      <div className="flex-shrink-0 flex items-center justify-between pb-3">
+        <div className="flex items-center gap-3">
           <Button
             variant="ghost"
             size="icon"
             onClick={() => router.push(`/project/${projectId}/shorts`)}
-            className="text-slate-400 hover:text-white"
+            className="text-slate-400 hover:text-white h-8 w-8"
           >
-            <ArrowLeft className="w-5 h-5" />
+            <ArrowLeft className="w-4 h-4" />
           </Button>
 
-          <div>
-            {isEditingTitle ? (
-              <input
-                type="text"
-                value={titleValue}
-                onChange={(e) => setTitleValue(e.target.value)}
-                size={Math.max(titleValue.length, 10)}
-                className="bg-transparent text-2xl font-bold text-white outline-none border-b-2 border-blue-500/50 focus:border-blue-500 transition-colors min-w-[200px]"
-                autoFocus
-                onFocus={(e) => e.target.select()}
-                onBlur={handleSaveTitle}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.currentTarget.blur();
-                  }
-                  if (e.key === 'Escape') {
-                    setTitleValue(short.title);
-                    setIsEditingTitle(false);
-                  }
-                }}
-              />
-            ) : (
-              <h1
-                className="text-2xl font-bold text-white cursor-text hover:text-blue-300 transition-colors"
-                onClick={() => setIsEditingTitle(true)}
-              >
-                {short.title}
-              </h1>
-            )}
-            <div className="flex items-center gap-4 mt-1 text-sm text-slate-400">
-              <span>{short.plans.length} plan{short.plans.length !== 1 ? 's' : ''}</span>
-              <span className="flex items-center gap-1">
-                <Clock className="w-3.5 h-3.5" />
-                {formatDuration(short.totalDuration)}
-              </span>
-              <span className="px-2 py-0.5 rounded bg-white/5 text-xs">
-                {aspectRatio}
-              </span>
-              {/* Cinematic badge (always cinematic now) */}
-              <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-xs font-medium ml-2">
-                <Sparkles className="w-3 h-3" />
-                Cinématique
-              </div>
-            </div>
+          {/* Title - compact and editable */}
+          {isEditingTitle ? (
+            <input
+              type="text"
+              value={titleValue}
+              onChange={(e) => setTitleValue(e.target.value)}
+              size={Math.max(titleValue.length, 10)}
+              className="bg-transparent text-base font-medium text-white outline-none border-b border-blue-500/50 focus:border-blue-500 transition-colors"
+              autoFocus
+              onFocus={(e) => e.target.select()}
+              onBlur={handleSaveTitle}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.currentTarget.blur();
+                }
+                if (e.key === 'Escape') {
+                  setTitleValue(short.title);
+                  setIsEditingTitle(false);
+                }
+              }}
+            />
+          ) : (
+            <h1
+              className="text-base font-medium text-white cursor-text hover:text-blue-300 transition-colors"
+              onClick={() => setIsEditingTitle(true)}
+            >
+              {short.title}
+            </h1>
+          )}
+
+          {/* Compact info badges */}
+          <div className="flex items-center gap-2 text-xs text-slate-500">
+            <span>{short.plans.length} plans</span>
+            <span>•</span>
+            <span>{formatDuration(short.totalDuration)}</span>
+            <span>•</span>
+            <span>{aspectRatio}</span>
           </div>
-        </div>
 
-        <div className="flex items-center gap-3">
-          <ProjectBibleButton projectId={projectId} />
-        </div>
-      </div>
+          {/* Separator */}
+          <div className="w-px h-5 bg-white/10 mx-2" />
 
-      {/* Tab group button + Music + Generate All */}
-      <div className="flex-shrink-0 pb-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="inline-flex rounded-lg bg-white/5 p-1">
+          {/* Integrated Tab Switch */}
+          <div className="inline-flex rounded-md bg-white/5 p-0.5">
             <button
               onClick={() => setActiveTab('edition')}
               className={cn(
-                "flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all",
+                "flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-all",
                 activeTab === 'edition'
                   ? "bg-white/10 text-white"
                   : "text-slate-400 hover:text-white"
               )}
             >
-              <Pencil className="w-3.5 h-3.5" />
+              <Pencil className="w-3 h-3" />
               Édition
             </button>
-            {/* Old Montage tab - hidden for now
-            <button
-              onClick={() => setActiveTab('montage')}
-              className={cn(
-                "flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all",
-                activeTab === 'montage'
-                  ? "bg-white/10 text-white"
-                  : "text-slate-400 hover:text-white"
-              )}
-            >
-              <Clapperboard className="w-3.5 h-3.5" />
-              Montage
-            </button>
-            */}
             <button
               onClick={() => router.push(`/project/${projectId}/shorts/${shortId}/timeline`)}
-              className="flex items-center gap-2 px-4 py-1.5 rounded-md text-sm font-medium transition-all text-slate-400 hover:text-white hover:bg-white/5"
+              className="flex items-center gap-1.5 px-3 py-1 rounded text-xs font-medium transition-all text-slate-400 hover:text-white"
             >
-              <Layers className="w-3.5 h-3.5" />
+              <Layers className="w-3 h-3" />
               Timeline
             </button>
           </div>
-
-          {/* Music Selector - hidden for now, moved to Timeline editor
-          <MusicSelector
-            projectId={projectId}
-            selectedAssetId={short.music_asset_id || null}
-            volume={short.music_volume ?? 0.3}
-            fadeIn={short.music_fade_in ?? 0}
-            fadeOut={short.music_fade_out ?? 2}
-            onSelect={handleMusicSelect}
-            onVolumeChange={handleMusicVolumeChange}
-            onFadeInChange={handleMusicFadeInChange}
-            onFadeOutChange={handleMusicFadeOutChange}
-          />
-          */}
         </div>
 
-        <Button
-          onClick={handleGenerateCinematic}
-          disabled={isGeneratingCinematic || short.plans.length === 0}
-          className={cn(
-            "gap-2",
-            isGeneratingCinematic
-              ? "bg-amber-500/50"
-              : "bg-gradient-to-r from-amber-500 to-purple-500 hover:from-amber-600 hover:to-purple-600"
-          )}
-        >
-          {isGeneratingCinematic ? (
-            <>
-              <Loader2 className="w-4 h-4 animate-spin" />
-              Génération...
-            </>
-          ) : (
-            <>
-              <Sparkles className="w-4 h-4" />
-              Générer Tous
-            </>
-          )}
-        </Button>
+        {/* Right side - only cinematic badge */}
+        <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/20 text-amber-400 text-xs font-medium">
+          <Sparkles className="w-3 h-3" />
+          Cinématique
+        </div>
       </div>
 
       {/* Main content */}
