@@ -20,7 +20,7 @@ export async function updateJobProgress(
   const { error } = await supabase
     .from('generation_jobs')
     .update({
-      progress: Math.min(Math.max(progress, 0), 100),
+      progress: Math.round(Math.min(Math.max(progress, 0), 100)),
       message,
     })
     .eq('id', jobId);

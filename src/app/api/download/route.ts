@@ -40,13 +40,13 @@ export async function GET(request: NextRequest) {
     }
 
     const buffer = await response.arrayBuffer();
-    const contentType = response.headers.get('content-type') || 'application/octet-stream';
 
-    // Return with Content-Disposition: attachment to force download
+    // Force application/octet-stream to prevent browser from playing video inline
+    // This ensures the file is always downloaded, not displayed
     return new NextResponse(buffer, {
       status: 200,
       headers: {
-        'Content-Type': contentType,
+        'Content-Type': 'application/octet-stream',
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Content-Length': buffer.byteLength.toString(),
       },

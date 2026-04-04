@@ -1,7 +1,7 @@
 'use client';
 
-import { useRef, useEffect, useMemo, useCallback } from 'react';
-import { useMontageStore } from '@/store/montage-store';
+import { useRef, useEffect, useMemo, useCallback, useState } from 'react';
+import { useMontageStore, MontageClip } from '@/store/montage-store';
 import { useSignedUrl } from '@/hooks/use-signed-url';
 import { cn } from '@/lib/utils';
 import { Film, Play, Pause } from 'lucide-react';
@@ -20,92 +20,187 @@ function parseAspectRatio(ratio: string): number {
   return 16 / 9; // Default
 }
 
+// Format time display
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  const frames = Math.floor((seconds % 1) * 30);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
+}
+
+// Find clip at a given time
+function findClipAtTime(
+  time: number,
+  clips: Record<string, MontageClip>,
+  videoTrackIds: string[]
+): MontageClip | null {
+  for (const trackId of videoTrackIds) {
+    const clip = Object.values(clips).find(
+      (c) =>
+        c.trackId === trackId &&
+        time >= c.start &&
+        time < c.start + c.duration
+    );
+    if (clip) return clip;
+  }
+  return null;
+}
+
 export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const timeDisplayRef = useRef<HTMLDivElement>(null);
+  const clipInfoRef = useRef<HTMLDivElement>(null);
 
-  const {
-    currentTime,
-    isPlaying,
-    clips,
-    tracks,
-    duration,
-    setCurrentTime,
-    play,
-    pause,
-    togglePlayback,
-  } = useMontageStore();
+  // Track current clip in state (only changes when clip changes, not every frame)
+  const [currentClipId, setCurrentClipId] = useState<string | null>(null);
+  // Track if video is ready to display (has loaded enough data)
+  const [isVideoReady, setIsVideoReady] = useState(false);
+
+  // Get static values from store
+  const clips = useMontageStore((state) => state.clips);
+  const tracks = useMontageStore((state) => state.tracks);
+  const duration = useMontageStore((state) => state.duration);
+  const isPlaying = useMontageStore((state) => state.isPlaying);
+  const togglePlayback = useMontageStore((state) => state.togglePlayback);
+
+  // Get currentTime only when NOT playing
+  const storeCurrentTime = useMontageStore((state) =>
+    state.isPlaying ? null : state.currentTime
+  );
 
   const ratio = useMemo(() => parseAspectRatio(aspectRatio), [aspectRatio]);
 
-  // Find current clip at playhead
-  const currentClip = useMemo(() => {
-    const videoTracks = tracks.filter((t) => t.type === 'video');
-    for (const track of videoTracks) {
-      const clip = Object.values(clips).find(
-        (c) =>
-          c.trackId === track.id &&
-          currentTime >= c.start &&
-          currentTime < c.start + c.duration
-      );
-      if (clip) return clip;
-    }
-    return null;
-  }, [clips, tracks, currentTime]);
+  // Get video track IDs
+  const videoTrackIds = useMemo(
+    () => tracks.filter((t) => t.type === 'video').map((t) => t.id),
+    [tracks]
+  );
 
-  // Get signed URL for current clip
+  // Current clip object
+  const currentClip = currentClipId ? clips[currentClipId] : null;
+
+  // Check if the current clip's track is muted
+  const isVideoTrackMuted = useMemo(() => {
+    if (!currentClip) return false;
+    const track = tracks.find((t) => t.id === currentClip.trackId);
+    return track?.muted ?? false;
+  }, [currentClip, tracks]);
+
+  // Get signed URL for current clip video
   const { signedUrl } = useSignedUrl(currentClip?.assetUrl || null);
 
-  // Playback timer
+  // Get signed URL for thumbnail (shown when not playing)
+  const { signedUrl: thumbnailUrl } = useSignedUrl(currentClip?.thumbnailUrl || null);
+
+  // Update current clip when not playing (based on store currentTime)
+  useEffect(() => {
+    if (isPlaying) return;
+
+    const time = storeCurrentTime ?? useMontageStore.getState().currentTime;
+    const clip = findClipAtTime(time, clips, videoTrackIds);
+    setCurrentClipId(clip?.id || null);
+
+    // Update time display
+    if (timeDisplayRef.current) {
+      timeDisplayRef.current.textContent = `${formatTime(time)} / ${formatTime(duration)}`;
+    }
+
+    // Update clip info
+    if (clipInfoRef.current) {
+      clipInfoRef.current.textContent = clip?.name || '';
+      clipInfoRef.current.style.display = clip ? 'block' : 'none';
+    }
+  }, [storeCurrentTime, isPlaying, clips, videoTrackIds, duration]);
+
+  // Playback loop - updates store and DOM directly, no React re-renders
   useEffect(() => {
     if (!isPlaying) return;
 
-    const interval = setInterval(() => {
+    let lastTime = performance.now();
+    let rafId: number;
+    let lastClipId: string | null = currentClipId;
+
+    const tick = (now: number) => {
+      const delta = (now - lastTime) / 1000;
+      lastTime = now;
+
       const store = useMontageStore.getState();
-      const newTime = store.currentTime + 0.033; // ~30fps
+      const newTime = store.currentTime + delta;
 
       if (newTime >= store.duration) {
         store.pause();
         store.setCurrentTime(0);
-      } else {
-        store.setCurrentTime(newTime);
+        return;
       }
-    }, 33);
 
-    return () => clearInterval(interval);
-  }, [isPlaying]);
+      // Update store (this updates the timeline playhead via subscription)
+      store.setCurrentTime(newTime);
 
-  // Sync video element with current time
+      // Update time display directly (no React)
+      if (timeDisplayRef.current) {
+        timeDisplayRef.current.textContent = `${formatTime(newTime)} / ${formatTime(store.duration)}`;
+      }
+
+      // Check if we need to switch clips
+      const clip = findClipAtTime(newTime, store.clips, videoTrackIds);
+      const newClipId = clip?.id || null;
+
+      if (newClipId !== lastClipId) {
+        lastClipId = newClipId;
+        setCurrentClipId(newClipId); // This triggers a re-render to load new clip
+
+        // Update clip info
+        if (clipInfoRef.current) {
+          clipInfoRef.current.textContent = clip?.name || '';
+          clipInfoRef.current.style.display = clip ? 'block' : 'none';
+        }
+      }
+
+      rafId = requestAnimationFrame(tick);
+    };
+
+    rafId = requestAnimationFrame(tick);
+
+    return () => cancelAnimationFrame(rafId);
+  }, [isPlaying, videoTrackIds, currentClipId]);
+
+  // Reset video ready state when clip changes
   useEffect(() => {
-    if (!videoRef.current || !currentClip) return;
+    setIsVideoReady(false);
+  }, [currentClipId, signedUrl]);
 
-    const clipTime = currentTime - currentClip.start;
+  // Sync video element when clip changes or when seeking (not playing)
+  useEffect(() => {
+    if (!videoRef.current || !currentClip || !signedUrl) return;
+
+    const time = useMontageStore.getState().currentTime;
+    const clipTime = time - currentClip.start;
     const sourceTime = (currentClip.sourceStart || 0) + clipTime;
 
-    // Only seek if difference is significant
-    if (Math.abs(videoRef.current.currentTime - sourceTime) > 0.1) {
-      videoRef.current.currentTime = sourceTime;
+    videoRef.current.currentTime = sourceTime;
+
+    if (isPlaying) {
+      videoRef.current.play().catch(() => {});
     }
-  }, [currentTime, currentClip]);
+  }, [currentClip, signedUrl, isPlaying]);
 
   // Play/pause video element
   useEffect(() => {
     if (!videoRef.current) return;
 
-    if (isPlaying && currentClip) {
+    if (isPlaying && currentClip && signedUrl) {
       videoRef.current.play().catch(() => {});
     } else {
       videoRef.current.pause();
     }
-  }, [isPlaying, currentClip]);
+  }, [isPlaying, currentClip, signedUrl]);
 
-  // Format time display
-  const formatTime = useCallback((seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60);
-    const frames = Math.floor((seconds % 1) * 30);
-    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
-  }, []);
+  // Sync video muted state
+  useEffect(() => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = isVideoTrackMuted;
+  }, [isVideoTrackMuted]);
 
   return (
     <div
@@ -128,14 +223,30 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
       >
         {currentClip && signedUrl ? (
           currentClip.type === 'video' ? (
-            <video
-              ref={videoRef}
-              src={signedUrl}
-              className="w-full h-full object-contain"
-              muted
-              playsInline
-              preload="auto"
-            />
+            <>
+              {/* Thumbnail shown until video is ready and playing */}
+              {thumbnailUrl && !(isPlaying && isVideoReady) && (
+                <img
+                  src={thumbnailUrl}
+                  alt={currentClip.name}
+                  className="absolute inset-0 w-full h-full object-contain z-10"
+                />
+              )}
+              {/* Video (hidden behind thumbnail until ready) */}
+              <video
+                ref={videoRef}
+                src={signedUrl}
+                className={cn(
+                  "w-full h-full object-contain",
+                  thumbnailUrl && !(isPlaying && isVideoReady) && "opacity-0"
+                )}
+                playsInline
+                preload="auto"
+                muted={isVideoTrackMuted}
+                onPlaying={() => setIsVideoReady(true)}
+                onCanPlay={() => setIsVideoReady(true)}
+              />
+            </>
           ) : (
             <img
               src={signedUrl}
@@ -168,17 +279,22 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
           </div>
         </button>
 
-        {/* Time display */}
-        <div className="absolute bottom-3 left-3 px-2 py-1 bg-black/70 rounded text-xs text-white/90 font-mono">
-          {formatTime(currentTime)} / {formatTime(duration)}
+        {/* Time display - updated via ref during playback */}
+        <div
+          ref={timeDisplayRef}
+          className="absolute bottom-3 left-3 px-2 py-1 bg-black/70 rounded text-xs text-white/90 font-mono"
+        >
+          {formatTime(storeCurrentTime ?? 0)} / {formatTime(duration)}
         </div>
 
-        {/* Clip info */}
-        {currentClip && (
-          <div className="absolute top-3 left-3 px-2 py-1 bg-black/70 rounded text-xs text-white/80">
-            {currentClip.name}
-          </div>
-        )}
+        {/* Clip info - updated via ref during playback */}
+        <div
+          ref={clipInfoRef}
+          className="absolute top-3 left-3 px-2 py-1 bg-black/70 rounded text-xs text-white/80"
+          style={{ display: currentClip ? 'block' : 'none' }}
+        >
+          {currentClip?.name || ''}
+        </div>
       </div>
     </div>
   );

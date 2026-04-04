@@ -18,6 +18,8 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Film,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -31,10 +33,12 @@ import {
 interface MontageToolbarProps {
   className?: string;
   onSave?: () => void;
-  onExport?: () => void;
+  onRender?: () => void;
+  isRendering?: boolean;
+  renderProgress?: number;
 }
 
-export function MontageToolbar({ className, onSave, onExport }: MontageToolbarProps) {
+export function MontageToolbar({ className, onSave, onRender, isRendering, renderProgress }: MontageToolbarProps) {
   const {
     isPlaying,
     currentTime,
@@ -212,7 +216,7 @@ export function MontageToolbar({ className, onSave, onExport }: MontageToolbarPr
 
         <div className="flex-1" />
 
-        {/* Save/Export */}
+        {/* Save/Render */}
         <div className="flex items-center gap-2">
           <Button
             variant="ghost"
@@ -224,15 +228,25 @@ export function MontageToolbar({ className, onSave, onExport }: MontageToolbarPr
             Sauvegarder
           </Button>
 
-          {onExport && (
+          {onRender && (
             <Button
               variant="default"
               size="sm"
-              onClick={onExport}
-              className="h-8 bg-purple-600 hover:bg-purple-700"
+              onClick={onRender}
+              disabled={isRendering}
+              className="h-8 bg-purple-600 hover:bg-purple-700 disabled:opacity-50"
             >
-              <Download className="w-4 h-4 mr-1.5" />
-              Exporter
+              {isRendering ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  {renderProgress !== undefined ? `${renderProgress}%` : 'Rendu...'}
+                </>
+              ) : (
+                <>
+                  <Film className="w-4 h-4 mr-1.5" />
+                  Render
+                </>
+              )}
             </Button>
           )}
         </div>

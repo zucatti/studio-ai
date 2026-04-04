@@ -178,6 +178,16 @@ const initialState: MontageState = {
 // Generate unique ID
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
 
+// Helper to calculate duration from clips record (works with immer draft or plain object)
+const calculateDurationFromClips = (clips: Record<string, MontageClip>): number => {
+  let maxEnd = 0;
+  Object.values(clips).forEach((clip) => {
+    const end = clip.start + clip.duration;
+    if (end > maxEnd) maxEnd = end;
+  });
+  return maxEnd;
+};
+
 export const useMontageStore = create<MontageState & MontageActions>()(
   immer((set, get) => ({
     ...initialState,
@@ -281,8 +291,8 @@ export const useMontageStore = create<MontageState & MontageActions>()(
         delete state.clips[clipId];
         state.selectedClipIds = state.selectedClipIds.filter((id: string) => id !== clipId);
 
-        // Recalculate duration
-        state.duration = get().calculateDuration();
+        // Recalculate duration from draft state
+        state.duration = calculateDurationFromClips(state.clips);
       });
     },
 
@@ -292,11 +302,8 @@ export const useMontageStore = create<MontageState & MontageActions>()(
         if (clip) {
           Object.assign(clip, updates);
 
-          // Update duration if needed
-          const endTime = clip.start + clip.duration;
-          if (endTime > state.duration) {
-            state.duration = endTime;
-          }
+          // Recalculate total duration from draft state
+          state.duration = calculateDurationFromClips(state.clips);
         }
       });
     },
@@ -308,11 +315,8 @@ export const useMontageStore = create<MontageState & MontageActions>()(
           clip.trackId = trackId;
           clip.start = Math.max(0, start);
 
-          // Update duration if needed
-          const endTime = clip.start + clip.duration;
-          if (endTime > state.duration) {
-            state.duration = endTime;
-          }
+          // Recalculate total duration from draft state
+          state.duration = calculateDurationFromClips(state.clips);
         }
       });
     },
@@ -324,11 +328,8 @@ export const useMontageStore = create<MontageState & MontageActions>()(
           clip.start = Math.max(0, start);
           clip.duration = Math.max(0.1, duration); // Min 0.1s
 
-          // Update duration if needed
-          const endTime = clip.start + clip.duration;
-          if (endTime > state.duration) {
-            state.duration = endTime;
-          }
+          // Recalculate total duration from draft state
+          state.duration = calculateDurationFromClips(state.clips);
         }
       });
     },
@@ -546,12 +547,13 @@ export const useMontageStore = create<MontageState & MontageActions>()(
         state.projectId = data.projectId;
         state.shortId = data.shortId;
         state.aspectRatio = data.aspectRatio;
-        state.duration = data.duration;
         state.tracks = data.tracks;
         state.clips = {};
         data.clips.forEach((clip) => {
           state.clips[clip.id] = clip;
         });
+        // Recalculate duration from clips (don't trust saved value)
+        state.duration = calculateDurationFromClips(state.clips);
         state.currentTime = 0;
         state.isPlaying = false;
         state.selectedClipIds = [];

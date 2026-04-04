@@ -244,6 +244,10 @@ export async function POST(request: Request, { params }: RouteParams) {
         sort_order: 0,
         segments,
         cinematic_header: cinematicHeader,
+        // Include shot-level fields as fallback for segments without action
+        description: shot.description,
+        action: shot.action,
+        animation_prompt: shot.animation_prompt,
       };
 
       prompt = buildCinematicPrompt(mockShort as never, [mockPlan] as never, characterMap);

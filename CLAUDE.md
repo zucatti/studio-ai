@@ -401,3 +401,185 @@ Utiliser le layer `image` avec `zoomDirection` pour les plans sans vidéo géné
 - `src/components/plan-editor/types.ts` - sequenceCinematicHeader, sequenceTitle, startedAt
 - `src/store/shorts-store.ts` - cinematic_header moved to Sequence
 - `src/lib/ai/cinematic-prompt-builder.ts` - CinematicPlan type update
+
+---
+
+### 2026-04-04 - Montage Timeline Editor
+
+**Vue d'ensemble**: Éditeur de timeline vidéo/audio style NLE (Non-Linear Editor) pour assembler des clips sur plusieurs pistes.
+
+#### Architecture
+
+```
+src/
+├── store/
+│   └── montage-store.ts          # Zustand + immer store
+├── components/montage/
+│   ├── TimelineEditor.tsx        # Container principal
+│   ├── MontageTimeline.tsx       # Timeline avec pistes et clips
+│   ├── MontagePreview.tsx        # Preview vidéo avec playback
+│   ├── MontageToolbar.tsx        # Contrôles (play, zoom, save)
+│   ├── MontageSidebar.tsx        # Browser d'assets (rushes, audio)
+│   └── AudioPlayback.tsx         # Gestion audio (invisible)
+└── app/api/.../montage/
+    └── route.ts                  # GET/PUT montage data
+```
+
+#### Store (montage-store.ts)
+
+**State**:
+- `tracks: MontageTrack[]` - Pistes (video, audio, text)
+- `clips: Record<string, MontageClip>` - Clips indexés par ID
+- `currentTime`, `duration`, `isPlaying` - Playback state
+- `scale`, `scrollLeft`, `scrollTop` - UI zoom/scroll
+- `selectedClipIds`, `draggedClip` - Selection state
+- `assets: MontageAsset[]` - Assets disponibles
+
+**Types clés**:
+```typescript
+interface MontageClip {
+  id: string;
+  type: 'video' | 'image' | 'audio' | 'text';
+  trackId: string;
+  start: number;           // Position sur timeline (seconds)
+  duration: number;        // Durée sur timeline
+  sourceStart?: number;    // Trim début dans la source
+  sourceEnd?: number;      // Trim fin dans la source
+  sourceDuration?: number; // Durée totale source
+  assetUrl?: string;       // URL B2 ou signée
+}
+
+interface MontageTrack {
+  id: string;
+  type: 'video' | 'audio' | 'text';
+  muted: boolean;          // Toggle audio
+  locked: boolean;
+  visible: boolean;
+}
+```
+
+**Actions principales**:
+- `addClip`, `removeClip`, `updateClip`, `moveClip`, `resizeClip`
+- `selectClip`, `clearSelection`
+- `play`, `pause`, `togglePlayback`, `seekTo`
+- `zoomIn`, `zoomOut`, `fitToView`
+- `exportToJSON`, `importFromJSON` - Sauvegarde/chargement
+
+#### Persistance
+
+**Migration DB**: `supabase/migrations/20260405100000_montage_timeline.sql`
+```sql
+ALTER TABLE scenes ADD COLUMN IF NOT EXISTS montage_data JSONB;
+```
+
+**API Route**: `/api/projects/[projectId]/shorts/[shortId]/montage`
+- `GET` - Charge `montage_data` depuis la scene
+- `PUT` - Sauvegarde `{ montageData: MontageExport }`
+
+#### Playback Audio
+
+**AudioPlayback.tsx** - Composant invisible qui gère les éléments `<audio>`:
+- Signe les URLs B2 via POST `/api/storage/sign`
+- Utilise `setInterval` à 200ms (pas RAF - évite le stuttering)
+- Respecte le mute par piste
+- Sync automatique à la position timeline
+
+```typescript
+// Pattern: laisser l'audio jouer naturellement
+const intervalId = setInterval(() => {
+  const activeClips = findActiveAudioClips(currentTime);
+  // Start/stop clips selon leur position
+}, 200);
+```
+
+#### Playback Vidéo
+
+**MontagePreview.tsx**:
+- `requestAnimationFrame` pour le tick principal
+- Change de clip quand `currentTime` passe dans un nouveau clip
+- Sync `video.currentTime` avec `sourceStart + clipTime`
+- Respecte `track.muted` pour l'audio de la vidéo
+
+#### Resize avec Trim Source
+
+Quand on resize depuis la poignée gauche, on trim le début de la source:
+```typescript
+// Dans MontageTimeline.tsx
+const trimAmount = newStart - dragStart.start;
+const newSourceStart = Math.max(0, dragStart.sourceStart + trimAmount);
+
+updateClip(clip.id, {
+  start: newStart,
+  duration: newDuration,
+  sourceStart: newSourceStart,  // Trim source
+});
+```
+
+#### Recalcul Duration
+
+La durée totale du montage se recalcule automatiquement:
+```typescript
+// Dans montage-store.ts - appelé par updateClip, moveClip, resizeClip
+calculateDuration: () => {
+  let maxEnd = 0;
+  Object.values(clips).forEach((clip) => {
+    const end = clip.start + clip.duration;
+    if (end > maxEnd) maxEnd = end;
+  });
+  return maxEnd;
+}
+```
+
+#### UI Features
+
+- **Sticky headers** - Les headers de pistes restent visibles au scroll horizontal
+- **Zoom** - `Cmd++` / `Cmd+-` ou slider
+- **Keyboard shortcuts** - Space (play/pause), Delete (supprimer), Cmd+S (save), Cmd+D (dupliquer)
+- **Drag & drop** - Depuis sidebar vers timeline
+- **Multi-selection** - Shift+click ou rectangle de sélection
+
+#### Fichiers créés
+
+- `supabase/migrations/20260405100000_montage_timeline.sql`
+- `src/store/montage-store.ts`
+- `src/components/montage/TimelineEditor.tsx`
+- `src/components/montage/MontageTimeline.tsx`
+- `src/components/montage/MontagePreview.tsx`
+- `src/components/montage/MontageToolbar.tsx`
+- `src/components/montage/MontageSidebar.tsx`
+- `src/components/montage/AudioPlayback.tsx`
+- `src/app/api/projects/[projectId]/shorts/[shortId]/montage/route.ts`
+
+#### Problèmes résolus
+
+1. **Audio stuttering** - Passage de RAF à setInterval 200ms
+2. **Left resize ne trim pas** - Ajout tracking de `sourceStart` dans le drag state
+3. **Duration ne shrink pas** - Appel systématique de `calculateDuration()` dans toutes les actions
+4. **Headers qui scrollent** - CSS `sticky left-0` sur les headers de pistes
+5. **Audio lag (~1s delay)** - Préchargement eager des clips audio au mount avec batch URL signing
+6. **Plans flickering** - Passage de `allClips` object à TrackRow + `useMemo` pour filtrer par piste
+7. **Focus ring sur sliders** - Ajout `focus:outline-none focus:ring-0` sur les sliders
+8. **Erreurs polling bruyantes** - Silenced "Failed to fetch" dans `jobs-store.ts` refreshJob
+
+---
+
+### 2026-04-04 - Prompt Builder Fixes
+
+**Problème**: La description du shot ("He plays guitar") n'apparaissait pas dans le prompt vidéo.
+
+**Cause**: `buildSegmentsPrompt()` lisait `plan.description` (vide) au lieu de `segment.description` (où vit la data).
+
+**Fix** dans `src/lib/ai/cinematic-prompt-builder.ts`:
+```typescript
+// Segment description (this is the main content!)
+if (segment.description) {
+  visualParts.push(segment.description);
+}
+```
+
+**Fichiers modifiés**:
+- `src/lib/ai/cinematic-prompt-builder.ts` - Ajout lecture de `segment.description`
+- `src/store/jobs-store.ts` - Silenced polling errors
+- `src/components/plan-editor/PlanEditor.tsx` - Focus ring removal on duration slider
+- `src/components/montage/AudioPlayback.tsx` - Eager preloading avec subscription
+- `src/components/montage/MontageTimeline.tsx` - Pass allClips + useMemo pattern

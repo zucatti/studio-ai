@@ -33,10 +33,10 @@ export async function GET(request: NextRequest) {
 
     const blob = await response.blob();
 
-    // Return with download headers
+    // Force application/octet-stream to prevent browser from playing video inline
     return new NextResponse(blob, {
       headers: {
-        'Content-Type': blob.type || 'video/mp4',
+        'Content-Type': 'application/octet-stream',
         'Content-Disposition': `attachment; filename="${filename}"`,
         'Content-Length': blob.size.toString(),
       },

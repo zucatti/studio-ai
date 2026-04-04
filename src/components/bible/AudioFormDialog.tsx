@@ -189,6 +189,37 @@ export function AudioFormDialog({
     audioEl.currentTime = Math.max(0, Math.min(duration, audioEl.currentTime + seconds));
   };
 
+  // Extract audio duration from file using ObjectURL
+  const getFileDuration = (file: File): Promise<number> => {
+    return new Promise((resolve) => {
+      const audio = new Audio();
+      const objectUrl = URL.createObjectURL(file);
+
+      const cleanup = () => {
+        URL.revokeObjectURL(objectUrl);
+      };
+
+      audio.addEventListener('loadedmetadata', () => {
+        const duration = audio.duration;
+        cleanup();
+        resolve(isNaN(duration) ? 0 : duration);
+      });
+
+      audio.addEventListener('error', () => {
+        cleanup();
+        resolve(0);
+      });
+
+      // Timeout fallback
+      setTimeout(() => {
+        cleanup();
+        resolve(0);
+      }, 5000);
+
+      audio.src = objectUrl;
+    });
+  };
+
   const handleUploadAudio = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -202,6 +233,9 @@ export function AudioFormDialog({
 
     setIsUploading(true);
     try {
+      // Extract duration from file BEFORE upload
+      const fileDuration = await getFileDuration(file);
+
       const formData = new FormData();
       formData.append('file', file);
       formData.append('bucket', 'project-assets');
@@ -216,6 +250,7 @@ export function AudioFormDialog({
         setFileUrl(data.url);
         setFileName(file.name);
         setFileSize(file.size);
+        setDuration(fileDuration); // Set duration extracted from file
 
         // Extract format from file extension
         const ext = file.name.split('.').pop()?.toLowerCase() || '';

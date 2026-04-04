@@ -94,7 +94,7 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
               type: 'sequence',
               name: seq.title || `Séquence ${seq.sort_order + 1}`,
               url: videoUrl || '',
-              thumbnailUrl: thumbnailUrl,
+              thumbnailUrl: thumbnailUrl ?? undefined,
               duration: totalDuration,
               metadata: {
                 planCount: seqPlans.length,
@@ -144,7 +144,14 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
         const rushImages = rushData.images || [];
 
         for (const rush of rushImages) {
-          if (rush.url && isVideoUrl(rush.url)) {
+          // Only include valid rush videos with thumbnails and meaningful names
+          const hasValidUrl = rush.url && isVideoUrl(rush.url);
+          const hasThumbnail = rush.thumbnail_url && rush.thumbnail_url.length > 0;
+          const hasValidName = rush.prompt &&
+            rush.prompt.trim().length > 0 &&
+            !rush.prompt.toLowerCase().includes('video generation');
+
+          if (hasValidUrl && (hasThumbnail || hasValidName)) {
             videoAssets.push({
               id: rush.id,
               type: 'rush',
@@ -279,10 +286,14 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
               let signedUrl = fileUrl;
               if (fileUrl.startsWith('b2://')) {
                 try {
-                  const signRes = await fetch(`/api/storage/sign?url=${encodeURIComponent(fileUrl)}`);
+                  const signRes = await fetch('/api/storage/sign', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ urls: [fileUrl] }),
+                  });
                   if (signRes.ok) {
                     const signData = await signRes.json();
-                    signedUrl = signData.signedUrl || fileUrl;
+                    signedUrl = signData.signedUrls?.[fileUrl] || fileUrl;
                   }
                 } catch (e) {
                   console.error('[MontageSidebar] Failed to sign audio URL:', e);

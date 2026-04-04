@@ -151,6 +151,9 @@ interface ShortsStore {
     music_fade_out?: number;
   }) => Promise<void>;
 
+  // Direct state updates (for optimistic UI)
+  setAssembledVideoUrl: (shortId: string, videoUrl: string, duration?: number) => void;
+
   // Helpers
   getShortById: (shortId: string) => Short | undefined;
   getPlansByShort: (shortId: string) => Plan[];
@@ -719,6 +722,21 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
       console.error('Error assigning plan to sequence:', error);
       get().fetchShorts(projectId);
     }
+  },
+
+  // Direct state updates (for optimistic UI)
+  setAssembledVideoUrl: (shortId: string, videoUrl: string, duration?: number) => {
+    set((state) => ({
+      shorts: state.shorts.map((s) =>
+        s.id === shortId
+          ? {
+              ...s,
+              assembled_video_url: videoUrl,
+              ...(duration !== undefined ? { assembled_video_duration: duration } : {}),
+            }
+          : s
+      ),
+    }));
   },
 
   // Helpers

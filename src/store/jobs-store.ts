@@ -148,8 +148,8 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
 
         set({ jobs: newJobs });
       }
-    } catch (error) {
-      console.error('[JobsStore] Error fetching jobs:', error);
+    } catch {
+      // Silently ignore fetch errors (network hiccups, hot reload, etc.)
     } finally {
       set({ isLoading: false });
     }
@@ -236,55 +236,59 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
   refreshJob: async (jobId) => {
     try {
       const res = await fetch(`/api/jobs/${jobId}`);
-      if (res.ok) {
-        const data = await res.json();
-        const updatedJob = data.job as GenerationJob;
+      if (!res.ok) {
+        // Silently ignore non-OK responses during polling (job might be deleted, etc.)
+        return;
+      }
 
-        // Check if job just completed
-        const { jobs } = get();
-        const oldJob = jobs.find((j) => j.id === jobId);
-        const justCompleted =
-          oldJob &&
-          ['pending', 'queued', 'running'].includes(oldJob.status) &&
-          updatedJob.status === 'completed';
+      const data = await res.json();
+      const updatedJob = data.job as GenerationJob;
 
-        // Update in local state
-        set((state) => ({
-          jobs: state.jobs.map((job) =>
-            job.id === jobId ? updatedJob : job
-          ),
-        }));
+      // Check if job just completed
+      const { jobs } = get();
+      const oldJob = jobs.find((j) => j.id === jobId);
+      const justCompleted =
+        oldJob &&
+        ['pending', 'queued', 'running'].includes(oldJob.status) &&
+        updatedJob.status === 'completed';
 
-        // If job just completed, emit event for UI to refresh
-        if (justCompleted) {
-          // For shots, get shotId from input_data; for shorts, get shortId; for assets, use asset_id
-          const shotId = (updatedJob.input_data as { shotId?: string })?.shotId;
-          const shortId = (updatedJob.input_data as { shortId?: string })?.shortId;
-          const assetId = updatedJob.asset_id || shotId || shortId;
+      // Update in local state
+      set((state) => ({
+        jobs: state.jobs.map((job) =>
+          job.id === jobId ? updatedJob : job
+        ),
+      }));
 
-          console.log(`[JobsStore] Job completed - asset_id: ${updatedJob.asset_id}, shotId: ${shotId}, shortId: ${shortId}, resolved assetId: ${assetId}`);
+      // If job just completed, emit event for UI to refresh
+      if (justCompleted) {
+        // For shots, get shotId from input_data; for shorts, get shortId; for assets, use asset_id
+        const shotId = (updatedJob.input_data as { shotId?: string })?.shotId;
+        const shortId = (updatedJob.input_data as { shortId?: string })?.shortId;
+        const assetId = updatedJob.asset_id || shotId || shortId;
 
-          if (assetId) {
-            console.log(`[JobsStore] Dispatching job-completed for ${updatedJob.asset_type} ${assetId}, job_type: ${updatedJob.job_type}`);
-            // Emit custom event for UI components to react
-            window.dispatchEvent(
-              new CustomEvent('job-completed', {
-                detail: {
-                  jobId: updatedJob.id,
-                  assetId,
-                  shotId, // Include shotId explicitly for shot handlers
-                  shortId, // Include shortId explicitly for short/assembly handlers
-                  assetType: updatedJob.asset_type,
-                  jobType: updatedJob.job_type,
-                  jobSubtype: updatedJob.job_subtype,
-                },
-              })
-            );
-          }
+        console.log(`[JobsStore] Job completed - asset_id: ${updatedJob.asset_id}, shotId: ${shotId}, shortId: ${shortId}, resolved assetId: ${assetId}`);
+
+        if (assetId) {
+          console.log(`[JobsStore] Dispatching job-completed for ${updatedJob.asset_type} ${assetId}, job_type: ${updatedJob.job_type}`);
+          // Emit custom event for UI components to react
+          window.dispatchEvent(
+            new CustomEvent('job-completed', {
+              detail: {
+                jobId: updatedJob.id,
+                assetId,
+                shotId, // Include shotId explicitly for shot handlers
+                shortId, // Include shortId explicitly for short/assembly handlers
+                assetType: updatedJob.asset_type,
+                jobType: updatedJob.job_type,
+                jobSubtype: updatedJob.job_subtype,
+              },
+            })
+          );
         }
       }
-    } catch (error) {
-      console.error('[JobsStore] Error refreshing job:', error);
+    } catch {
+      // Silently ignore fetch errors during polling (network hiccups, hot reload, etc.)
+      // The next poll will retry automatically
     }
   },
 

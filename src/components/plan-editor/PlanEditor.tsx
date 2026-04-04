@@ -527,16 +527,22 @@ export function PlanEditor({
     setIsMuted(!isMuted);
   }, [isMuted]);
 
-  const handleDownloadVideo = useCallback(() => {
+  const handleDownloadVideo = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (!plan?.generated_video_url) return;
     const filename = `plan-${plan.number || plan.id}-video.mp4`;
     const downloadUrl = `/api/download?url=${encodeURIComponent(plan.generated_video_url)}&filename=${encodeURIComponent(filename)}`;
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = downloadUrl;
-    document.body.appendChild(iframe);
-    setTimeout(() => document.body.removeChild(iframe), 5000);
-    toast.success('Téléchargement démarré');
+
+    // Use hidden anchor with download attribute
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    // Small delay before cleanup to ensure download starts
+    setTimeout(() => document.body.removeChild(link), 100);
   }, [plan]);
 
   const handleDownloadFrame = useCallback((type: 'in' | 'out') => {
@@ -545,12 +551,14 @@ export function PlanEditor({
     const ext = url.split('?')[0].match(/\.(png|jpg|jpeg|webp)$/i)?.[1] || 'png';
     const filename = `plan-${plan?.number || plan?.id}-frame-${type}.${ext}`;
     const downloadUrl = `/api/download?url=${encodeURIComponent(url)}&filename=${encodeURIComponent(filename)}`;
-    const iframe = document.createElement('iframe');
-    iframe.style.display = 'none';
-    iframe.src = downloadUrl;
-    document.body.appendChild(iframe);
-    setTimeout(() => document.body.removeChild(iframe), 5000);
-    toast.success('Téléchargement démarré');
+
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    setTimeout(() => document.body.removeChild(link), 100);
   }, [plan]);
 
   const handleClearFrame = useCallback((type: 'in' | 'out') => {
@@ -692,6 +700,7 @@ export function PlanEditor({
                       value={plan.duration}
                       onChange={(e) => handleDurationChange(parseInt(e.target.value))}
                       className="w-32 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer
+                        focus:outline-none focus:ring-0
                         [&::-webkit-slider-thumb]:appearance-none
                         [&::-webkit-slider-thumb]:w-4
                         [&::-webkit-slider-thumb]:h-4
@@ -932,6 +941,7 @@ export function PlanEditor({
                   onMouseLeave={() => setIsVideoHovered(false)}
                 >
                   <video
+                    key={plan?.generated_video_url}
                     ref={videoRef}
                     src={signedVideoUrl || undefined}
                     loop
@@ -1248,6 +1258,7 @@ export function PlanEditor({
 
           <div className="relative w-full h-full flex items-center justify-center group">
             <video
+              key={plan?.generated_video_url}
               src={signedVideoUrl}
               autoPlay
               loop

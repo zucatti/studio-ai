@@ -160,6 +160,7 @@ export function SequenceClip({
         {hasAssembledVideo ? (
           <>
             <video
+              key={assembledVideoUrl}
               ref={videoRef}
               src={finalVideoUrl}
               className="w-full h-full object-cover"
@@ -188,14 +189,19 @@ export function SequenceClip({
             {isHovered && (
               <div className="absolute top-2 right-2 flex items-center gap-1.5 z-30">
                 {/* Download button */}
-                {finalVideoUrl && (
+                {assembledVideoUrl && (
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      const a = document.createElement('a');
-                      a.href = finalVideoUrl;
-                      a.download = `${sequence.title || 'sequence'}.mp4`;
-                      a.click();
+                      const filename = `${sequence.title || 'sequence'}.mp4`;
+                      const downloadUrl = `/api/download?url=${encodeURIComponent(assembledVideoUrl)}&filename=${encodeURIComponent(filename)}`;
+                      const link = document.createElement('a');
+                      link.href = downloadUrl;
+                      link.download = filename;
+                      link.style.display = 'none';
+                      document.body.appendChild(link);
+                      link.click();
+                      setTimeout(() => document.body.removeChild(link), 100);
                     }}
                     className="w-7 h-7 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"
                     title="Télécharger"

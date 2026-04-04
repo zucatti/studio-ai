@@ -117,6 +117,28 @@ export interface FFmpegJobData extends BaseJobData {
   audioStart?: number;
   audioEnd?: number;
   volume?: number;
+  // For montage render
+  montageData?: {
+    aspectRatio: string;
+    duration: number;
+    tracks: Array<{
+      id: string;
+      type: 'video' | 'audio' | 'text';
+      name: string;
+      muted: boolean;
+    }>;
+    clips: Array<{
+      id: string;
+      type: 'video' | 'image' | 'audio' | 'text';
+      trackId: string;
+      start: number;
+      duration: number;
+      sourceStart?: number;
+      sourceEnd?: number;
+      assetUrl: string;
+      name: string;
+    }>;
+  };
 }
 
 // Reference image with metadata for character/location consistency
@@ -149,7 +171,8 @@ export type JobData =
   | AudioGenJobData
   | FFmpegJobData
   | QuickShotGenJobData
-  | EditlyJobData;
+  | EditlyJobData
+  | MontageRenderJobData;
 
 // Video models supported
 export type VideoModel =
@@ -171,7 +194,7 @@ export type VideoProvider = 'fal' | 'runway';
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5' | '2:3' | '21:9';
 
 // FFmpeg operations
-export type FFmpegOperation = 'assemble' | 'assemble-sequence' | 'music-overlay' | 'extract-frame';
+export type FFmpegOperation = 'assemble' | 'assemble-sequence' | 'music-overlay' | 'extract-frame' | 'montage-render';
 
 // Editly video assembly job data
 export interface EditlyJobData extends BaseJobData {
@@ -201,6 +224,37 @@ export interface EditlyJobData extends BaseJobData {
     fade_in: number;
     fade_out: number;
   };
+}
+
+// Montage timeline render job data
+export interface MontageRenderJobData extends BaseJobData {
+  type: 'montage-render';
+  projectId: string;
+  shortId: string;
+  aspectRatio: string;
+  duration: number;
+  // Tracks and clips from the timeline
+  tracks: Array<{
+    id: string;
+    type: 'video' | 'audio' | 'text';
+    name: string;
+    muted: boolean;
+  }>;
+  clips: Array<{
+    id: string;
+    type: 'video' | 'image' | 'audio' | 'text';
+    trackId: string;
+    start: number;
+    duration: number;
+    sourceStart?: number;
+    sourceEnd?: number;
+    assetUrl: string;
+    name: string;
+    // For text clips
+    text?: string;
+    fontSize?: number;
+    fontColor?: string;
+  }>;
 }
 
 // Queue names

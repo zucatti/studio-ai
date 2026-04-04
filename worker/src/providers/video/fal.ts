@@ -167,17 +167,17 @@ export class FalProvider implements VideoProvider {
         console.log(`[Fal] Kling O3 elements:`, input.elements);
       }
 
-      // Enable audio generation for voice synthesis
+      // Enable audio generation (ambient sounds, music, speech based on prompt)
+      // Kling Omni generates contextual audio from the prompt content
+      input.generate_audio = true;
+
+      // Add voice_ids for cinematic mode with character voices
       // The <<<voice_1>>> syntax in prompt references voice_ids
       if (request.isCinematicMode && request.cinematicVoices?.length) {
-        input.generate_audio = true;
         input.voice_ids = request.cinematicVoices.map(v => v.voiceId);
         console.log(`[Fal] Kling O3 voice_ids:`, input.voice_ids);
-      } else if (isTextToVideo) {
-        // For text-to-video, enable audio by default for natural speech
-        input.generate_audio = true;
-        console.log(`[Fal] Kling O3 text-to-video: generate_audio enabled`);
       }
+      console.log(`[Fal] Kling O3 generate_audio: true`);
     }
 
     // Add end frame if supported (image-to-video only)

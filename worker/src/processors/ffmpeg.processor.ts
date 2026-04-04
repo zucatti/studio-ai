@@ -18,7 +18,7 @@ export interface FFmpegJobData {
   userId: string;
   jobId: string;
   createdAt: string;
-  operation: 'assemble' | 'assemble-sequence' | 'music-overlay' | 'extract-frame';
+  operation: 'assemble' | 'assemble-sequence' | 'music-overlay' | 'extract-frame' | 'montage-render';
   projectId: string;
   // For assembly
   shortId?: string;
@@ -33,6 +33,28 @@ export interface FFmpegJobData {
   audioStart?: number;
   audioEnd?: number;
   volume?: number;
+  // For montage render
+  montageData?: {
+    aspectRatio: string;
+    duration: number;
+    tracks: Array<{
+      id: string;
+      type: 'video' | 'audio' | 'text';
+      name: string;
+      muted: boolean;
+    }>;
+    clips: Array<{
+      id: string;
+      type: 'video' | 'image' | 'audio' | 'text';
+      trackId: string;
+      start: number;
+      duration: number;
+      sourceStart?: number;
+      sourceEnd?: number;
+      assetUrl: string;
+      name: string;
+    }>;
+  };
 }
 
 /**
@@ -54,6 +76,9 @@ export async function processFFmpegJob(job: Job<FFmpegJobData>): Promise<void> {
         break;
       case 'music-overlay':
         await processMusicOverlay(data);
+        break;
+      case 'montage-render':
+        await processMontageRender(data);
         break;
       default:
         throw new Error(`Unknown FFmpeg operation: ${operation}`);
@@ -824,4 +849,331 @@ function runFFmpeg(
       reject(new Error(`FFmpeg spawn error: ${error.message}`));
     });
   });
+}
+
+/**
+ * Get dimensions from aspect ratio string
+ */
+function getAspectDimensions(aspectRatio: string): { width: number; height: number } {
+  const aspectDimensions: Record<string, { width: number; height: number }> = {
+    '16:9': { width: 1920, height: 1080 },
+    '9:16': { width: 1080, height: 1920 },
+    '1:1': { width: 1080, height: 1080 },
+    '4:5': { width: 1080, height: 1350 },
+    '2:3': { width: 1080, height: 1620 },
+    '21:9': { width: 2560, height: 1080 },
+  };
+  return aspectDimensions[aspectRatio] || { width: 1080, height: 1920 };
+}
+
+/**
+ * Process montage timeline render to MP4
+ */
+async function processMontageRender(data: FFmpegJobData): Promise<void> {
+  const { jobId, userId, projectId, shortId, montageData } = data;
+
+  if (!montageData || !montageData.clips || montageData.clips.length === 0) {
+    throw new Error('No clips in montage data');
+  }
+
+  const supabase = getSupabase();
+  await startJob(jobId, 'Préparation du rendu montage...');
+
+  const { width, height } = getAspectDimensions(montageData.aspectRatio);
+  const totalDuration = montageData.duration;
+
+  console.log(`[FFmpeg] Montage render: ${width}x${height}, ${totalDuration.toFixed(2)}s, ${montageData.clips.length} clips`);
+
+  // Create temp directory
+  const tempDir = join(tmpdir(), `ffmpeg-montage-${jobId}`);
+  await mkdir(tempDir, { recursive: true });
+
+  const tempFiles: string[] = [];
+  const outputPath = join(tempDir, 'montage_output.mp4');
+
+  try {
+    // Separate video/image clips from audio clips
+    const videoTracks = montageData.tracks.filter((t) => t.type === 'video' && !t.muted);
+    const audioTracks = montageData.tracks.filter((t) => t.type === 'audio' && !t.muted);
+
+    const videoClips = montageData.clips.filter(
+      (c) => (c.type === 'video' || c.type === 'image') && videoTracks.some((t) => t.id === c.trackId)
+    );
+    const audioClips = montageData.clips.filter(
+      (c) => c.type === 'audio' && audioTracks.some((t) => t.id === c.trackId)
+    );
+
+    console.log(`[FFmpeg] Video clips: ${videoClips.length}, Audio clips: ${audioClips.length}`);
+
+    if (videoClips.length === 0) {
+      throw new Error('No video clips to render');
+    }
+
+    // Download all assets
+    await updateJobProgress(jobId, 10, `Téléchargement de ${videoClips.length + audioClips.length} assets...`);
+
+    const downloadedFiles: Map<string, { path: string; type: 'video' | 'image' | 'audio' }> = new Map();
+    const allClips = [...videoClips, ...audioClips];
+
+    for (let i = 0; i < allClips.length; i++) {
+      const clip = allClips[i];
+      if (!clip.assetUrl) continue;
+
+      // Skip if already downloaded (same asset used multiple times)
+      if (downloadedFiles.has(clip.assetUrl)) continue;
+
+      await updateJobProgress(
+        jobId,
+        10 + (i / allClips.length) * 30,
+        `Téléchargement ${i + 1}/${allClips.length}...`
+      );
+
+      const publicUrl = await getPublicUrl(clip.assetUrl);
+      const response = await fetch(publicUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to download ${clip.name}: ${response.status}`);
+      }
+
+      const buffer = await response.arrayBuffer();
+      const ext = clip.type === 'audio' ? 'mp3' : clip.type === 'image' ? 'jpg' : 'mp4';
+      const filePath = join(tempDir, `asset_${downloadedFiles.size}.${ext}`);
+      await writeFile(filePath, Buffer.from(buffer));
+      tempFiles.push(filePath);
+
+      downloadedFiles.set(clip.assetUrl, { path: filePath, type: clip.type as 'video' | 'image' | 'audio' });
+      console.log(`[FFmpeg] Downloaded: ${clip.name} -> ${filePath}`);
+    }
+
+    // Build FFmpeg command with filter_complex
+    await updateJobProgress(jobId, 45, 'Construction du graphe de filtres...');
+
+    // Sort video clips by start time (for compositing order)
+    const sortedVideoClips = [...videoClips].sort((a, b) => a.start - b.start);
+
+    // Build input arguments
+    const inputArgs: string[] = [];
+    const inputIndexMap: Map<string, number> = new Map();
+    let inputIndex = 0;
+
+    // First input: black background
+    inputArgs.push('-f', 'lavfi', '-i', `color=black:s=${width}x${height}:d=${totalDuration}:r=30`);
+    inputIndex++;
+
+    // Add video/image inputs
+    for (const clip of sortedVideoClips) {
+      const file = downloadedFiles.get(clip.assetUrl);
+      if (!file) continue;
+
+      if (file.type === 'image') {
+        // For images, create a video stream with loop
+        inputArgs.push('-loop', '1', '-t', String(clip.duration), '-i', file.path);
+      } else {
+        inputArgs.push('-i', file.path);
+      }
+      inputIndexMap.set(clip.id, inputIndex);
+      inputIndex++;
+    }
+
+    // Add audio inputs
+    for (const clip of audioClips) {
+      const file = downloadedFiles.get(clip.assetUrl);
+      if (!file) continue;
+      inputArgs.push('-i', file.path);
+      inputIndexMap.set(clip.id, inputIndex);
+      inputIndex++;
+    }
+
+    // Build filter complex
+    const filterParts: string[] = [];
+    let lastVideoLabel = '0:v'; // Start with black background (no brackets - added when used)
+
+    // Process video clips - overlay each on top of the previous
+    for (let i = 0; i < sortedVideoClips.length; i++) {
+      const clip = sortedVideoClips[i];
+      const clipInputIdx = inputIndexMap.get(clip.id);
+      if (clipInputIdx === undefined) continue;
+
+      const sourceStart = clip.sourceStart || 0;
+      const clipDuration = clip.duration;
+      const timelineStart = clip.start;
+
+      // Scale and position the clip
+      const scaleLabel = `scaled${i}`;
+      const overlayLabel = i === sortedVideoClips.length - 1 ? 'vout' : `overlay${i}`;
+
+      // Trim source video and shift timestamps to timeline position
+      // Using setpts to position the clip at the correct time on the timeline
+      if (clip.type === 'video') {
+        filterParts.push(
+          `[${clipInputIdx}:v]trim=start=${sourceStart}:duration=${clipDuration},` +
+          `setpts=PTS-STARTPTS+${timelineStart}/TB,` +
+          `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2[${scaleLabel}]`
+        );
+      } else {
+        // Image - already looped with correct duration, shift to timeline position
+        filterParts.push(
+          `[${clipInputIdx}:v]setpts=PTS-STARTPTS+${timelineStart}/TB,` +
+          `scale=${width}:${height}:force_original_aspect_ratio=decrease,` +
+          `pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2[${scaleLabel}]`
+        );
+      }
+
+      // Overlay clip on top of previous result
+      // Keep enable as a safety guard for the clip's timeline range
+      const enableStart = timelineStart;
+      const enableEnd = timelineStart + clipDuration;
+
+      filterParts.push(
+        `[${lastVideoLabel}][${scaleLabel}]overlay=0:0:enable='between(t,${enableStart},${enableEnd})'[${overlayLabel}]`
+      );
+
+      // Next iteration uses this overlay's output (store WITHOUT brackets)
+      lastVideoLabel = overlayLabel;
+    }
+
+    // Process ALL audio sources: audio clips + audio from video clips
+    const audioLabels: string[] = [];
+    let audioLabelIndex = 0;
+
+    // 1. Audio from video clips (if they have audio streams)
+    for (let i = 0; i < sortedVideoClips.length; i++) {
+      const clip = sortedVideoClips[i];
+      if (clip.type !== 'video') continue; // Skip images
+
+      const clipInputIdx = inputIndexMap.get(clip.id);
+      if (clipInputIdx === undefined) continue;
+
+      const file = downloadedFiles.get(clip.assetUrl);
+      if (!file || file.type !== 'video') continue;
+
+      // Check if this video has audio
+      const hasAudio = await checkVideoHasAudio(file.path);
+      if (!hasAudio) {
+        console.log(`[FFmpeg] Video clip "${clip.name}" has no audio`);
+        continue;
+      }
+
+      const sourceStart = clip.sourceStart || 0;
+      const clipDuration = clip.duration;
+      const timelineStart = clip.start;
+      const audioLabel = `vaudio${audioLabelIndex++}`;
+
+      // Extract, trim and delay audio to match timeline position
+      // Note: We use adelay instead of asetpts because amix doesn't respect PTS timestamps
+      filterParts.push(
+        `[${clipInputIdx}:a]atrim=start=${sourceStart}:duration=${clipDuration},` +
+        `asetpts=PTS-STARTPTS,` +
+        `adelay=${Math.floor(timelineStart * 1000)}|${Math.floor(timelineStart * 1000)}[${audioLabel}]`
+      );
+      audioLabels.push(`[${audioLabel}]`);
+      console.log(`[FFmpeg] Added audio from video clip "${clip.name}" at ${timelineStart}s`);
+    }
+
+    // 2. Audio from dedicated audio clips
+    for (let i = 0; i < audioClips.length; i++) {
+      const clip = audioClips[i];
+      const clipInputIdx = inputIndexMap.get(clip.id);
+      if (clipInputIdx === undefined) continue;
+
+      const sourceStart = clip.sourceStart || 0;
+      const clipDuration = clip.duration;
+      const timelineStart = clip.start;
+      const audioLabel = `aclip${audioLabelIndex++}`;
+
+      // Trim and delay audio
+      filterParts.push(
+        `[${clipInputIdx}:a]atrim=start=${sourceStart}:duration=${clipDuration},` +
+        `asetpts=PTS-STARTPTS,` +
+        `adelay=${Math.floor(timelineStart * 1000)}|${Math.floor(timelineStart * 1000)}[${audioLabel}]`
+      );
+      audioLabels.push(`[${audioLabel}]`);
+    }
+
+    // Mix all audio sources
+    if (audioLabels.length === 1) {
+      // Single audio - just rename
+      filterParts.push(`${audioLabels[0]}acopy[aout]`);
+    } else if (audioLabels.length > 1) {
+      // Multiple audio - mix with normalize to prevent clipping
+      filterParts.push(`${audioLabels.join('')}amix=inputs=${audioLabels.length}:duration=longest:normalize=0[aout]`);
+    }
+
+    const filterComplex = filterParts.join(';');
+    console.log(`[FFmpeg] Filter complex length: ${filterComplex.length} chars`);
+    console.log(`[FFmpeg] Audio sources: ${audioLabels.length} (video audio + audio clips)`);
+
+    // Build final FFmpeg command
+    const hasAudio = audioLabels.length > 0;
+    const ffmpegArgs = [
+      ...inputArgs,
+      '-filter_complex', filterComplex,
+      '-map', '[vout]',
+      ...(hasAudio ? ['-map', '[aout]'] : []),
+      '-c:v', 'libx264',
+      '-preset', 'fast',
+      '-crf', '18',
+      ...(hasAudio ? ['-c:a', 'aac', '-b:a', '192k'] : ['-an']),
+      '-t', String(totalDuration),
+      '-movflags', '+faststart',
+      '-y',
+      outputPath,
+    ];
+
+    await updateJobProgress(jobId, 50, 'Rendu en cours...');
+
+    await runFFmpeg(ffmpegArgs, {
+      jobId,
+      baseProgress: 50,
+      progressRange: 35,
+      totalDuration,
+      onProgress: (progress, message) => updateJobProgress(jobId, progress, message),
+    });
+
+    tempFiles.push(outputPath);
+
+    // Upload result
+    await updateJobProgress(jobId, 90, 'Sauvegarde du résultat...');
+
+    const { readFile } = await import('fs/promises');
+    const outputBuffer = await readFile(outputPath);
+    const storageKey = `montage/${userId.replace(/[|]/g, '_')}/${projectId}/${shortId}_montage_${Date.now()}.mp4`;
+    const b2Url = await uploadFile(storageKey, outputBuffer, 'video/mp4');
+
+    // Update scene with montage video URL
+    // Also update assembled_video_url so it appears in the shorts list
+    await supabase
+      .from('scenes')
+      .update({
+        montage_video_url: b2Url,
+        montage_rendered_at: new Date().toISOString(),
+        assembled_video_url: b2Url,
+        assembled_video_duration: totalDuration,
+      })
+      .eq('id', shortId);
+
+    await completeJob(jobId, {
+      outputUrl: b2Url,
+      clipCount: montageData.clips.length,
+      duration: totalDuration,
+    });
+
+    console.log(`[FFmpeg] Montage render job ${jobId} completed`);
+
+  } finally {
+    // Cleanup temp files
+    for (const file of tempFiles) {
+      try {
+        await unlink(file);
+      } catch {
+        // Ignore cleanup errors
+      }
+    }
+    try {
+      const { rmdir } = await import('fs/promises');
+      await rmdir(tempDir, { recursive: true });
+    } catch {
+      // Ignore cleanup errors
+    }
+  }
 }

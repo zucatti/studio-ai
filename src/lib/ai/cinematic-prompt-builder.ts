@@ -166,11 +166,14 @@ function getVoiceReference(
 /**
  * Build prompt from segments within a single plan
  * Used when plan.segments is populated (new segment-based workflow)
+ *
+ * @param planDescription - The plan's description, always included if present
  */
 function buildSegmentsPrompt(
   segments: Segment[],
   characters: Map<string, GlobalAsset>,
-  dialogueLanguage: string = 'en'
+  dialogueLanguage: string = 'en',
+  planDescription?: string | null
 ): string {
   const lines: string[] = [];
 
@@ -212,17 +215,25 @@ function buildSegmentsPrompt(
       visualParts.push(segment.action);
     }
 
+    // Segment description (this is the main content!)
+    if (segment.description) {
+      visualParts.push(segment.description);
+    }
+
     // Camera movement
     const movementLabel = getCameraMovementLabel(segment.camera_movement || null);
     if (movementLabel) {
       visualParts.push(movementLabel);
     }
 
-    // If no visual context and we have dialogue beats, add a default visual description
-    // based on the subject to give the model something to render before speech starts
+    // Fallback to plan description if segment has no description
+    if (visualParts.length === 0 && planDescription) {
+      visualParts.push(planDescription);
+    }
+
+    // If still no visual context and we have dialogue beats, add a default visual anchor
     const hasDialogueBeats = segment.beats?.some(b => b.type === 'dialogue');
     if (visualParts.length === 0 && hasDialogueBeats) {
-      // Add a minimal visual anchor based on subject
       visualParts.push(`${subject} in frame`);
     }
 
@@ -349,7 +360,8 @@ export function buildCinematicPrompt(
     // ========================================
     if (plan.segments && plan.segments.length > 0) {
       // New segment-based workflow
-      const segmentsPrompt = buildSegmentsPrompt(plan.segments, characters, dialogueLanguage);
+      // Always include plan.description in the prompt (main shot description)
+      const segmentsPrompt = buildSegmentsPrompt(plan.segments, characters, dialogueLanguage, plan.description);
       lines.push(segmentsPrompt);
     } else {
       // Legacy: Use plan-level fields
