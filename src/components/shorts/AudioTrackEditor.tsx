@@ -385,8 +385,13 @@ export function AudioTrackEditor({
       extractFrame();
     };
 
-    video.onerror = (e) => {
-      console.error('[AudioTrackEditor] Video thumbnail error:', e);
+    video.onerror = () => {
+      const error = video.error;
+      console.error('[AudioTrackEditor] Video thumbnail error:', {
+        code: error?.code,
+        message: error?.message,
+        proxiedUrl: proxiedVideoUrl?.substring(0, 100),
+      });
       setVideoThumbnails([]);
     };
 
