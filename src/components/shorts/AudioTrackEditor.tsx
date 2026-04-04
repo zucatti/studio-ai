@@ -357,10 +357,6 @@ export function AudioTrackEditor({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Small thumbnails for filmstrip
-    canvas.width = 80;
-    canvas.height = 45;
-
     const extractedThumbnails: string[] = [];
     let currentIndex = 0;
 
@@ -389,6 +385,12 @@ export function AudioTrackEditor({
 
     video.oncanplaythrough = () => {
       if (cancelled) return;
+      // Set canvas dimensions based on actual video aspect ratio
+      const videoAspect = video.videoWidth / video.videoHeight;
+      const thumbHeight = 45;
+      const thumbWidth = Math.round(thumbHeight * videoAspect);
+      canvas.width = thumbWidth;
+      canvas.height = thumbHeight;
       extractFrame();
     };
 
