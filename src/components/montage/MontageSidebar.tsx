@@ -118,36 +118,39 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
     fetchSequences();
   }, [projectId, shortId, short?.plans, setAssets]);
 
-  // Fetch videos (rushes with video_url + shots with generated_video_url)
+  // Fetch videos from plans that have generated videos
   useEffect(() => {
     const fetchVideos = async () => {
       setIsLoadingVideos(true);
       try {
         const videoAssets: MontageAsset[] = [];
 
-        // Fetch rushes
-        const rushesRes = await fetch(`/api/projects/${projectId}/rush`);
-        const rushes = rushesRes.ok ? await rushesRes.json() : { images: [] };
-        const rushImages = Array.isArray(rushes) ? rushes : (rushes.images || []);
+        // Get videos from all shorts in this project
+        const shortsRes = await fetch(`/api/projects/${projectId}/shorts`);
+        const shortsData = shortsRes.ok ? await shortsRes.json() : { shorts: [] };
+        const shorts = shortsData.shorts || [];
 
-        // Add rush videos only
-        rushImages.forEach((rush: any) => {
-          if (rush.video_url) {
-            videoAssets.push({
-              id: rush.id,
-              type: 'rush',
-              name: rush.name || rush.prompt?.substring(0, 30) || 'Rush vidéo',
-              url: rush.video_url,
-              thumbnailUrl: rush.thumbnail_url,
-              duration: rush.duration,
-              metadata: { prompt: rush.prompt },
-            });
+        // Collect all plans with generated videos
+        for (const s of shorts) {
+          const plans = s.shots || [];
+          for (const plan of plans) {
+            if (plan.generated_video_url) {
+              videoAssets.push({
+                id: plan.id,
+                type: 'video',
+                name: plan.title || plan.description?.substring(0, 30) || `Plan ${plan.shot_number}`,
+                url: plan.generated_video_url,
+                thumbnailUrl: plan.storyboard_image_url || plan.first_frame_url,
+                duration: plan.duration,
+                metadata: {
+                  shortId: s.id,
+                  shortTitle: s.title,
+                  shotNumber: plan.shot_number,
+                },
+              });
+            }
           }
-        });
-
-        // Fetch all shots with videos (not in this short)
-        // For now, use the rush videos only
-        // TODO: Add shots from other sources if needed
+        }
 
         // Update store
         const currentAssets = useMontageStore.getState().assets;
@@ -203,30 +206,28 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
     fetchImages();
   }, [projectId, setAssets]);
 
-  // Fetch audio from Bible
+  // Fetch audio from global assets (Bible)
   useEffect(() => {
     const fetchAudio = async () => {
       setIsLoadingAudio(true);
       try {
-        const res = await fetch(`/api/projects/${projectId}/bible`);
+        const res = await fetch('/api/global-assets?type=audio');
         const data = res.ok ? await res.json() : { assets: [] };
 
         const audioAssets: MontageAsset[] = [];
 
         (data.assets || []).forEach((asset: any) => {
-          if (asset.asset_type === 'audio') {
-            audioAssets.push({
-              id: asset.id,
-              type: 'audio',
-              name: asset.name,
-              url: asset.data?.fileUrl || '',
-              duration: asset.data?.duration,
-              metadata: {
-                artist: asset.data?.artist,
-                album: asset.data?.album,
-              },
-            });
-          }
+          audioAssets.push({
+            id: asset.id,
+            type: 'audio',
+            name: asset.name,
+            url: asset.data?.fileUrl || asset.data?.url || '',
+            duration: asset.data?.duration,
+            metadata: {
+              artist: asset.data?.artist,
+              album: asset.data?.album,
+            },
+          });
         });
 
         // Update store
@@ -241,7 +242,7 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
     };
 
     fetchAudio();
-  }, [projectId, setAssets]);
+  }, [setAssets]);
 
   // Get loading state for current tab
   const isLoading = useMemo(() => {
