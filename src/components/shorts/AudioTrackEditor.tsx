@@ -351,7 +351,7 @@ export function AudioTrackEditor({
     const video = document.createElement('video');
     video.crossOrigin = 'anonymous';
     video.muted = true;
-    video.preload = 'metadata';
+    video.preload = 'auto'; // Need full video data for frame extraction
 
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -377,13 +377,17 @@ export function AudioTrackEditor({
 
     video.onseeked = () => {
       if (cancelled) return;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      extractedThumbnails.push(canvas.toDataURL('image/jpeg', 0.6));
-      currentIndex++;
-      extractFrame();
+      // Wait a frame for the video to fully decode after seeking
+      requestAnimationFrame(() => {
+        if (cancelled) return;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        extractedThumbnails.push(canvas.toDataURL('image/jpeg', 0.6));
+        currentIndex++;
+        extractFrame();
+      });
     };
 
-    video.onloadedmetadata = () => {
+    video.oncanplaythrough = () => {
       if (cancelled) return;
       extractFrame();
     };
@@ -403,7 +407,7 @@ export function AudioTrackEditor({
 
     return () => {
       cancelled = true;
-      video.onloadedmetadata = null;
+      video.oncanplaythrough = null;
       video.onseeked = null;
       video.onerror = null;
     };
