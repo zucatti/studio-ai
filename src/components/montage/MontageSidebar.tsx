@@ -132,7 +132,8 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
 
         // Collect all plans with generated videos
         for (const s of shorts) {
-          const plans = s.shots || [];
+          // API returns 'plans', not 'shots'
+          const plans = s.plans || [];
           for (const plan of plans) {
             if (plan.generated_video_url) {
               videoAssets.push({
@@ -206,28 +207,32 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
     fetchImages();
   }, [projectId, setAssets]);
 
-  // Fetch audio from global assets (Bible)
+  // Fetch audio from project assets (Bible du projet)
   useEffect(() => {
     const fetchAudio = async () => {
       setIsLoadingAudio(true);
       try {
-        const res = await fetch('/api/global-assets?type=audio');
+        // Fetch project-specific assets (linked via project_assets table)
+        const res = await fetch(`/api/projects/${projectId}/assets`);
         const data = res.ok ? await res.json() : { assets: [] };
 
         const audioAssets: MontageAsset[] = [];
 
         (data.assets || []).forEach((asset: any) => {
-          audioAssets.push({
-            id: asset.id,
-            type: 'audio',
-            name: asset.name,
-            url: asset.data?.fileUrl || asset.data?.url || '',
-            duration: asset.data?.duration,
-            metadata: {
-              artist: asset.data?.artist,
-              album: asset.data?.album,
-            },
-          });
+          // Only include audio assets
+          if (asset.asset_type === 'audio') {
+            audioAssets.push({
+              id: asset.id,
+              type: 'audio',
+              name: asset.name,
+              url: asset.data?.fileUrl || asset.data?.url || '',
+              duration: asset.data?.duration,
+              metadata: {
+                artist: asset.data?.artist,
+                album: asset.data?.album,
+              },
+            });
+          }
         });
 
         // Update store
@@ -242,7 +247,7 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
     };
 
     fetchAudio();
-  }, [setAssets]);
+  }, [projectId, setAssets]);
 
   // Get loading state for current tab
   const isLoading = useMemo(() => {
