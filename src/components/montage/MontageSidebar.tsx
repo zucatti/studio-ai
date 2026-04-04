@@ -2,113 +2,261 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useMontageStore, MontageAsset, ClipType } from '@/store/montage-store';
+import { useShortsStore } from '@/store/shorts-store';
 import { cn } from '@/lib/utils';
 import { useSignedUrl } from '@/hooks/use-signed-url';
 import {
   Film,
   Image,
   Music,
-  Folder,
+  Layers,
   Search,
   GripVertical,
   Play,
-  Clock,
   Plus,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import type { Sequence } from '@/types/cinematic';
 
 interface MontageSidebarProps {
   projectId: string;
+  shortId: string;
   className?: string;
 }
 
-type AssetCategory = 'rushes' | 'videos' | 'images' | 'audio';
+type AssetCategory = 'sequences' | 'videos' | 'images' | 'audio';
 
 const CATEGORY_ICONS: Record<AssetCategory, typeof Film> = {
-  rushes: Folder,
+  sequences: Layers,
   videos: Film,
   images: Image,
   audio: Music,
 };
 
 const CATEGORY_LABELS: Record<AssetCategory, string> = {
-  rushes: 'Rushes',
+  sequences: 'Séquences',
   videos: 'Vidéos',
   images: 'Images',
   audio: 'Audio',
 };
 
-export function MontageSidebar({ projectId, className }: MontageSidebarProps) {
-  const [activeTab, setActiveTab] = useState<AssetCategory>('rushes');
+export function MontageSidebar({ projectId, shortId, className }: MontageSidebarProps) {
+  const [activeTab, setActiveTab] = useState<AssetCategory>('sequences');
   const [searchQuery, setSearchQuery] = useState('');
   const { assets, setAssets, setLoadingAssets, isLoadingAssets } = useMontageStore();
 
-  // Fetch assets from API
+  // Get short data from store (already loaded by parent page)
+  const { getShortById, fetchShorts, isLoading: isShortsLoading } = useShortsStore();
+  const short = getShortById(shortId);
+
+  // Local loading states for each category
+  const [isLoadingSequences, setIsLoadingSequences] = useState(false);
+  const [isLoadingVideos, setIsLoadingVideos] = useState(false);
+  const [isLoadingImages, setIsLoadingImages] = useState(false);
+  const [isLoadingAudio, setIsLoadingAudio] = useState(false);
+
+  // Sequences state (fetched separately since store might not have them)
+  const [sequences, setSequences] = useState<Sequence[]>([]);
+
+  // Fetch sequences from the short
   useEffect(() => {
-    const fetchAssets = async () => {
-      setLoadingAssets(true);
+    if (!shortId) return;
+
+    const fetchSequences = async () => {
+      setIsLoadingSequences(true);
       try {
+        // Fetch sequences
+        const seqRes = await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences`);
+        const seqData = seqRes.ok ? await seqRes.json() : { sequences: [] };
+        const fetchedSequences: Sequence[] = seqData.sequences || [];
+        setSequences(fetchedSequences);
+
+        // Get plans from the short in the store
+        const plans = short?.plans || [];
+
+        // Create sequence assets
+        const sequenceAssets: MontageAsset[] = [];
+
+        for (const seq of fetchedSequences) {
+          // Find plans in this sequence
+          const seqPlans = plans.filter(p => p.sequence_id === seq.id);
+          const totalDuration = seqPlans.reduce((sum, p) => sum + (p.duration || 0), 0);
+
+          // Use assembled video if available, otherwise use first plan's video
+          const videoUrl = seq.assembled_video_url || seqPlans.find(p => p.generated_video_url)?.generated_video_url;
+          const thumbnailUrl = seqPlans[0]?.storyboard_image_url || seqPlans[0]?.generated_video_url;
+
+          if (videoUrl || thumbnailUrl || seqPlans.length > 0) {
+            sequenceAssets.push({
+              id: seq.id,
+              type: 'sequence',
+              name: seq.title || `Séquence ${seq.sort_order + 1}`,
+              url: videoUrl || '',
+              thumbnailUrl: thumbnailUrl,
+              duration: totalDuration,
+              metadata: {
+                planCount: seqPlans.length,
+                hasAssembledVideo: !!seq.assembled_video_url,
+              },
+            });
+          }
+        }
+
+        // Update store - merge with existing assets
+        setAssets((prev: MontageAsset[]) => {
+          const filtered = prev.filter(a => a.type !== 'sequence');
+          return [...filtered, ...sequenceAssets];
+        });
+      } catch (error) {
+        console.error('[MontageSidebar] Failed to fetch sequences:', error);
+      } finally {
+        setIsLoadingSequences(false);
+      }
+    };
+
+    fetchSequences();
+  }, [projectId, shortId, short?.plans, setAssets]);
+
+  // Fetch videos (rushes with video_url + shots with generated_video_url)
+  useEffect(() => {
+    const fetchVideos = async () => {
+      setIsLoadingVideos(true);
+      try {
+        const videoAssets: MontageAsset[] = [];
+
         // Fetch rushes
         const rushesRes = await fetch(`/api/projects/${projectId}/rush`);
-        const rushes = rushesRes.ok ? await rushesRes.json() : [];
+        const rushes = rushesRes.ok ? await rushesRes.json() : { images: [] };
+        const rushImages = Array.isArray(rushes) ? rushes : (rushes.images || []);
 
-        // Fetch Bible assets (audio, images)
-        const bibleRes = await fetch(`/api/projects/${projectId}/bible`);
-        const bibleData = bibleRes.ok ? await bibleRes.json() : { assets: [] };
-
-        // Transform to MontageAsset format
-        const montageAssets: MontageAsset[] = [];
-
-        // Add rushes - API returns { images: [...] }
-        const rushImages = Array.isArray(rushes) ? rushes : (rushes.images || rushes.rushes || []);
+        // Add rush videos only
         rushImages.forEach((rush: any) => {
           if (rush.video_url) {
-            montageAssets.push({
+            videoAssets.push({
               id: rush.id,
               type: 'rush',
-              name: rush.name || rush.prompt?.substring(0, 30) || 'Rush',
+              name: rush.name || rush.prompt?.substring(0, 30) || 'Rush vidéo',
               url: rush.video_url,
               thumbnailUrl: rush.thumbnail_url,
               duration: rush.duration,
               metadata: { prompt: rush.prompt },
             });
-          } else if (rush.image_url) {
-            montageAssets.push({
-              id: rush.id,
-              type: 'image',
-              name: rush.name || rush.prompt?.substring(0, 30) || 'Image',
-              url: rush.image_url,
-              thumbnailUrl: rush.image_url,
-              metadata: { prompt: rush.prompt },
-            });
           }
         });
 
-        // Add Bible audio assets
-        (bibleData.assets || []).forEach((asset: any) => {
+        // Fetch all shots with videos (not in this short)
+        // For now, use the rush videos only
+        // TODO: Add shots from other sources if needed
+
+        // Update store
+        setAssets((prev: MontageAsset[]) => {
+          const filtered = prev.filter(a => a.type !== 'rush' && a.type !== 'video');
+          return [...filtered, ...videoAssets];
+        });
+      } catch (error) {
+        console.error('[MontageSidebar] Failed to fetch videos:', error);
+      } finally {
+        setIsLoadingVideos(false);
+      }
+    };
+
+    fetchVideos();
+  }, [projectId, setAssets]);
+
+  // Fetch images from gallery
+  useEffect(() => {
+    const fetchImages = async () => {
+      setIsLoadingImages(true);
+      try {
+        const res = await fetch('/api/gallery');
+        const data = res.ok ? await res.json() : { images: [] };
+
+        // Filter to only this project's images
+        const projectImages = (data.images || []).filter(
+          (img: any) => img.projectId === projectId
+        );
+
+        const imageAssets: MontageAsset[] = projectImages.map((img: any) => ({
+          id: img.id,
+          type: img.type === 'storyboard' ? 'storyboard' : 'image',
+          name: img.description?.substring(0, 30) || `Image ${img.shotNumber || ''}`,
+          url: img.url,
+          thumbnailUrl: img.url,
+          metadata: {
+            shotNumber: img.shotNumber,
+            sceneNumber: img.sceneNumber,
+            imageType: img.type,
+          },
+        }));
+
+        // Update store
+        setAssets((prev: MontageAsset[]) => {
+          const filtered = prev.filter(a => a.type !== 'image' && a.type !== 'storyboard');
+          return [...filtered, ...imageAssets];
+        });
+      } catch (error) {
+        console.error('[MontageSidebar] Failed to fetch images:', error);
+      } finally {
+        setIsLoadingImages(false);
+      }
+    };
+
+    fetchImages();
+  }, [projectId, setAssets]);
+
+  // Fetch audio from Bible
+  useEffect(() => {
+    const fetchAudio = async () => {
+      setIsLoadingAudio(true);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/bible`);
+        const data = res.ok ? await res.json() : { assets: [] };
+
+        const audioAssets: MontageAsset[] = [];
+
+        (data.assets || []).forEach((asset: any) => {
           if (asset.asset_type === 'audio') {
-            montageAssets.push({
+            audioAssets.push({
               id: asset.id,
               type: 'audio',
               name: asset.name,
               url: asset.data?.fileUrl || '',
               duration: asset.data?.duration,
+              metadata: {
+                artist: asset.data?.artist,
+                album: asset.data?.album,
+              },
             });
           }
         });
 
-        setAssets(montageAssets);
+        // Update store
+        setAssets((prev: MontageAsset[]) => {
+          const filtered = prev.filter(a => a.type !== 'audio');
+          return [...filtered, ...audioAssets];
+        });
       } catch (error) {
-        console.error('[MontageSidebar] Failed to fetch assets:', error);
+        console.error('[MontageSidebar] Failed to fetch audio:', error);
       } finally {
-        setLoadingAssets(false);
+        setIsLoadingAudio(false);
       }
     };
 
-    fetchAssets();
-  }, [projectId, setAssets, setLoadingAssets]);
+    fetchAudio();
+  }, [projectId, setAssets]);
+
+  // Get loading state for current tab
+  const isLoading = useMemo(() => {
+    switch (activeTab) {
+      case 'sequences': return isLoadingSequences;
+      case 'videos': return isLoadingVideos;
+      case 'images': return isLoadingImages;
+      case 'audio': return isLoadingAudio;
+      default: return false;
+    }
+  }, [activeTab, isLoadingSequences, isLoadingVideos, isLoadingImages, isLoadingAudio]);
 
   // Filter assets by category and search
   const filteredAssets = useMemo(() => {
@@ -116,8 +264,8 @@ export function MontageSidebar({ projectId, className }: MontageSidebarProps) {
       // Category filter
       let matches = false;
       switch (activeTab) {
-        case 'rushes':
-          matches = asset.type === 'rush';
+        case 'sequences':
+          matches = asset.type === 'sequence';
           break;
         case 'videos':
           matches = asset.type === 'video' || asset.type === 'rush';
@@ -139,6 +287,16 @@ export function MontageSidebar({ projectId, className }: MontageSidebarProps) {
     });
   }, [assets, activeTab, searchQuery]);
 
+  // Get counts for each category
+  const categoryCounts = useMemo(() => {
+    return {
+      sequences: assets.filter(a => a.type === 'sequence').length,
+      videos: assets.filter(a => a.type === 'video' || a.type === 'rush').length,
+      images: assets.filter(a => a.type === 'image' || a.type === 'storyboard').length,
+      audio: assets.filter(a => a.type === 'audio').length,
+    };
+  }, [assets]);
+
   return (
     <div className={cn('flex flex-col', className)}>
       {/* Header */}
@@ -155,19 +313,25 @@ export function MontageSidebar({ projectId, className }: MontageSidebarProps) {
         </div>
       </div>
 
-      {/* Category tabs - icons only */}
+      {/* Category tabs - icons only with counts */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AssetCategory)}>
         <TabsList className="w-full justify-center gap-1 p-1 bg-transparent border-b border-white/5 rounded-none">
           {(Object.keys(CATEGORY_ICONS) as AssetCategory[]).map((category) => {
             const Icon = CATEGORY_ICONS[category];
+            const count = categoryCounts[category];
             return (
               <TabsTrigger
                 key={category}
                 value={category}
-                className="p-2 rounded data-[state=active]:bg-white/10"
-                title={CATEGORY_LABELS[category]}
+                className="relative p-2 rounded data-[state=active]:bg-white/10"
+                title={`${CATEGORY_LABELS[category]} (${count})`}
               >
                 <Icon className="w-4 h-4" />
+                {count > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-purple-500 text-[9px] font-medium text-white">
+                    {count > 99 ? '99+' : count}
+                  </span>
+                )}
               </TabsTrigger>
             );
           })}
@@ -176,13 +340,16 @@ export function MontageSidebar({ projectId, className }: MontageSidebarProps) {
         {/* Assets list */}
         <ScrollArea className="flex-1">
           <div className="p-1 space-y-0.5">
-            {isLoadingAssets ? (
+            {isLoading ? (
               <div className="flex items-center justify-center py-8 text-slate-500">
                 <div className="animate-spin w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full" />
               </div>
             ) : filteredAssets.length === 0 ? (
               <div className="text-center py-8 text-slate-500 text-xs">
-                Aucun élément trouvé
+                {activeTab === 'sequences' && 'Aucune séquence'}
+                {activeTab === 'videos' && 'Aucune vidéo'}
+                {activeTab === 'images' && 'Aucune image'}
+                {activeTab === 'audio' && 'Aucun audio'}
               </div>
             ) : (
               filteredAssets.map((asset) => (
@@ -241,7 +408,7 @@ function AssetItem({ asset }: { asset: MontageAsset }) {
       assetUrl: asset.url,
       thumbnailUrl: asset.thumbnailUrl,
       name: asset.name,
-      color: asset.type === 'audio' ? '#22c55e' : '#8b5cf6',
+      color: asset.type === 'audio' ? '#22c55e' : asset.type === 'sequence' ? '#8b5cf6' : '#3b82f6',
       volume: 1,
     });
   }, [asset, tracks, addTrack, addClip]);
@@ -253,6 +420,19 @@ function AssetItem({ asset }: { asset: MontageAsset }) {
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
+
+  // Get icon for asset type
+  const getIcon = () => {
+    switch (asset.type) {
+      case 'sequence': return Layers;
+      case 'audio': return Music;
+      case 'image':
+      case 'storyboard': return Image;
+      default: return Film;
+    }
+  };
+
+  const Icon = getIcon();
 
   return (
     <div
@@ -282,7 +462,7 @@ function AssetItem({ asset }: { asset: MontageAsset }) {
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
-            <Film className="w-5 h-5 text-slate-600" />
+            <Icon className="w-5 h-5 text-slate-600" />
           </div>
         )}
 
@@ -293,8 +473,15 @@ function AssetItem({ asset }: { asset: MontageAsset }) {
           </div>
         )}
 
+        {/* Sequence badge */}
+        {asset.type === 'sequence' && (
+          <div className="absolute top-0.5 left-0.5 px-1 py-0.5 bg-purple-500/80 rounded text-[8px] text-white font-medium">
+            SEQ
+          </div>
+        )}
+
         {/* Play icon overlay */}
-        {(asset.type === 'rush' || asset.type === 'video') && (
+        {(asset.type === 'rush' || asset.type === 'video' || asset.type === 'sequence') && (
           <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 bg-black/30 transition-opacity">
             <Play className="w-4 h-4 text-white" fill="white" />
           </div>
@@ -305,7 +492,11 @@ function AssetItem({ asset }: { asset: MontageAsset }) {
       <div className="flex-1 min-w-0">
         <p className="text-xs text-white/90 truncate">{asset.name}</p>
         <p className="text-[10px] text-slate-500 truncate">
-          {asset.type === 'rush' ? 'Rush' : asset.type}
+          {asset.type === 'sequence' && `${(asset.metadata as any)?.planCount || 0} plans`}
+          {asset.type === 'rush' && 'Rush'}
+          {asset.type === 'video' && 'Vidéo'}
+          {(asset.type === 'image' || asset.type === 'storyboard') && 'Image'}
+          {asset.type === 'audio' && 'Audio'}
           {asset.duration && ` • ${formatDuration(asset.duration)}`}
         </p>
       </div>

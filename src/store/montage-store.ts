@@ -51,7 +51,7 @@ export interface MontageTrack {
 
 export interface MontageAsset {
   id: string;
-  type: 'rush' | 'video' | 'audio' | 'image' | 'storyboard';
+  type: 'rush' | 'video' | 'audio' | 'image' | 'storyboard' | 'sequence';
   name: string;
   url: string;
   thumbnailUrl?: string;

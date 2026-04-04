@@ -109,6 +109,7 @@ export function TimelineEditor({
         {/* Sidebar - Asset browser */}
         <MontageSidebar
           projectId={projectId}
+          shortId={shortId}
           className="w-64 flex-shrink-0 border-r border-white/10"
         />
 
