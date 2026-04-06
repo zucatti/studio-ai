@@ -15,8 +15,9 @@ import type {
   Weather,
   CameraTypeCinematic,
   ColorStyle,
-  ToneGenre,
+  CinematicStyle,
 } from '@/types/cinematic';
+import { CINEMATIC_STYLE_OPTIONS } from '@/types/cinematic';
 
 // ============================================================================
 // Scene setting mappings
@@ -113,16 +114,20 @@ const COLOR_STYLE_TEXT: Record<ColorStyle, string> = {
   saturated: 'highly saturated vivid colors',
 };
 
-const GENRE_TEXT: Record<ToneGenre, string> = {
-  action: 'action',
-  comedy: 'comedy',
-  documentary: 'documentary',
-  horror: 'horror',
-  intimate: 'intimate drama',
-  spectacle: 'epic spectacle',
-  suspense: 'suspense thriller',
-  western: 'western',
-};
+/**
+ * Get the style bible text for a cinematic style
+ * @param style - The cinematic style preset
+ * @param customStyleBible - Custom style bible text (used when style is 'custom')
+ */
+export function getStyleBibleFromCinematicStyle(
+  style: CinematicStyle | undefined,
+  customStyleBible?: string
+): string {
+  if (!style) return '';
+  if (style === 'custom') return customStyleBible || '';
+  const option = CINEMATIC_STYLE_OPTIONS.find(opt => opt.value === style);
+  return option?.styleBible || '';
+}
 
 // ============================================================================
 // Main conversion function
@@ -197,10 +202,7 @@ export function cinematicHeaderToPrompt(config: CinematicHeaderConfig, locationN
     sections.push(`COLOR GRADE: ${COLOR_STYLE_TEXT[config.color_grade.style]}.`);
   }
 
-  // Build TONE section
-  if (config.tone) {
-    sections.push(`TONE: ${GENRE_TEXT[config.tone.genre]} atmosphere.`);
-  }
+  // Note: TONE section removed - now using CinematicStyle presets with Style Bible instead
 
   // Build CAST section (if provided)
   if (config.cast && config.cast.count > 0) {
@@ -233,6 +235,7 @@ export function cinematicHeaderToPrompt(config: CinematicHeaderConfig, locationN
  */
 export function createDefaultCinematicHeader(): CinematicHeaderConfig {
   return {
+    cinematic_style: 'cinematic_realism',
     lighting: {
       type: 'natural',
       style: 'soft',
@@ -244,96 +247,114 @@ export function createDefaultCinematicHeader(): CinematicHeaderConfig {
     color_grade: {
       style: 'cinematic',
     },
-    tone: {
-      genre: 'intimate',
-    },
   };
 }
 
 /**
- * Create a preset based on genre
+ * Create a preset based on cinematic style
+ * Maps CinematicStyle to appropriate lighting, camera, and color settings
  */
-export function createGenrePreset(genre: ToneGenre): CinematicHeaderConfig {
+export function createStylePreset(style: CinematicStyle): CinematicHeaderConfig {
   const base = createDefaultCinematicHeader();
 
-  switch (genre) {
-    case 'action':
+  switch (style) {
+    case 'hollywood_blockbuster':
       return {
         ...base,
+        cinematic_style: style,
         lighting: { type: 'mixed', style: 'dramatic' },
-        time_of_day: 'afternoon',
-        camera: { type: 'handheld' },
+        time_of_day: 'golden_hour',
+        camera: { type: 'steadicam' },
         color_grade: { style: 'teal_orange' },
-        tone: { genre: 'action' },
       };
 
-    case 'comedy':
+    case 'film_noir':
       return {
         ...base,
+        cinematic_style: style,
+        lighting: { type: 'artificial', style: 'low_key' },
+        time_of_day: 'night',
+        camera: { type: 'tripod' },
+        color_grade: { style: 'black_white' },
+      };
+
+    case 'wes_anderson':
+      return {
+        ...base,
+        cinematic_style: style,
         lighting: { type: 'natural', style: 'high_key' },
         time_of_day: 'morning',
-        color_grade: { style: 'modern' },
-        tone: { genre: 'comedy' },
+        camera: { type: 'tripod' },
+        color_grade: { style: 'pastel' },
       };
 
-    case 'horror':
+    case 'christopher_nolan':
       return {
         ...base,
+        cinematic_style: style,
+        lighting: { type: 'natural', style: 'dramatic' },
+        time_of_day: 'afternoon',
+        camera: { type: 'steadicam' },
+        color_grade: { style: 'cinematic' },
+      };
+
+    case 'blade_runner':
+      return {
+        ...base,
+        cinematic_style: style,
         lighting: { type: 'artificial', style: 'low_key' },
         time_of_day: 'night',
-        weather: 'fog',
-        color_grade: { style: 'noir' },
-        tone: { genre: 'horror' },
+        weather: 'rain',
+        camera: { type: 'steadicam' },
+        color_grade: { style: 'teal_orange' },
       };
 
-    case 'intimate':
+    case 'studio_ghibli':
       return {
         ...base,
+        cinematic_style: style,
         lighting: { type: 'natural', style: 'soft' },
         time_of_day: 'golden_hour',
+        camera: { type: 'tripod' },
         color_grade: { style: 'pastel' },
-        tone: { genre: 'intimate' },
       };
 
-    case 'spectacle':
+    case 'vintage_vhs':
       return {
         ...base,
-        lighting: { type: 'artificial', style: 'dramatic' },
-        time_of_day: 'night',
-        camera: { type: 'steadicam' },
-        color_grade: { style: 'saturated' },
-        tone: { genre: 'spectacle' },
-      };
-
-    case 'suspense':
-      return {
-        ...base,
-        lighting: { type: 'artificial', style: 'low_key' },
-        time_of_day: 'night',
-        color_grade: { style: 'teal_orange' },
-        tone: { genre: 'suspense' },
-      };
-
-    case 'western':
-      return {
-        ...base,
-        lighting: { type: 'natural', style: 'harsh' },
-        time_of_day: 'golden_hour',
-        color_grade: { style: 'cinematic' },
-        tone: { genre: 'western' },
+        cinematic_style: style,
+        lighting: { type: 'mixed', style: 'soft' },
+        time_of_day: 'afternoon',
+        camera: { type: 'handheld' },
+        color_grade: { style: 'vintage' },
       };
 
     case 'documentary':
       return {
         ...base,
+        cinematic_style: style,
         lighting: { type: 'natural', style: 'soft' },
         time_of_day: 'afternoon',
         camera: { type: 'handheld' },
         color_grade: { style: 'modern' },
-        tone: { genre: 'documentary' },
       };
 
+    case 'epic_fantasy':
+      return {
+        ...base,
+        cinematic_style: style,
+        lighting: { type: 'natural', style: 'dramatic' },
+        time_of_day: 'golden_hour',
+        weather: 'fog',
+        camera: { type: 'crane' },
+        color_grade: { style: 'cinematic' },
+      };
+
+    case 'cinematic_realism':
     default:
-      return base;
+      return {
+        ...base,
+        cinematic_style: 'cinematic_realism',
+      };
   }
 }

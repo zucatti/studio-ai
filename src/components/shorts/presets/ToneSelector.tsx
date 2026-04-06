@@ -11,21 +11,21 @@ interface ToneSelectorProps {
   onChange: (value: ToneSelectorProps['value']) => void;
 }
 
-// Genre options with video or image
+// Genre options with GIF images
 const GENRE_CARDS: {
   value: ToneGenre;
   label: string;
   video?: string;
   image?: string;
 }[] = [
-  { value: 'action', label: 'Action', video: '/img/Action.mp4' },
-  { value: 'comedy', label: 'Comedy', video: '/img/Comedy.mp4' },
-  { value: 'documentary', label: 'Documentary', video: '/img/Documentary.mp4' },
-  { value: 'horror', label: 'Horror', video: '/img/HOROR.mp4' },
-  { value: 'intimate', label: 'Intimate', video: '/img/Intimate 1.mp4' },
-  { value: 'spectacle', label: 'Spectacle', video: '/img/Spectacle.mp4' },
-  { value: 'suspense', label: 'Suspense', video: '/img/Suspense.mp4' },
-  { value: 'western', label: 'Western', video: '/img/Western.mp4' },
+  { value: 'action', label: 'Action', image: '/img/Action.gif' },
+  { value: 'comedy', label: 'Comedy', image: '/img/Comedy.gif' },
+  { value: 'documentary', label: 'Documentary', image: '/img/Documentary.gif' },
+  { value: 'horror', label: 'Horror', image: '/img/HOROR.gif' },
+  { value: 'intimate', label: 'Intimate', image: '/img/Intimate 1.gif' },
+  { value: 'spectacle', label: 'Spectacle', image: '/img/Spectacle.gif' },
+  { value: 'suspense', label: 'Suspense', image: '/img/Suspense.gif' },
+  { value: 'western', label: 'Western', image: '/img/Western.gif' },
 ];
 
 // Card component for genre (video or image)

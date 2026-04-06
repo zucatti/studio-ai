@@ -33,6 +33,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { cn } from '@/lib/utils';
 import type { Sequence, CinematicHeaderConfig } from '@/types/cinematic';
+import { CINEMATIC_STYLE_OPTIONS } from '@/types/cinematic';
 import type { Plan } from '@/store/shorts-store';
 import { PlanCard } from './PlanCard';
 
@@ -280,7 +281,11 @@ export function SequenceCard({
     const header = sequence.cinematic_header;
     if (!header) return null;
     const parts: string[] = [];
-    if (header.tone?.genre) parts.push(header.tone.genre);
+    // Use new cinematic_style field (Kling presets)
+    if (header.cinematic_style) {
+      const styleOption = CINEMATIC_STYLE_OPTIONS.find(s => s.value === header.cinematic_style);
+      parts.push(styleOption?.label || header.cinematic_style);
+    }
     if (header.lighting?.style) parts.push(header.lighting.style);
     if (header.color_grade?.style) parts.push(header.color_grade.style);
     return parts.length > 0 ? parts.join(' • ') : null;
@@ -357,8 +362,8 @@ export function SequenceCard({
             </span>
           )}
 
-          {/* Cinematic badge */}
-          {cinematicSummary && (
+          {/* Cinematic button/badge */}
+          {cinematicSummary ? (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -369,6 +374,17 @@ export function SequenceCard({
             >
               {cinematicSummary.split(' • ')[0]}
             </button>
+          ) : (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenCinematicWizard();
+              }}
+              className="p-1 rounded text-slate-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors"
+              title="Ajouter un style cinématique"
+            >
+              <Sparkles className="w-3 h-3" />
+            </button>
           )}
 
           {/* Stats badge */}
@@ -378,15 +394,12 @@ export function SequenceCard({
 
           {/* Menu */}
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <button
-                onClick={(e) => e.stopPropagation()}
-                className="p-0.5 text-slate-600 hover:text-white rounded transition-colors"
-              >
+            <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
+              <button className="p-0.5 text-slate-600 hover:text-white rounded transition-colors">
                 <MoreVertical className="w-3 h-3" />
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="bg-[#1a2433] border-white/10">
+            <DropdownMenuContent align="end" className="bg-[#1a2433] border-white/10" onClick={(e) => e.stopPropagation()}>
               <DropdownMenuItem
                 onClick={() => onOpenCinematicWizard()}
                 className="text-slate-300 focus:text-white focus:bg-white/10 text-xs"

@@ -1,11 +1,12 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { TimelineEditor } from '@/components/montage';
 import { Button } from '@/components/ui/button';
 import { ArrowLeft, Loader2, Pencil, Layers, Sparkles } from 'lucide-react';
 import { useShortsStore } from '@/store/shorts-store';
+import { useProject } from '@/hooks/use-project';
 import { formatDuration } from '@/components/shorts/DurationPicker';
 import { cn } from '@/lib/utils';
 import type { AspectRatio } from '@/types/database';
@@ -17,7 +18,8 @@ export default function TimelineEditorPage() {
   const shortId = params.shortId as string;
 
   const { shorts, isLoading, fetchShorts, getShortById } = useShortsStore();
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
+  const { project } = useProject();
+  const aspectRatio: AspectRatio = (project?.aspect_ratio as AspectRatio) || '16:9';
 
   // Fetch shorts and project data
   useEffect(() => {
@@ -26,22 +28,6 @@ export default function TimelineEditorPage() {
 
   // Get current short
   const short = getShortById(shortId);
-
-  // Fetch project aspect ratio
-  useEffect(() => {
-    const fetchProject = async () => {
-      try {
-        const response = await fetch(`/api/projects/${projectId}`);
-        if (response.ok) {
-          const project = await response.json();
-          setAspectRatio(project.aspect_ratio || '9:16');
-        }
-      } catch (error) {
-        console.error('Failed to fetch project:', error);
-      }
-    };
-    fetchProject();
-  }, [projectId]);
 
   if (isLoading || !short) {
     return (

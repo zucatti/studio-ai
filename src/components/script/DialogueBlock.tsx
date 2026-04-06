@@ -12,12 +12,11 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { CharacterPicker } from './CharacterPicker';
 import { DIALOGUE_EXTENSIONS, type DialogueExtension, type ScriptElement } from '@/types/script';
 import { cn } from '@/lib/utils';
@@ -141,29 +140,60 @@ export function DialogueBlock({
             placeholder="Personnage"
             className="flex-1"
           />
-          <Select
-            value={element.extension || 'none'}
-            onValueChange={handleExtensionChange}
-          >
-            <SelectTrigger className="w-32 bg-white/5 border-white/10 text-white">
-              <SelectValue placeholder="Extension" />
-            </SelectTrigger>
-            <SelectContent className="bg-[#1a2433] border-white/10">
-              <SelectItem value="none" className="text-slate-400">
-                Aucune
-              </SelectItem>
-              {DIALOGUE_EXTENSIONS.map((ext) => (
-                <SelectItem
-                  key={ext.value}
-                  value={ext.value}
-                  className="text-white"
-                >
-                  <span title={ext.description}>{ext.label}</span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
+
+        {/* Extension buttons */}
+        <TooltipProvider>
+          <div className="flex flex-wrap gap-1">
+            {/* On-screen (default) */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => handleExtensionChange('none')}
+                  className={cn(
+                    'px-2.5 py-1 text-xs font-medium rounded transition-all',
+                    !element.extension
+                      ? 'bg-green-600/80 text-white'
+                      : 'bg-white/5 text-slate-400 hover:text-slate-200 hover:bg-white/10'
+                  )}
+                >
+                  À l'écran
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="bg-[#1a2433] border-white/10">
+                <p className="text-xs">Personnage visible à l'écran</p>
+              </TooltipContent>
+            </Tooltip>
+
+            {/* All dialogue extensions */}
+            {DIALOGUE_EXTENSIONS.map((ext) => (
+              <Tooltip key={ext.value}>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => handleExtensionChange(ext.value)}
+                    className={cn(
+                      'px-2.5 py-1 text-xs font-medium rounded transition-all',
+                      element.extension === ext.value
+                        ? ext.value === 'Hors champ'
+                          ? 'bg-amber-600/80 text-white'
+                          : ext.value === 'Voix off'
+                          ? 'bg-purple-600/80 text-white'
+                          : 'bg-blue-600/80 text-white'
+                        : 'bg-white/5 text-slate-400 hover:text-slate-200 hover:bg-white/10'
+                    )}
+                  >
+                    {ext.label}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="bg-[#1a2433] border-white/10">
+                  <p className="text-xs">{ext.description}</p>
+                </TooltipContent>
+              </Tooltip>
+            ))}
+          </div>
+        </TooltipProvider>
 
         {/* Parenthetical */}
         <Input

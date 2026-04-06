@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react';
 import { Play, Clock, MoreVertical, Pencil, Trash2, ImageIcon, GripVertical, Video, CheckCircle2, Clapperboard } from 'lucide-react';
-import { StorageImg } from '@/components/ui/storage-image';
+import { StorageImg, StorageMedia } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -124,6 +124,16 @@ export function PlanCard({
                 src={plan.storyboard_image_url}
                 alt={`Plan ${plan.shot_number}`}
                 className="w-full h-full object-cover"
+              />
+            ) : plan.generated_video_url ? (
+              <StorageMedia
+                src={plan.generated_video_url}
+                alt={`Plan ${plan.shot_number}`}
+                className="w-full h-full object-cover"
+                autoPlay={false}
+                muted={true}
+                loop={false}
+                controls={false}
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">
@@ -249,6 +259,16 @@ export function PlanCard({
               src={plan.storyboard_image_url}
               alt={`Plan ${plan.shot_number}`}
               className="w-full h-full object-cover"
+            />
+          ) : plan.generated_video_url ? (
+            <StorageMedia
+              src={plan.generated_video_url}
+              alt={`Plan ${plan.shot_number}`}
+              className="w-full h-full object-cover"
+              autoPlay={false}
+              muted={true}
+              loop={false}
+              controls={false}
             />
           ) : (
             <div className="w-full h-full flex items-center justify-center">

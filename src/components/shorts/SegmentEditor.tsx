@@ -40,12 +40,12 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { TonePicker } from './TonePicker';
 import type { Segment, ShotFraming, ShotComposition, CameraMovement, DialogueTone, ShotBeat, BeatType, DialoguePresence } from '@/types/cinematic';
 import {
   SHOT_FRAMING_OPTIONS,
   SHOT_COMPOSITION_OPTIONS,
   CAMERA_MOVEMENT_OPTIONS,
-  DIALOGUE_TONE_OPTIONS,
   createDefaultBeat,
 } from '@/types/cinematic';
 
@@ -382,22 +382,12 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
               </button>
             </div>
 
-            {/* Tone select */}
-            <Select
+            {/* Tone picker */}
+            <TonePicker
               value={beat.tone || 'neutral'}
-              onValueChange={(v) => onChange({ ...beat, tone: v as DialogueTone })}
-            >
-              <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-7 text-[10px] w-[90px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="bg-slate-800 border-white/10">
-                {DIALOGUE_TONE_OPTIONS.map((opt) => (
-                  <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
-                    {opt.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              onChange={(v) => onChange({ ...beat, tone: v })}
+              className="w-[140px]"
+            />
           </>
         )}
 
@@ -627,7 +617,7 @@ export function SegmentEditor({
       if (beat.type === 'dialogue') {
         // Dialogue beat
         const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
-        const offScreen = beat.presence === 'off' ? ' (V.O.)' : '';
+        const offScreen = beat.presence === 'off' ? ' (voix off)' : '';
 
         if (beat.character_id && beat.character_name) {
           // Has character_id - will use @Element and voice
@@ -683,7 +673,7 @@ export function SegmentEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[90vw] max-w-[1600px] h-[85vh] overflow-hidden bg-slate-900 border-white/10 p-0 [&>button]:hidden">
+      <DialogContent className="w-[90vw] max-w-[1600px] h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0 [&>button]:hidden">
         <div className="flex flex-col h-full">
           {/* Header */}
           <DialogHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">
@@ -726,14 +716,14 @@ export function SegmentEditor({
             </DialogDescription>
           </DialogHeader>
 
-          {/* Content */}
-          <div className="flex-1 overflow-hidden">
+          {/* Content - use relative/absolute for reliable height */}
+          <div className="flex-1 relative">
             {viewMode === 'edit' ? (
-              <div className="h-full flex">
-                {/* Left Panel - Camera Preview */}
-                <div className="w-[40%] flex-shrink-0 p-6 border-r border-white/10 flex flex-col gap-5">
-                  {/* Camera Preview - Large */}
-                  <div className="flex-1 min-h-0">
+              <div className="absolute inset-0 flex">
+                {/* Left Panel - Camera Preview (scrolls independently) */}
+                <div className="w-[40%] h-full flex-shrink-0 p-6 border-r border-white/10 overflow-y-auto">
+                  {/* Camera Preview */}
+                  <div className="aspect-video mb-5">
                     <CameraPreview
                       movement={formData.camera_movement || 'static'}
                       framing={formData.shot_framing || 'medium'}
@@ -802,10 +792,10 @@ export function SegmentEditor({
                   </div>
                 </div>
 
-                {/* Right Panel - Description & Beats */}
-                <div className="flex-1 overflow-y-auto p-5 space-y-5">
-                  {/* Description with mentions (@character, #location, !look, &in, &out) */}
-                  <div className="space-y-1.5">
+                {/* Right Panel - Description & Beats (uses absolute for reliable height) */}
+                <div className="w-[60%] h-full flex flex-col">
+                  {/* Description - FIXED at top */}
+                  <div className="flex-shrink-0 p-5 pb-4 space-y-1.5">
                     <Label className="text-slate-300 text-xs flex items-center gap-2">
                       Description
                       <span className="text-[10px] text-slate-500 font-normal">
@@ -822,21 +812,22 @@ export function SegmentEditor({
                     />
                   </div>
 
-                  {/* Beats Section */}
-                  <div className="border-t border-white/10 pt-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <Label className="text-slate-300 text-xs">Beats</Label>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={addBeat}
-                        className="h-7 text-xs border-white/10 text-slate-400 hover:text-white"
-                      >
-                        <Plus className="w-3 h-3 mr-1" />
-                        Add Beat
-                      </Button>
-                    </div>
+                  {/* Beats Header - FIXED */}
+                  <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-t border-white/10">
+                    <Label className="text-slate-300 text-xs">Beats</Label>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={addBeat}
+                      className="h-7 text-xs border-white/10 text-slate-400 hover:text-white"
+                    >
+                      <Plus className="w-3 h-3 mr-1" />
+                      Add Beat
+                    </Button>
+                  </div>
 
+                  {/* Beats List - THIS IS THE ONLY SCROLLABLE PART */}
+                  <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-5">
                     {beats.length === 0 ? (
                       <div className="text-center py-6 text-slate-500 text-sm border border-dashed border-white/10 rounded-lg">
                         No beats yet. Add action or dialogue.
@@ -861,7 +852,7 @@ export function SegmentEditor({
               </div>
             ) : (
               /* Preview Mode */
-              <div className="h-full flex flex-col p-6 space-y-3">
+              <div className="absolute inset-0 flex flex-col p-6 space-y-3">
                 <div className="flex items-center justify-between flex-shrink-0">
                   <Label className="text-slate-300 text-xs">Generated Prompt</Label>
                   <Button
@@ -883,7 +874,7 @@ export function SegmentEditor({
                     )}
                   </Button>
                 </div>
-                <div className="flex-1 p-4 bg-slate-950/50 rounded-lg border border-white/10 overflow-y-auto">
+                <div className="flex-1 min-h-0 p-4 bg-slate-950/50 rounded-lg border border-white/10 overflow-y-auto">
                   <pre className="text-sm text-slate-300 whitespace-pre-wrap font-mono leading-relaxed">
                     {promptPreview}
                   </pre>

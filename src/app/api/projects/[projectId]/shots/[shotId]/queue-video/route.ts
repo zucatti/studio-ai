@@ -12,10 +12,14 @@
 import { auth0 } from '@/lib/auth0';
 import { createServerSupabaseClient } from '@/lib/supabase';
 import { enqueueVideoGen, type VideoGenJobData } from '@/lib/bullmq';
-import { buildCinematicPrompt } from '@/lib/ai/cinematic-prompt-builder';
-import { cinematicHeaderToPrompt } from '@/lib/cinematic-header-to-prompt';
+import { buildCinematicPrompt, analyzeCharacters, type VideoModelType } from '@/lib/ai/cinematic-prompt-builder';
+import { GENERIC_CHARACTERS } from '@/lib/generic-characters';
 import type { GlobalAsset } from '@/types/database';
 import type { Segment, CinematicHeaderConfig } from '@/types/cinematic';
+
+// Kling AI limits
+const MAX_ELEMENTS = 6;
+const MAX_VOICES = 2;
 
 interface RouteParams {
   params: Promise<{ projectId: string; shotId: string }>;
@@ -101,7 +105,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const { projectId, shotId } = await params;
     const body = await request.json();
-    const { duration, model: requestedModel, provider: requestedProvider } = body;
+    const { duration, model: requestedModel, provider: requestedProvider, dryRun } = body;
 
     const supabase = createServerSupabaseClient();
 
@@ -148,10 +152,14 @@ export async function POST(request: Request, { params }: RouteParams) {
       );
     }
 
-    // Validate first frame exists
-    if (!shot.first_frame_url && !shot.storyboard_image_url) {
+    // Check if this is cinematic mode (has segments)
+    const hasSegments = !!(shot.segments && Array.isArray(shot.segments) && shot.segments.length > 0);
+    const hasFrameIn = !!(shot.first_frame_url || shot.storyboard_image_url);
+
+    // Validate: need either a frame OR segments (text-to-video with Kling Omni)
+    if (!hasFrameIn && !hasSegments) {
       return Response.json(
-        { error: 'Frame In requise pour générer la vidéo' },
+        { error: 'Frame In ou au moins un segment requis pour générer la vidéo' },
         { status: 400 }
       );
     }
@@ -199,17 +207,59 @@ export async function POST(request: Request, { params }: RouteParams) {
     if (isCinematicMode) {
       console.log('[QueueVideo] Cinematic mode detected, building cinematic prompt...');
 
-      // Get all project characters for reference
+      // Get all project characters for reference (global assets)
       const { data: projectAssets } = await supabase
         .from('project_assets')
         .select(`global_asset:global_assets (*)`)
         .eq('project_id', projectId);
 
-      const allCharacters = (projectAssets || [])
+      const globalCharacters = (projectAssets || [])
         .map(pa => pa.global_asset as unknown as GlobalAsset)
         .filter(a => a && a.asset_type === 'character');
 
-      console.log('[QueueVideo] Project characters available:', allCharacters.map(c => ({ id: c.id, name: c.name, hasFalVoice: !!(c.data as Record<string, unknown>)?.fal_voice_id })));
+      // Also get generic characters from project_generic_assets
+      // Note: generic_asset_id is a TEXT field (e.g., "generic:woman"), not a FK
+      // We use GENERIC_CHARACTERS in-memory array to look up character data
+      const { data: projectGenericAssets } = await supabase
+        .from('project_generic_assets')
+        .select('*')
+        .eq('project_id', projectId);
+
+      const genericCharacters = (projectGenericAssets || [])
+        .map(pga => {
+          // Look up the generic character from in-memory array
+          const genericChar = GENERIC_CHARACTERS.find(g => g.id === pga.generic_asset_id);
+          if (!genericChar) return null;
+
+          // Get local overrides (may have reference images)
+          const localOverrides = (pga.local_overrides || {}) as {
+            reference_images_metadata?: Array<{ url: string }>;
+            visual_description?: string;
+            fal_voice_id?: string;
+          };
+          const referenceImages = (localOverrides.reference_images_metadata || []).map(img => img.url);
+
+          // Convert to GlobalAsset-like structure (partial, cast through unknown)
+          // Use pga.id (UUID) as the unique identifier - NOT generic_asset_id which is shared by all variants
+          return {
+            id: pga.id,  // UUID from project_generic_assets (unique per imported character)
+            name: pga.name_override || genericChar.name,  // Use name_override if set (e.g., "OldWoman#1")
+            asset_type: 'character' as const,
+            reference_images: referenceImages,
+            data: {
+              visual_description: localOverrides.visual_description || genericChar.description,
+              fal_voice_id: localOverrides.fal_voice_id,
+            },
+          } as unknown as GlobalAsset;
+        })
+        .filter((a): a is GlobalAsset => a !== null);
+
+      // Merge both character sources
+      const allCharacters = [...globalCharacters, ...genericCharacters];
+
+      console.log('[QueueVideo] Global characters:', globalCharacters.map(c => c.name));
+      console.log('[QueueVideo] Generic characters:', genericCharacters.map(c => c.name));
+      console.log('[QueueVideo] All characters available:', allCharacters.map(c => ({ id: c.id, name: c.name, hasFalVoice: !!(c.data as Record<string, unknown>)?.fal_voice_id })));
       console.log('[QueueVideo] Segments to scan:', JSON.stringify(segments, null, 2));
 
       // Auto-detect characters from segments
@@ -236,6 +286,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       console.log('[QueueVideo] Detected characters:', Array.from(characterMap.values()).map(c => c.name));
 
       // Build cinematic prompt using the prompt builder
+      // Pass hasStartFrame so the prompt builder knows the image budget
       const mockShort = { dialogue_language: 'en' };
       const mockPlan = {
         id: shotId,
@@ -250,7 +301,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         animation_prompt: shot.animation_prompt,
       };
 
-      prompt = buildCinematicPrompt(mockShort as never, [mockPlan] as never, characterMap);
+      prompt = buildCinematicPrompt(mockShort as never, [mockPlan] as never, characterMap, hasFrameIn, videoModel as VideoModelType);
 
       console.log('[QueueVideo] Cinematic prompt built:');
       console.log('--- START PROMPT ---');
@@ -318,55 +369,69 @@ export async function POST(request: Request, { params }: RouteParams) {
     }> = [];
 
     if (isCinematicMode && characterMap.size > 0) {
-      // Cinematic mode: build elements and voices for Kling Omni
+      // Cinematic mode: use analyzeCharacters for smart image distribution
       console.log('[QueueVideo] Building cinematic elements for', characterMap.size, 'characters');
-      let elementIndex = 0;
-      for (const char of characterMap.values()) {
-        console.log(`[QueueVideo] Processing character: ${char.name} (${char.id})`);
-        console.log(`[QueueVideo] - reference_images:`, char.reference_images?.length || 0);
-        console.log(`[QueueVideo] - data:`, JSON.stringify(char.data));
 
-        if (elementIndex >= 4) {
-          console.log('[QueueVideo] - Skipped: max 4 elements reached');
+      // Analyze characters to determine Stars vs Figurants and image budget
+      const analysis = analyzeCharacters(characterMap, hasFrameIn);
+
+      console.log('[QueueVideo] Character analysis:');
+      console.log(`[QueueVideo] - Stars (with images): ${analysis.stars.length}`);
+      console.log(`[QueueVideo] - Figurants (no images): ${analysis.figurants.length}`);
+      console.log(`[QueueVideo] - Images per star: ${analysis.imagesPerStar}`);
+      console.log(`[QueueVideo] - Has start frame: ${hasFrameIn}`);
+
+      // Build elements only for Stars (characters with reference images)
+      for (const star of analysis.stars) {
+        if (cinematicElements.length >= MAX_ELEMENTS) {
+          console.log(`[QueueVideo] - Max ${MAX_ELEMENTS} elements reached, skipping remaining stars`);
           break;
         }
+
+        const char = characterMap.get(star.id);
+        if (!char) continue;
 
         const charData = char.data as Record<string, unknown> | null;
         const refImages = char.reference_images || [];
 
-        if (refImages.length > 0) {
-          cinematicElements.push({
+        console.log(`[QueueVideo] Processing star: ${star.name} (${star.id})`);
+        console.log(`[QueueVideo] - reference_images available: ${refImages.length}`);
+        console.log(`[QueueVideo] - images to use: ${analysis.imagesPerStar}`);
+
+        // Use smart image distribution: front image always, then profile/back based on budget
+        const frontalImage = refImages[0];
+        const additionalImages = refImages.slice(1, analysis.imagesPerStar);
+
+        cinematicElements.push({
+          characterId: char.id,
+          characterName: char.name,
+          frontalImageUrl: frontalImage,
+          referenceImageUrls: additionalImages.length > 0 ? additionalImages : undefined,
+        });
+
+        // Add all used images to reference images array
+        characterReferenceImages.push(frontalImage);
+        if (additionalImages.length > 0) {
+          characterReferenceImages.push(...additionalImages);
+        }
+
+        console.log(`[QueueVideo] - Added element ${cinematicElements.length}: frontal + ${additionalImages.length} additional`);
+
+        // Add voice if character has fal_voice_id (max 2 voices)
+        const falVoiceId = charData?.fal_voice_id as string | undefined;
+        console.log(`[QueueVideo] - fal_voice_id:`, falVoiceId || 'none');
+        if (falVoiceId && cinematicVoices.length < MAX_VOICES) {
+          cinematicVoices.push({
             characterId: char.id,
-            characterName: char.name,
-            frontalImageUrl: refImages[0],
-            referenceImageUrls: refImages.slice(1, 5),
+            voiceId: falVoiceId,
           });
-          characterReferenceImages.push(...refImages.slice(0, 2));
-          console.log(`[QueueVideo] - Added element ${elementIndex + 1}: frontal=${refImages[0]}`);
-
-          // Add voice if character has fal_voice_id (max 2 voices)
-          const falVoiceId = charData?.fal_voice_id as string | undefined;
-          console.log(`[QueueVideo] - fal_voice_id:`, falVoiceId || 'none');
-          if (falVoiceId && cinematicVoices.length < 2) {
-            cinematicVoices.push({
-              characterId: char.id,
-              voiceId: falVoiceId,
-            });
-            console.log(`[QueueVideo] - Added voice ${cinematicVoices.length}: ${falVoiceId}`);
-          }
-
-          elementIndex++;
-        } else {
-          console.log('[QueueVideo] - Skipped: no reference images');
+          console.log(`[QueueVideo] - Added voice ${cinematicVoices.length}: ${falVoiceId}`);
         }
       }
 
-      // Limit reference images to 8
-      characterReferenceImages = characterReferenceImages.slice(0, 8);
-
       console.log('[QueueVideo] Cinematic elements built:', cinematicElements.length);
       console.log('[QueueVideo] Cinematic voices built:', cinematicVoices.map(v => `${v.characterId}: ${v.voiceId}`));
-      console.log('[QueueVideo] Character reference images:', characterReferenceImages.length);
+      console.log('[QueueVideo] Total reference images:', characterReferenceImages.length);
     } else if (isCinematicMode && characterMap.size === 0) {
       console.log('[QueueVideo] WARNING: Cinematic mode but no characters detected!');
       console.log('[QueueVideo] - Segments exist:', !!segments);
@@ -403,7 +468,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       duration: videoDuration,
       aspectRatio: aspectRatio as VideoGenJobData['aspectRatio'],
       prompt,
-      firstFrameUrl: shot.first_frame_url || shot.storyboard_image_url,
+      // firstFrameUrl is optional for text-to-video (ensure undefined, not null)
+      firstFrameUrl: shot.first_frame_url || shot.storyboard_image_url || undefined,
       lastFrameUrl: shot.last_frame_url || undefined,
       characterReferenceImages,
       hasDialogue: !!shot.has_dialogue,
@@ -418,6 +484,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       isCinematicMode,
       cinematicElements: isCinematicMode ? cinematicElements : undefined,
       cinematicVoices: isCinematicMode ? cinematicVoices : undefined,
+      // Dry run mode
+      dryRun: !!dryRun,
     };
 
     // Enqueue the job

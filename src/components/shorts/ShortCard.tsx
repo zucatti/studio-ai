@@ -24,16 +24,18 @@ import {
 import { formatDuration } from './DurationPicker';
 import { cn } from '@/lib/utils';
 import type { Short } from '@/store/shorts-store';
+import type { AspectRatio } from '@/types/database';
 
 interface ShortCardProps {
   short: Short;
   projectId: string;
+  aspectRatio: AspectRatio;
   onDelete: (shortId: string) => void;
   onEdit: (short: Short) => void;
   onGallery?: (short: Short) => void;
 }
 
-export function ShortCard({ short, projectId, onDelete, onEdit, onGallery }: ShortCardProps) {
+export function ShortCard({ short, projectId, aspectRatio, onDelete, onEdit, onGallery }: ShortCardProps) {
   const router = useRouter();
   const videoRef = useRef<HTMLVideoElement>(null);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -183,7 +185,7 @@ export function ShortCard({ short, projectId, onDelete, onEdit, onGallery }: Sho
         onMouseLeave={() => setIsHovering(false)}
       >
         {/* Thumbnail / Video */}
-        <div className="aspect-[9/16] bg-slate-800/50 relative">
+        <div className="bg-slate-800/50 relative" style={{ aspectRatio: aspectRatio.replace(':', '/') }}>
           {/* Video element (hidden until hover with assembled video) */}
           {hasAssembledVideo && signedVideoUrl && (
             <video

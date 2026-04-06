@@ -5,10 +5,15 @@ import { useParams } from 'next/navigation';
 import { ShortsList } from '@/components/shorts/ShortsList';
 import { ProjectBibleButton } from '@/components/bible/ProjectBible';
 import { useShortsStore } from '@/store/shorts-store';
+import { useProject } from '@/hooks/use-project';
+import type { AspectRatio } from '@/types/database';
 
 export default function ShortsPage() {
   const params = useParams();
   const projectId = params.projectId as string;
+
+  const { project } = useProject();
+  const aspectRatio: AspectRatio = (project?.aspect_ratio as AspectRatio) || '16:9';
 
   const {
     shorts,
@@ -52,6 +57,7 @@ export default function ShortsPage() {
       <ShortsList
         shorts={shorts}
         projectId={projectId}
+        aspectRatio={aspectRatio}
         isLoading={isLoading}
         onCreateShort={handleCreateShort}
         onDeleteShort={handleDeleteShort}

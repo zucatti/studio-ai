@@ -11,6 +11,7 @@ import {
   validateCinematicConfig,
   type CinematicShort,
   type CinematicPlan,
+  type VideoModelType,
 } from '@/lib/ai/cinematic-prompt-builder';
 import type { GlobalAsset } from '@/types/database';
 import { uploadFile } from '@/lib/storage';
@@ -454,7 +455,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Build the mega-prompt (now with English dialogues)
-    const megaPrompt = buildCinematicPrompt(short, plans, characterMap);
+    // Legacy route: default to kling-omni
+    const targetModel: VideoModelType = 'kling-omni';
+    const hasStartFrame = plans.some(p => p.storyboard_image_url || p.first_frame_url);
+    const megaPrompt = buildCinematicPrompt(short, plans, characterMap, hasStartFrame, targetModel);
 
     // === DETAILED LOGGING ===
     console.log('\n========== CINEMATIC GENERATION DEBUG ==========');

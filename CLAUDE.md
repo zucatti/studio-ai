@@ -583,3 +583,79 @@ if (segment.description) {
 - `src/components/plan-editor/PlanEditor.tsx` - Focus ring removal on duration slider
 - `src/components/montage/AudioPlayback.tsx` - Eager preloading avec subscription
 - `src/components/montage/MontageTimeline.tsx` - Pass allClips + useMemo pattern
+
+---
+
+### 2026-04-06 - Generic Characters in Video Prompts
+
+**Problème**: Les personnages génériques (ex: OldWoman#1) n'apparaissaient pas dans les prompts vidéo Kling Omni. Seuls les personnages globaux (Noah) étaient référencés.
+
+**Cause racine**: Les routes `queue-video` et `prompt-preview` tentaient de faire un JOIN avec une table `generic_assets` inexistante. En réalité, `project_generic_assets.generic_asset_id` est un champ TEXT (ex: "generic:woman"), pas une FK.
+
+#### Architecture des personnages
+
+| Type | Table | ID unique | Données |
+|------|-------|-----------|---------|
+| Global | `project_assets` → `global_assets` | UUID (`global_assets.id`) | Stockées en DB |
+| Generic | `project_generic_assets` | UUID (`project_generic_assets.id`) | `GENERIC_CHARACTERS` in-memory + `local_overrides` |
+
+**Important**: `generic_asset_id` (TEXT comme "generic:woman") n'est PAS unique - plusieurs variantes peuvent exister (FEMME #1, FEMME #2). Utiliser `project_generic_assets.id` (UUID) comme identifiant unique.
+
+#### Fix appliqué
+
+**Pattern pour charger les personnages génériques**:
+```typescript
+import { GENERIC_CHARACTERS } from '@/lib/generic-characters';
+
+const { data: projectGenericAssets } = await supabase
+  .from('project_generic_assets')
+  .select('*')  // Pas de JOIN - generic_asset_id est TEXT
+  .eq('project_id', projectId);
+
+const genericCharacters = (projectGenericAssets || [])
+  .map(pga => {
+    const genericChar = GENERIC_CHARACTERS.find(g => g.id === pga.generic_asset_id);
+    if (!genericChar) return null;
+    const localOverrides = (pga.local_overrides || {}) as {...};
+    return {
+      id: pga.id,  // UUID unique per imported character
+      name: pga.name_override || genericChar.name,
+      asset_type: 'character' as const,
+      reference_images: (localOverrides.reference_images_metadata || []).map(img => img.url),
+      data: {
+        visual_description: localOverrides.visual_description || genericChar.description,
+        fal_voice_id: localOverrides.fal_voice_id,
+      },
+    } as unknown as GlobalAsset;
+  })
+  .filter((a): a is GlobalAsset => a !== null);
+
+// Merge avec les personnages globaux
+const allCharacters = [...globalCharacters, ...genericCharacters];
+```
+
+#### Optimisation prompt (character introduction)
+
+**Avant**: Les figurants (sans images) répétaient leur description à chaque mention:
+```
+OldWoman#1 (Femme finlandaise de 70 ans...) says: "Hello"
+OldWoman#1 (Femme finlandaise de 70 ans...) says: "Goodbye"
+```
+
+**Après**: Introduction unique dans la légende, puis nom seul (convention script cinéma):
+```
+Additional characters (no reference images):
+- OldWoman#1: Femme finlandaise de 70 ans...
+
+Shot 1: OldWoman#1 says: "Hello"
+Shot 2: OldWoman#1 says: "Goodbye"
+```
+
+#### Fichiers modifiés
+
+- `src/app/api/projects/[projectId]/shots/[shotId]/queue-video/route.ts` - Chargement generic characters via GENERIC_CHARACTERS
+- `src/app/api/projects/[projectId]/shots/[shotId]/prompt-preview/route.ts` - Même fix
+- `src/app/(dashboard)/project/[projectId]/shorts/[shortId]/page.tsx` - Chargement generic characters pour SegmentEditor dropdown
+- `src/components/ui/mention-input.tsx` - Utilise `project_generic_asset_id` (UUID) pour les suggestions
+- `src/lib/ai/cinematic-prompt-builder.ts` - Figurants utilisent juste le nom (description dans la légende)
+- `worker/src/processors/video-gen.processor.ts` - Logs améliorés pour debug

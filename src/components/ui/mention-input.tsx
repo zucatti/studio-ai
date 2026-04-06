@@ -237,7 +237,7 @@ export function MentionInput({
             const genericSuggestions: MentionSuggestion[] = genericAssets
               .filter((g: any) => g.name_override)
               .map((g: any) => ({
-                id: g.project_generic_asset_id,
+                id: g.project_generic_asset_id,  // Use UUID for uniqueness (multiple FEMME can exist)
                 reference: generateReference(g.name, '@'),
                 name: g.name,
                 type: 'character' as const,
@@ -299,7 +299,7 @@ export function MentionInput({
             const genericCharacters: MentionSuggestion[] = genericAssets
               .filter((g: any) => g.name_override)
               .map((g: any) => ({
-                id: g.project_generic_asset_id,
+                id: g.project_generic_asset_id,  // Use UUID for uniqueness (multiple FEMME can exist)
                 reference: generateReference(g.name, '@'),
                 name: g.name,
                 type: 'character' as const,

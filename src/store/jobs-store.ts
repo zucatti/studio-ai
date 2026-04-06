@@ -104,7 +104,8 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
           if (wasActive && (newJob.status === 'completed' || newJob.status === 'failed')) {
             const shotId = (newJob.input_data as { shotId?: string })?.shotId;
             const shortId = (newJob.input_data as { shortId?: string })?.shortId;
-            const assetId = newJob.asset_id || shotId || shortId;
+            const frameId = (newJob.input_data as { frameId?: string })?.frameId;
+            const assetId = newJob.asset_id || shotId || shortId || frameId;
 
             if (newJob.status === 'completed') {
               console.log(`[JobsStore] fetchJobs detected completion - asset_id: ${newJob.asset_id}, resolved assetId: ${assetId}`);
@@ -118,6 +119,7 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
                       assetId,
                       shotId,
                       shortId,
+                      frameId,
                       assetType: newJob.asset_type,
                       jobType: newJob.job_type,
                       jobSubtype: newJob.job_subtype,
@@ -134,6 +136,7 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
                     assetId,
                     shotId,
                     shortId,
+                    frameId,
                     assetType: newJob.asset_type,
                     jobType: newJob.job_type,
                     jobSubtype: newJob.job_subtype,
@@ -261,12 +264,13 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
 
       // If job just completed, emit event for UI to refresh
       if (justCompleted) {
-        // For shots, get shotId from input_data; for shorts, get shortId; for assets, use asset_id
+        // For shots, get shotId from input_data; for shorts, get shortId; for frames, get frameId; for assets, use asset_id
         const shotId = (updatedJob.input_data as { shotId?: string })?.shotId;
         const shortId = (updatedJob.input_data as { shortId?: string })?.shortId;
-        const assetId = updatedJob.asset_id || shotId || shortId;
+        const frameId = (updatedJob.input_data as { frameId?: string })?.frameId;
+        const assetId = updatedJob.asset_id || shotId || shortId || frameId;
 
-        console.log(`[JobsStore] Job completed - asset_id: ${updatedJob.asset_id}, shotId: ${shotId}, shortId: ${shortId}, resolved assetId: ${assetId}`);
+        console.log(`[JobsStore] Job completed - asset_id: ${updatedJob.asset_id}, shotId: ${shotId}, shortId: ${shortId}, frameId: ${frameId}, resolved assetId: ${assetId}`);
 
         if (assetId) {
           console.log(`[JobsStore] Dispatching job-completed for ${updatedJob.asset_type} ${assetId}, job_type: ${updatedJob.job_type}`);
@@ -278,6 +282,7 @@ export const useJobsStore = create<JobsStore>((set, get) => ({
                 assetId,
                 shotId, // Include shotId explicitly for shot handlers
                 shortId, // Include shortId explicitly for short/assembly handlers
+                frameId, // Include frameId explicitly for storyboard handlers
                 assetType: updatedJob.asset_type,
                 jobType: updatedJob.job_type,
                 jobSubtype: updatedJob.job_subtype,

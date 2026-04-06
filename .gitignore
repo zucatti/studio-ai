@@ -40,3 +40,5 @@ k8s/secrets.yaml
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+public/img/vhs.mp4
+public/img/*.mp4

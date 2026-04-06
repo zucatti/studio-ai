@@ -4,7 +4,7 @@
 
 export type ScriptElementType = 'action' | 'dialogue' | 'transition' | 'note';
 
-export type DialogueExtension = 'V.O.' | 'O.S.' | "CONT'D" | 'FILTERED' | 'PRE-LAP';
+export type DialogueExtension = 'Voix off' | 'Hors champ' | 'Suite' | 'Voix filtrée' | 'Chevauchement audio';
 
 export interface ScriptElement {
   id: string;
@@ -96,11 +96,11 @@ export type Transition = TransitionUS | TransitionFR;
 
 // Dialogue extension labels
 export const DIALOGUE_EXTENSIONS: { value: DialogueExtension; label: string; description: string }[] = [
-  { value: 'V.O.', label: 'V.O.', description: 'Voice Over - personnage narrateur' },
-  { value: 'O.S.', label: 'O.S.', description: 'Off Screen - hors champ' },
-  { value: "CONT'D", label: "CONT'D", description: 'Continued - dialogue qui continue' },
-  { value: 'FILTERED', label: 'FILTERED', description: 'Voix modifiee (telephone, radio)' },
-  { value: 'PRE-LAP', label: 'PRE-LAP', description: 'Audio avant la scene visuelle' },
+  { value: 'Voix off', label: 'Voix off', description: 'Personnage narrateur, non visible à l\'écran' },
+  { value: 'Hors champ', label: 'Hors champ', description: 'Personnage présent mais hors du cadre' },
+  { value: 'Suite', label: 'Suite', description: 'Dialogue qui continue après une interruption' },
+  { value: 'Voix filtrée', label: 'Voix filtrée', description: 'Voix modifiée (téléphone, radio, interphone)' },
+  { value: 'Chevauchement audio', label: 'Chevauchement', description: 'Audio entendu avant la scène visuelle' },
 ];
 
 // Helper to check if a string is a valid transition

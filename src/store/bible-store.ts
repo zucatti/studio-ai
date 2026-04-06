@@ -846,6 +846,12 @@ if (typeof window !== 'undefined') {
     }>;
 
     const { assetId, assetType } = customEvent.detail;
+
+    // Only handle global asset types (character, location, prop)
+    if (!['character', 'location', 'prop'].includes(assetType)) {
+      return;
+    }
+
     console.log(`[BibleStore] Job completed for asset ${assetId} (${assetType}), refreshing...`);
 
     // Fetch the updated asset directly from API

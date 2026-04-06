@@ -65,6 +65,30 @@ const TOOLS: Anthropic.Tool[] = [
       required: ['name'],
     },
   },
+  // Casting: Figurants (personnages génériques personnalisés)
+  {
+    name: 'add_figurant',
+    description: 'Ajouter un figurant au casting du projet. Utilise cet outil pour créer des personnages secondaires/anonymes basés sur un type générique (HOMME, FEMME, ENFANT, etc.) avec une description personnalisée. NE touche PAS à la Bible générale.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        base_type: {
+          type: 'string',
+          enum: ['man', 'woman', 'child', 'crowd', 'voice', 'bystander', 'announcer', 'narrator', 'group', 'all'],
+          description: 'Type de base du personnage: man (HOMME), woman (FEMME), child (ENFANT), crowd (FOULE), voice (VOIX), bystander (PASSANT), announcer (ANNONCEUR), narrator (NARRATEUR), group (GROUPE), all (TOUS)',
+        },
+        name: {
+          type: 'string',
+          description: 'Nom personnalisé du figurant (ex: "VIEIL HOMME FINLANDAIS", "FEMME ÂGÉE", "POLICIER #1")',
+        },
+        visual_description: {
+          type: 'string',
+          description: 'Description visuelle détaillée pour la génération d\'images (en anglais de préférence): âge, apparence, vêtements, etc.',
+        },
+      },
+      required: ['base_type', 'name'],
+    },
+  },
   // Script: Scenes
   {
     name: 'add_scene',
@@ -117,7 +141,7 @@ const TOOLS: Anthropic.Tool[] = [
         character_name: { type: 'string', description: 'Nom du personnage (MAJUSCULES)' },
         content: { type: 'string', description: 'Texte du dialogue' },
         parenthetical: { type: 'string', description: 'Indication de jeu (ex: "en colère", "murmurant")' },
-        extension: { type: 'string', enum: ['V.O.', 'O.S.', 'CONT\'D'], description: 'Extension vocale' },
+        extension: { type: 'string', enum: ['Voix off', 'Hors champ', 'Suite', 'Voix filtrée', 'Chevauchement audio'], description: 'Extension vocale' },
       },
       required: ['scene_number', 'character_name', 'content'],
     },
@@ -177,10 +201,18 @@ const SYSTEM_PROMPT = `Tu es un scénariste professionnel et coach d'écriture q
 
 ## Utilisation des outils
 Tu disposes d'outils pour modifier directement le script et la Bible du projet:
-- add_character, add_location, add_prop: Pour ajouter à la Bible
+- add_character: Pour les personnages PRINCIPAUX nommés (MARIE, NOAH, JEAN-PIERRE) → va dans la Bible générale
+- add_figurant: Pour les personnages SECONDAIRES/ANONYMES (VIEIL HOMME, FEMME ÂGÉE, POLICIER #1) → va dans le casting du projet UNIQUEMENT
+- add_location, add_prop: Pour ajouter à la Bible
 - add_scene, update_scene, delete_scene: Pour gérer les scènes
 - add_dialogue, add_action, add_transition: Pour ajouter du contenu
 - delete_element: Pour supprimer du contenu
+
+CHOIX PERSONNAGE vs FIGURANT:
+- "ajoute Noah, le protagoniste" → add_character (personnage principal, réutilisable)
+- "ajoute un vieil homme de 60 ans" → add_figurant avec base_type="man" (figurant, spécifique au projet)
+- "ajoute une femme mystérieuse en robe rouge" → add_figurant avec base_type="woman"
+- "ajoute un policier" → add_figurant avec base_type="man", name="POLICIER"
 
 IMPORTANT: Quand l'utilisateur te demande d'ajouter/modifier/supprimer quelque chose, utilise TOUJOURS l'outil approprié. Ne dis jamais "j'ajoute" sans utiliser l'outil.
 
@@ -456,6 +488,75 @@ async function executeTool(
             globalAsset,
             projectAsset,
             message: `Accessoire "${name.toUpperCase()}" créé et ajouté au projet`,
+          },
+        };
+      }
+
+      case 'add_figurant': {
+        const { base_type, name, visual_description } = toolInput as {
+          base_type: string;
+          name: string;
+          visual_description?: string;
+        };
+
+        // Map base_type to generic character ID
+        const genericIdMap: Record<string, string> = {
+          man: 'generic:man',
+          woman: 'generic:woman',
+          child: 'generic:child',
+          crowd: 'generic:crowd',
+          voice: 'generic:voice',
+          bystander: 'generic:bystander',
+          announcer: 'generic:announcer',
+          narrator: 'generic:narrator',
+          group: 'generic:group',
+          all: 'generic:all',
+        };
+
+        const genericAssetId = genericIdMap[base_type];
+        if (!genericAssetId) {
+          return { success: false, error: `Type de base invalide: ${base_type}` };
+        }
+
+        // Check if this exact name already exists in project
+        const { data: existing } = await supabase
+          .from('project_generic_assets')
+          .select('id, name_override')
+          .eq('project_id', projectId)
+          .eq('name_override', name.toUpperCase())
+          .maybeSingle();
+
+        if (existing) {
+          return {
+            success: false,
+            error: `Le figurant "${name.toUpperCase()}" existe déjà dans ce projet. Utilisez @${name.replace(/\s+/g, '')} dans le script.`,
+          };
+        }
+
+        // Create project_generic_asset with name_override and local_overrides
+        const { data: projectGenericAsset, error: insertError } = await supabase
+          .from('project_generic_assets')
+          .insert({
+            project_id: projectId,
+            generic_asset_id: genericAssetId,
+            name_override: name.toUpperCase(),
+            local_overrides: visual_description
+              ? { visual_description }
+              : {},
+          })
+          .select()
+          .single();
+
+        if (insertError) {
+          return { success: false, error: `Erreur lors de la création: ${insertError.message}` };
+        }
+
+        return {
+          success: true,
+          result: {
+            type: 'figurant',
+            projectGenericAsset,
+            message: `Figurant "${name.toUpperCase()}" (basé sur ${base_type.toUpperCase()}) ajouté au casting du projet`,
           },
         };
       }
@@ -757,6 +858,17 @@ export async function POST(request: Request, { params }: RouteParams) {
       .filter((pa) => pa.global_assets?.asset_type === 'location')
       .map((pa) => pa.global_assets?.name || '');
 
+    // Get existing figurants (project_generic_assets with name_override)
+    const { data: projectGenericAssets } = await supabase
+      .from('project_generic_assets')
+      .select('name_override, generic_asset_id, local_overrides')
+      .eq('project_id', projectId)
+      .not('name_override', 'is', null);
+
+    const existingFigurants = (projectGenericAssets || [])
+      .filter((pga) => pga.name_override)
+      .map((pga) => pga.name_override);
+
     // Build contextual system prompt
     let contextualSystem = SYSTEM_PROMPT;
     contextualSystem += `\n\n## Contexte du projet\nNom: ${project.name}`;
@@ -775,6 +887,10 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     if (existingLocations.length > 0) {
       contextualSystem += `\n\n## Lieux dans la Bible\n${existingLocations.join(', ')}`;
+    }
+
+    if (existingFigurants.length > 0) {
+      contextualSystem += `\n\n## Figurants dans le casting\n${existingFigurants.join(', ')}`;
     }
 
     // Create Claude wrapper

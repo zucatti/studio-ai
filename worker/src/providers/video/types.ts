@@ -40,7 +40,13 @@ export interface VideoGenerationRequest {
   }>;
   cinematicVoices?: Array<{
     characterId: string;
-    voiceId: string;  // fal_voice_id
+    voiceId: string;  // fal_voice_id for Kling
+  }>;
+  // Seedance audio references (@Audio1, @Audio2, etc.)
+  // Pre-rendered audio files for lip-sync
+  cinematicAudios?: Array<{
+    characterId: string;
+    audioUrl: string;  // Pre-rendered dialogue audio (MP3/WAV)
   }>;
 }
 
@@ -87,6 +93,7 @@ export interface VideoModel {
   supportsDialogue: boolean;
   supportsAudio: boolean;
   supportsTextToVideo?: boolean; // Can generate without starting frame
+  supportsReferences?: boolean; // Supports reference-to-video (Seedance images_list)
   defaultForDialogue?: boolean;
   defaultForVideo?: boolean;
 }

@@ -13,13 +13,12 @@ import {
   FileText,
   Check,
   X,
-  ChevronDown,
-  ChevronRight,
   Users,
   MapPin,
   Clapperboard,
   Package,
 } from 'lucide-react';
+import { ScriptPreview } from '@/components/script/ScriptPreview';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -60,6 +59,7 @@ interface ScriptElement {
 // Tool display config
 const TOOL_CONFIG: Record<string, { icon: typeof Users; label: string; color: string }> = {
   add_character: { icon: Users, label: 'Personnage ajouté', color: 'green' },
+  add_figurant: { icon: Users, label: 'Figurant ajouté', color: 'green' },
   add_location: { icon: MapPin, label: 'Lieu ajouté', color: 'green' },
   add_prop: { icon: Package, label: 'Accessoire ajouté', color: 'green' },
   add_scene: { icon: Clapperboard, label: 'Scène ajoutée', color: 'blue' },
@@ -488,98 +488,13 @@ export default function ScriptWorkshopPage() {
             </CardTitle>
           </CardHeader>
           <CardContent className="flex-1 p-0 overflow-y-auto">
-            {scenes.length === 0 ? (
-              <div className="flex flex-col items-center justify-center h-full text-center p-6">
-                <FileText className="w-12 h-12 text-slate-600 mb-4" />
-                <p className="text-slate-400">Ton script apparaîtra ici</p>
-                <p className="text-sm text-slate-600 mt-1">
-                  Commence à discuter avec l'assistant pour construire ton histoire
-                </p>
-              </div>
-            ) : (
-              <div className="p-4 space-y-4">
-                {scenes
-                  .sort((a, b) => a.scene_number - b.scene_number)
-                  .map(scene => {
-                    const isExpanded = expandedScenes.has(scene.id);
-                    const elements = (elementsByScene[scene.id] || []).sort(
-                      (a, b) => a.sort_order - b.sort_order
-                    );
-
-                    return (
-                      <div
-                        key={scene.id}
-                        className="bg-white/5 rounded-lg border border-white/10"
-                      >
-                        <button
-                          onClick={() => toggleScene(scene.id)}
-                          className="w-full flex items-center gap-3 p-3 text-left hover:bg-white/5"
-                        >
-                          {isExpanded ? (
-                            <ChevronDown className="w-4 h-4 text-slate-400" />
-                          ) : (
-                            <ChevronRight className="w-4 h-4 text-slate-400" />
-                          )}
-                          <span className="font-mono text-sm text-yellow-400">
-                            SCENE {scene.scene_number}
-                          </span>
-                          <span className="font-mono text-sm text-white">
-                            {scene.int_ext}. {scene.location} - {scene.time_of_day}
-                          </span>
-                        </button>
-
-                        {isExpanded && (
-                          <div className="px-4 pb-4 space-y-3">
-                            {scene.description && (
-                              <p className="text-sm text-slate-400 italic pl-8">
-                                {scene.description}
-                              </p>
-                            )}
-
-                            {elements.length > 0 ? (
-                              <div className="pl-8 space-y-2 font-mono text-sm">
-                                {elements.map(element => (
-                                  <div key={element.id}>
-                                    {element.type === 'action' && (
-                                      <p className="text-white">{element.content}</p>
-                                    )}
-                                    {element.type === 'dialogue' && (
-                                      <div className="pl-8">
-                                        <p className="text-blue-400 uppercase">
-                                          {element.character_name}
-                                          {element.extension && ` (${element.extension})`}
-                                        </p>
-                                        {element.parenthetical && (
-                                          <p className="text-slate-500">
-                                            ({element.parenthetical})
-                                          </p>
-                                        )}
-                                        <p className="text-white pl-4">{element.content}</p>
-                                      </div>
-                                    )}
-                                    {element.type === 'transition' && (
-                                      <p className="text-purple-400 text-right uppercase">
-                                        {element.content}:
-                                      </p>
-                                    )}
-                                    {element.type === 'note' && (
-                                      <p className="text-slate-500">[[{element.content}]]</p>
-                                    )}
-                                  </div>
-                                ))}
-                              </div>
-                            ) : (
-                              <p className="text-sm text-slate-600 pl-8 italic">
-                                Aucun élément dans cette scène
-                              </p>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-              </div>
-            )}
+            <ScriptPreview
+              projectId={projectId}
+              scenes={scenes}
+              elementsByScene={elementsByScene}
+              expandedScenes={expandedScenes}
+              onToggleScene={toggleScene}
+            />
           </CardContent>
         </Card>
       </div>

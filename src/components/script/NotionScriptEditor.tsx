@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { Plus, GripVertical, X, User, Type, MessageSquare, ArrowRight, StickyNote, MoreHorizontal, Trash2, Users, Mic, Baby, Radio, BookOpen } from 'lucide-react';
 import { useBibleStore, type ImportedGenericCharacter } from '@/store/bible-store';
-import type { ScriptElement, ScriptElementType } from '@/types/script';
+import { DIALOGUE_EXTENSIONS, type ScriptElement, type ScriptElementType, type DialogueExtension } from '@/types/script';
 import type { ProjectAssetFlat } from '@/types/database';
 import { getGenericCharacter, isGenericCharacter } from '@/lib/generic-characters';
 import { cn } from '@/lib/utils';
@@ -344,16 +344,59 @@ function ElementBlock({
       <div className="flex-1 min-w-0">
         {element.type === 'dialogue' ? (
           <div className="space-y-2">
-            {/* Character tag */}
-            <CharacterTag
-              characterId={element.character_id ?? null}
-              characterName={element.character_name ?? null}
-              characters={characters}
-              projectGenericAssets={projectGenericAssets}
-              isLoading={isLoading}
-              onRemove={() => onUpdate({ character_id: null, character_name: null })}
-              onSelect={(id, name) => onUpdate({ character_id: id, character_name: name })}
-            />
+            {/* Character tag + extensions */}
+            <div className="flex items-center gap-3">
+              <CharacterTag
+                characterId={element.character_id ?? null}
+                characterName={element.character_name ?? null}
+                characters={characters}
+                projectGenericAssets={projectGenericAssets}
+                isLoading={isLoading}
+                onRemove={() => onUpdate({ character_id: null, character_name: null })}
+                onSelect={(id, name) => onUpdate({ character_id: id, character_name: name })}
+              />
+
+              {/* Dialogue extensions */}
+              {element.character_id && (
+                <div className="inline-flex flex-wrap gap-0.5 rounded-md bg-slate-800/50 p-0.5 border border-white/10">
+                  {/* On-screen (default) */}
+                  <button
+                    type="button"
+                    onClick={() => onUpdate({ extension: null })}
+                    title="Personnage visible à l'écran"
+                    className={cn(
+                      'px-2 py-0.5 text-[10px] font-medium rounded transition-all',
+                      !element.extension
+                        ? 'bg-green-600/80 text-white'
+                        : 'text-slate-400 hover:text-slate-200'
+                    )}
+                  >
+                    À l'écran
+                  </button>
+                  {/* All dialogue extensions */}
+                  {DIALOGUE_EXTENSIONS.map((ext) => (
+                    <button
+                      key={ext.value}
+                      type="button"
+                      onClick={() => onUpdate({ extension: ext.value as DialogueExtension })}
+                      title={ext.description}
+                      className={cn(
+                        'px-2 py-0.5 text-[10px] font-medium rounded transition-all',
+                        element.extension === ext.value
+                          ? ext.value === 'Hors champ'
+                            ? 'bg-amber-600/80 text-white'
+                            : ext.value === 'Voix off'
+                            ? 'bg-purple-600/80 text-white'
+                            : 'bg-blue-600/80 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      )}
+                    >
+                      {ext.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Parenthetical */}
             {(element.parenthetical || isHovered) && (

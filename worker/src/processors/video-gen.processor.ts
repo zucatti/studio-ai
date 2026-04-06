@@ -24,7 +24,7 @@ export interface VideoGenJobData {
   duration: number;
   aspectRatio: string;
   prompt: string;
-  firstFrameUrl: string;
+  firstFrameUrl?: string;  // Optional for text-to-video (Kling Omni)
   lastFrameUrl?: string;
   characterReferenceImages?: string[];
   hasDialogue: boolean;
@@ -47,6 +47,13 @@ export interface VideoGenJobData {
     characterId: string;
     voiceId: string;
   }>;
+  // Seedance audio references
+  cinematicAudios?: Array<{
+    characterId: string;
+    audioUrl: string;
+  }>;
+  // Dry run mode - generate prompt but don't execute
+  dryRun?: boolean;
 }
 
 /**
@@ -116,7 +123,8 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
 
     // Get public URLs for all b2:// URLs (frames, audio, character refs)
     await updateJobProgress(jobId, 10, 'Récupération des URLs...');
-    const firstFramePublicUrl = await getPublicUrl(firstFrameUrl);
+    // firstFrameUrl is optional for text-to-video mode
+    const firstFramePublicUrl = firstFrameUrl ? await getPublicUrl(firstFrameUrl) : undefined;
     const lastFramePublicUrl = lastFrameUrl ? await getPublicUrl(lastFrameUrl) : undefined;
 
     // Convert character reference images to public URLs
@@ -193,6 +201,59 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
       cinematicElements: cinematicElementsPublic,
       cinematicVoices,
     };
+
+    // DRY RUN MODE - Log everything but don't execute
+    // Set DRYRUN=true env var to enable
+    if (data.dryRun || process.env.DRYRUN === 'true') {
+      console.log(`[VideoGen] ========== DRY RUN MODE ==========`);
+      console.log(`[VideoGen] Provider: ${provider.displayName}, Model: ${model}`);
+      console.log(`[VideoGen] Duration: ${duration}s, Aspect: ${aspectRatio}`);
+      console.log(`[VideoGen] First frame: ${firstFramePublicUrl || 'NONE (text-to-video)'}`);
+      console.log(`[VideoGen] Cinematic mode: ${isCinematicMode}`);
+      if (cinematicElementsPublic) {
+        console.log(`[VideoGen] Elements (${cinematicElementsPublic.length}):`);
+        cinematicElementsPublic.forEach((el, i) => {
+          console.log(`  ${i + 1}. ${el.characterName}: ${el.frontalImageUrl}`);
+        });
+      }
+      if (cinematicVoices) {
+        console.log(`[VideoGen] Voices (${cinematicVoices.length}):`);
+        cinematicVoices.forEach((v, i) => {
+          console.log(`  ${i + 1}. ${v.characterId}: ${v.voiceId}`);
+        });
+      }
+      console.log(`[VideoGen] ========== PROMPT ==========`);
+      console.log(prompt);
+      console.log(`[VideoGen] ========== END DRY RUN ==========`);
+
+      // Mark job as complete with prompt info
+      await completeJob(jobId, {
+        dryRun: true,
+        prompt,
+        model,
+        provider: provider.displayName,
+        duration,
+        aspectRatio,
+        firstFrameUrl: firstFramePublicUrl,
+        cinematicElements: cinematicElementsPublic?.length || 0,
+        cinematicVoices: cinematicVoices?.length || 0,
+      });
+
+      // Update shot status
+      await supabase
+        .from('shots')
+        .update({
+          generation_status: 'dry_run',
+          video_generation_progress: JSON.stringify({
+            status: 'dry_run',
+            progress: 100,
+            prompt,
+          }),
+        })
+        .eq('id', shotId);
+
+      return;
+    }
 
     // Generate video
     console.log(`[VideoGen] Generating with ${provider.displayName}...`);

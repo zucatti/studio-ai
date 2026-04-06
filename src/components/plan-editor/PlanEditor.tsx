@@ -117,11 +117,14 @@ export function PlanEditor({
   const [showSceneGenerator, setShowSceneGenerator] = useState(false);
   const [generatingFrame, setGeneratingFrame] = useState<'in' | 'out' | null>(null);
 
-  // Video generation - auto-select based on dialogue
-  // With dialogue → fal.ai + OmniHuman 1.5 (lip-sync)
-  // Without dialogue → fal.ai + Kling 3.0 Omni (best video quality)
+  // Video model selection
+  // - seedance-2: ByteDance Seedance 2.0 ($0.30/s) - native audio, 15s max
+  // - kling-omni: Kling 3.0 Omni ($0.34/s with audio) - elements, voice_ids, 15s max
+  // - omnihuman: OmniHuman 1.5 (lip-sync for dialogue)
+  const [selectedVideoModel, setSelectedVideoModel] = useState<'seedance-2' | 'kling-omni'>('kling-omni');
   const videoProvider = 'fal';
-  const videoModel = hasDialogue ? 'omnihuman' : 'kling-omni';
+  // With dialogue → OmniHuman (lip-sync), otherwise use selected model
+  const videoModel = hasDialogue ? 'omnihuman' : selectedVideoModel;
 
   // Video preview
   const [showVideoPreview, setShowVideoPreview] = useState(false);
@@ -324,7 +327,9 @@ export function PlanEditor({
   }, [ratioConfig]);
 
   const hasFrameIn = !!(plan?.storyboard_image_url || plan?.first_frame_url);
-  const canGenerateVideo = hasFrameIn && config.showVideoGeneration;
+  const hasSegments = (plan?.segments?.length || 0) > 0;
+  // Can generate if we have a frame OR at least one segment (text-to-video with Kling Omni)
+  const canGenerateVideo = (hasFrameIn || hasSegments) && config.showVideoGeneration;
 
   // === HANDLERS ===
 
@@ -473,10 +478,11 @@ export function PlanEditor({
 
   // Video generation
   const handleGenerateVideo = useCallback(async () => {
-    // Check for Frame In
+    // Check for Frame In OR segments (text-to-video)
     const hasFrameIn = !!(plan?.storyboard_image_url || plan?.first_frame_url);
-    if (!hasFrameIn) {
-      toast.error('Frame In requise pour générer la vidéo');
+    const hasSegments = (plan?.segments?.length || 0) > 0;
+    if (!hasFrameIn && !hasSegments) {
+      toast.error('Frame In ou au moins un segment requis pour générer la vidéo');
       return;
     }
     if (!onGenerateVideo) return;
@@ -739,33 +745,6 @@ export function PlanEditor({
               </div>
             )}
 
-            {/* Plan / Montage tab toggle */}
-            {mode === 'video-free' && (
-              <div className="inline-flex rounded-lg bg-white/5 p-0.5">
-                <button
-                  onClick={() => setEditorTab('plan')}
-                  className={cn(
-                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                    editorTab === 'plan'
-                      ? 'bg-blue-500/20 text-blue-300'
-                      : 'text-slate-400 hover:text-white'
-                  )}
-                >
-                  Plan
-                </button>
-                <button
-                  onClick={() => setEditorTab('montage')}
-                  className={cn(
-                    'px-3 py-1.5 rounded-md text-xs font-medium transition-all',
-                    editorTab === 'montage'
-                      ? 'bg-blue-500/20 text-blue-300'
-                      : 'text-slate-400 hover:text-white'
-                  )}
-                >
-                  Montage
-                </button>
-              </div>
-            )}
 
             {/* Sequence Cinematic Header Display (click to view prompt) */}
             {mode === 'video-free' && sequenceCinematicHeader && (
@@ -829,8 +808,39 @@ export function PlanEditor({
                 <div />
               )}
 
-              {/* Generate button */}
-              <div className="w-32 flex justify-end">
+              {/* Model selector + Generate button */}
+              <div className="flex items-center gap-2">
+                {/* Model toggle - only show when no dialogue (dialogue forces OmniHuman) */}
+                {config.showVideoGeneration && !hasDialogue && (
+                  <div className="inline-flex rounded-lg bg-white/5 p-0.5">
+                    <button
+                      onClick={() => setSelectedVideoModel('seedance-2')}
+                      className={cn(
+                        'px-2.5 py-1 rounded-md text-xs font-medium transition-all',
+                        selectedVideoModel === 'seedance-2'
+                          ? 'bg-purple-600 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      )}
+                      title="Seedance 2.0 - $0.30/s - Audio natif"
+                    >
+                      Seedance 2
+                    </button>
+                    <button
+                      onClick={() => setSelectedVideoModel('kling-omni')}
+                      className={cn(
+                        'px-2.5 py-1 rounded-md text-xs font-medium transition-all',
+                        selectedVideoModel === 'kling-omni'
+                          ? 'bg-blue-600 text-white'
+                          : 'text-slate-400 hover:text-white'
+                      )}
+                      title="Kling Omni - $0.34/s - Elements, Voices"
+                    >
+                      Kling Omni
+                    </button>
+                  </div>
+                )}
+
+                {/* Generate button */}
                 {config.showVideoGeneration && (
                   <Button
                     size="sm"
@@ -1365,6 +1375,14 @@ export function PlanEditor({
         projectId={projectId}
         segments={plan.segments || []}
         locations={locations}
+        characters={segmentCharacters.map(c => ({
+          id: c.id,
+          name: c.name,
+          referenceImages: projectAssets.find(a => a.id === c.id)?.reference_images || [],
+          voiceId: (projectAssets.find(a => a.id === c.id)?.data as { fal_voice_id?: string })?.fal_voice_id,
+        }))}
+        targetModel={videoModel}
+        hasStartFrame={hasFrameIn}
         defaultViewMode="prompt"
         readOnly
       />

@@ -1,6 +1,16 @@
 /**
  * fal.ai Video Provider
- * Supports: OmniHuman 1.5, Kling, Sora 2, Veo 3, Wan
+ * Supports: OmniHuman 1.5, Seedance 2.0, Kling, Sora 2, Veo 3, Wan
+ *
+ * Seedance 2.0 Endpoints:
+ * - reference-to-video: Character references via images_list + @image1/@image2 syntax
+ * - image-to-video: Starting frame only
+ * - text-to-video: Prompt only
+ * - fast/* variants: 20% cheaper, faster
+ *
+ * Pricing:
+ * - Standard: $0.30/s (720p)
+ * - Fast: $0.24/s (720p)
  */
 
 import { fal } from '@fal-ai/client';
@@ -16,17 +26,30 @@ import { aiConfig } from '../../config.js';
 // Model mapping: short names to fal.ai endpoints (image-to-video)
 const MODEL_ENDPOINTS: Record<string, string> = {
   'omnihuman': 'fal-ai/omnihuman',
-  'kling-omni': 'fal-ai/kling-video/o3/pro/image-to-video', // Kling 3.0 Omni - elements + audio
-  'kling-2.6': 'fal-ai/kling-video/v2.6/pro/image-to-video', // Voice IDs only
-  'kling-v2-master': 'fal-ai/kling-video/v2/master/image-to-video', // Legacy
+  // Seedance 2.0 - use reference-to-video when we have character refs
+  'seedance-2': 'fal-ai/bytedance/seedance-2.0/image-to-video',
+  'seedance-2-fast': 'fal-ai/bytedance/seedance-2.0/fast/image-to-video',
+  // Kling
+  'kling-omni': 'fal-ai/kling-video/o3/pro/image-to-video',
+  'kling-2.6': 'fal-ai/kling-video/v2.6/pro/image-to-video',
+  'kling-v2-master': 'fal-ai/kling-video/v2/master/image-to-video',
+  // Others
   'sora-2': 'fal-ai/sora/v2/image-to-video',
   'veo-3': 'fal-ai/veo3/image-to-video',
   'wan-2.1': 'fal-ai/wan/v2.1/image-to-video',
-  'wan-2.6': 'fal-ai/wan/v2.1/image-to-video', // Same endpoint
+  'wan-2.6': 'fal-ai/wan/v2.1/image-to-video',
+};
+
+// Reference-to-video endpoints (character consistency with reference images)
+const REFERENCE_TO_VIDEO_ENDPOINTS: Record<string, string> = {
+  'seedance-2': 'fal-ai/bytedance/seedance-2.0/reference-to-video',
+  'seedance-2-fast': 'fal-ai/bytedance/seedance-2.0/fast/reference-to-video',
 };
 
 // Text-to-video endpoints (no starting image required)
 const TEXT_TO_VIDEO_ENDPOINTS: Record<string, string> = {
+  'seedance-2': 'fal-ai/bytedance/seedance-2.0/text-to-video',
+  'seedance-2-fast': 'fal-ai/bytedance/seedance-2.0/fast/text-to-video',
   'kling-omni': 'fal-ai/kling-video/o3/pro/text-to-video',
   'kling-2.6': 'fal-ai/kling-video/v2.6/pro/text-to-video',
   'sora-2': 'fal-ai/sora/v2/text-to-video',
@@ -46,9 +69,33 @@ const MODELS: VideoModel[] = [
     defaultForDialogue: true,
   },
   {
+    id: 'seedance-2',
+    name: 'Seedance 2.0',
+    description: 'ByteDance - native audio, refs via @image1 syntax ($0.30/s)',
+    maxDuration: 15,
+    minDuration: 3,
+    supportsEndFrame: false,
+    supportsDialogue: false, // No voice_ids like Kling, but native audio from prompt
+    supportsAudio: true, // Native audio generation (music, dialogue, SFX)
+    supportsTextToVideo: true,
+    supportsReferences: true, // Supports reference-to-video with images_list
+  },
+  {
+    id: 'seedance-2-fast',
+    name: 'Seedance 2.0 Fast',
+    description: 'ByteDance Fast - 20% cheaper, faster ($0.24/s)',
+    maxDuration: 15,
+    minDuration: 3,
+    supportsEndFrame: false,
+    supportsDialogue: false,
+    supportsAudio: true,
+    supportsTextToVideo: true,
+    supportsReferences: true,
+  },
+  {
     id: 'kling-omni',
     name: 'Kling O3 Pro',
-    description: 'Kling 3.0 Omni - elements + voice synthesis',
+    description: 'Kling 3.0 Omni - elements + voice synthesis ($0.34/s)',
     maxDuration: 15,
     minDuration: 3,
     supportsEndFrame: true,
@@ -120,22 +167,30 @@ export class FalProvider implements VideoProvider {
       return this.generateOmniHuman(request, onProgress);
     }
 
-    // Determine if we use text-to-video or image-to-video
+    // Determine endpoint based on inputs
     const hasStartingFrame = !!request.firstFrameUrl;
+    const hasCharacterRefs = request.isCinematicMode && request.cinematicElements && request.cinematicElements.length > 0;
+    const isSeedance = model.startsWith('seedance-2');
     let endpoint: string;
+    let endpointType: 'text-to-video' | 'image-to-video' | 'reference-to-video';
 
-    if (hasStartingFrame) {
+    if (isSeedance && hasCharacterRefs) {
+      // Seedance with character references -> reference-to-video
+      endpoint = REFERENCE_TO_VIDEO_ENDPOINTS[model] || MODEL_ENDPOINTS[model];
+      endpointType = 'reference-to-video';
+    } else if (hasStartingFrame) {
       endpoint = MODEL_ENDPOINTS[model] || model;
+      endpointType = 'image-to-video';
     } else {
       // No starting frame - use text-to-video endpoint
       endpoint = TEXT_TO_VIDEO_ENDPOINTS[model];
       if (!endpoint) {
         throw new Error(`Model ${model} does not support text-to-video (no starting frame provided)`);
       }
+      endpointType = 'text-to-video';
     }
 
-    const isTextToVideo = !hasStartingFrame;
-    console.log(`[Fal] Generating with ${endpoint} (${isTextToVideo ? 'text-to-video' : 'image-to-video'})`);
+    console.log(`[Fal] Generating with ${endpoint} (${endpointType})`);
     await onProgress?.(10, `Génération ${modelInfo?.name || model}...`);
 
     // Build input parameters
@@ -151,6 +206,41 @@ export class FalProvider implements VideoProvider {
     // Add aspect ratio
     if (request.aspectRatio) {
       input.aspect_ratio = request.aspectRatio === '1:1' ? '16:9' : request.aspectRatio;
+    }
+
+    // Seedance 2.0 configuration
+    if (isSeedance) {
+      // Seedance 2.0 supports 3-15 seconds
+      input.duration = Math.min(Math.max(request.duration, 3), 15);
+
+      // Reference-to-video: pass character images via images_list
+      // Seedance uses @image1, @image2 syntax in prompt (already handled by prompt builder)
+      if (endpointType === 'reference-to-video' && request.cinematicElements?.length) {
+        // Collect all reference images (frontal + additional)
+        const imagesList: string[] = [];
+        for (const el of request.cinematicElements) {
+          if (el.frontalImageUrl) {
+            imagesList.push(el.frontalImageUrl);
+          }
+          if (el.referenceImageUrls?.length) {
+            imagesList.push(...el.referenceImageUrls);
+          }
+        }
+        // Max 9 images for Seedance
+        const limitedImages = imagesList.slice(0, 9);
+        input.images_list = limitedImages;
+        console.log(`[Fal] Seedance 2.0 reference-to-video with ${limitedImages.length} images`);
+      }
+
+      // Seedance 2.0 audio references (@Audio1, @Audio2, etc.)
+      // Pre-rendered audio files for character lip-sync (max 3, combined max 15s)
+      if (request.cinematicAudios?.length) {
+        const audioUrls = request.cinematicAudios.map(a => a.audioUrl).slice(0, 3);
+        input.audio_urls = audioUrls;
+        console.log(`[Fal] Seedance 2.0 with ${audioUrls.length} audio references`);
+      }
+
+      console.log(`[Fal] Seedance 2.0 (${model}), duration: ${input.duration}s`);
     }
 
     // Kling Omni (O3) configuration

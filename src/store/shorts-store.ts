@@ -83,6 +83,8 @@ export interface Short {
   updated_at: string;
   // Short-level settings (cinematic style is now on each plan)
   dialogue_language: DialogueLanguage;
+  // Style Bible - persistent ending line for all prompts (Kling AI best practice)
+  style_bible: string | null;
   // Music settings (for Editly background music)
   music_asset_id: string | null;
   music_volume: number;
@@ -112,6 +114,7 @@ interface ShortsStore {
     title: string;
     description: string;
     dialogue_language: DialogueLanguage;
+    style_bible: string | null;
     music_asset_id: string | null;
     music_volume: number;
     music_fade_in: number;
@@ -214,6 +217,7 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           character_mappings: data.short.character_mappings || null,
           generation_mode: data.short.generation_mode || 'standard',
           dialogue_language: data.short.dialogue_language || 'en',
+          style_bible: data.short.style_bible || null,
         };
         set((state) => ({
           shorts: [...state.shorts, newShort],
@@ -501,14 +505,20 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
     }));
 
     try {
-      await fetch(`/api/projects/${projectId}/shorts/${short.id}/plans/${planId}`, {
+      const response = await fetch(`/api/projects/${projectId}/shots/${planId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ segments, duration }),
       });
+
+      if (!response.ok) {
+        throw new Error(`Failed to save segments: ${response.status}`);
+      }
     } catch (error) {
       console.error('Error updating plan segments:', error);
+      // Revert optimistic update on error
       get().fetchShorts(projectId);
+      throw error; // Re-throw so caller knows it failed
     }
   },
 

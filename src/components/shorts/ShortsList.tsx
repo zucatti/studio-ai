@@ -15,10 +15,12 @@ import {
 } from '@/components/ui/dialog';
 import { Plus, Play, Loader2 } from 'lucide-react';
 import type { Short } from '@/store/shorts-store';
+import type { AspectRatio } from '@/types/database';
 
 interface ShortsListProps {
   shorts: Short[];
   projectId: string;
+  aspectRatio: AspectRatio;
   isLoading: boolean;
   onCreateShort: (title: string) => Promise<void>;
   onDeleteShort: (shortId: string) => Promise<void>;
@@ -28,6 +30,7 @@ interface ShortsListProps {
 export function ShortsList({
   shorts,
   projectId,
+  aspectRatio,
   isLoading,
   onCreateShort,
   onDeleteShort,
@@ -139,6 +142,7 @@ export function ShortsList({
               key={short.id}
               short={short}
               projectId={projectId}
+              aspectRatio={aspectRatio}
               onDelete={onDeleteShort}
               onEdit={handleEdit}
               onGallery={openGallery}
@@ -148,7 +152,8 @@ export function ShortsList({
           {/* Create new card */}
           <button
             onClick={() => setShowCreateDialog(true)}
-            className="aspect-[9/16] rounded-xl border-2 border-dashed border-white/20 flex flex-col items-center justify-center text-slate-400 hover:text-white hover:border-white/40 transition-all"
+            className="rounded-xl border-2 border-dashed border-white/20 flex flex-col items-center justify-center text-slate-400 hover:text-white hover:border-white/40 transition-all"
+            style={{ aspectRatio: aspectRatio.replace(':', '/') }}
           >
             <Plus className="w-8 h-8 mb-2" />
             <span className="text-sm">Nouveau Short</span>

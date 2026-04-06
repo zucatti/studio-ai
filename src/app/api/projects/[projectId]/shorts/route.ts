@@ -68,6 +68,7 @@ export async function GET(request: Request, { params }: RouteParams) {
         character_mappings,
         generation_mode,
         dialogue_language,
+        style_bible,
         music_asset_id,
         music_volume,
         music_fade_in,

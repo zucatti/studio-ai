@@ -11,7 +11,7 @@ import { useSignedUrl, isB2Url } from '@/hooks/use-signed-url';
 import { useSequenceAssembly } from '@/hooks/use-sequence-assembly';
 // ProjectBibleButton removed - use sidebar Bible instead
 import { formatDuration } from '@/components/shorts/DurationPicker';
-import { CinematicHeaderWizard } from '@/components/shorts/CinematicHeaderWizard';
+import { CinematicHeaderWizard, type PromptCharacterData } from '@/components/shorts/CinematicHeaderWizard';
 import { PlanCard } from '@/components/shorts/PlanCard';
 import { SequenceCard } from '@/components/shorts/SequenceCard';
 import { SequenceClip } from '@/components/shorts/SequenceClip';
@@ -37,6 +37,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useShortsStore, type Plan } from '@/store/shorts-store';
 import { useJobsStore } from '@/store/jobs-store';
 import { useBibleStore } from '@/store/bible-store';
+import { useProject } from '@/hooks/use-project';
 import type { AspectRatio } from '@/types/database';
 import type { CinematicHeaderConfig, Sequence, TransitionType } from '@/types/cinematic';
 import {
@@ -59,6 +60,359 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+
+// === EXTRACTED COMPONENTS (prevent flickering from inline definitions) ===
+
+// Sortable plan item for rush list
+const SortablePlanItem = ({
+  plan,
+  selectedPlanId,
+  onSelect,
+  onDelete,
+}: {
+  plan: Plan;
+  selectedPlanId: string | null;
+  onSelect: (planId: string) => void;
+  onDelete: (planId: string) => void;
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: plan.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <PlanCard
+        plan={plan}
+        isSelected={selectedPlanId === plan.id}
+        onSelect={() => onSelect(plan.id)}
+        onEdit={() => onSelect(plan.id)}
+        onDelete={() => onDelete(plan.id)}
+        dragHandleProps={listeners}
+        compact
+      />
+    </div>
+  );
+};
+
+// Droppable sequence zone
+const DroppableSequence = ({
+  sequence,
+  children,
+}: {
+  sequence: Sequence;
+  children: React.ReactNode;
+}) => {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `sequence-${sequence.id}`,
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'rounded-xl bg-[#0d1218] border overflow-hidden transition-colors',
+        isOver ? 'border-purple-500 bg-purple-500/10' : 'border-white/5'
+      )}
+    >
+      {children}
+    </div>
+  );
+};
+
+// Droppable rush zone
+const DroppableRush = ({ children }: { children: React.ReactNode }) => {
+  const { setNodeRef, isOver } = useDroppable({
+    id: 'rush-zone',
+  });
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        'flex-1 overflow-y-auto rounded-lg transition-colors p-2 -m-2',
+        isOver && 'bg-blue-500/10'
+      )}
+    >
+      {children}
+    </div>
+  );
+};
+
+// Storyboard plan card with hover video autoplay
+const StoryboardPlanCard = ({
+  plan,
+  aspectRatio: ar,
+  isSelected,
+  isGenerating,
+  isRush,
+  onSelect,
+  onExpand,
+}: {
+  plan: Plan;
+  aspectRatio: string;
+  isSelected: boolean;
+  isGenerating: boolean;
+  isRush?: boolean;
+  onSelect: () => void;
+  onExpand: () => void;
+}) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [videoProgress, setVideoProgress] = useState(0);
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Sign B2 URLs
+  const { signedUrl: signedVideoUrl } = useSignedUrl(plan.generated_video_url || null);
+  const { signedUrl: signedImageUrl } = useSignedUrl(plan.storyboard_image_url || null);
+
+  const finalVideoUrl =
+    signedVideoUrl || (!isB2Url(plan.generated_video_url || '') ? plan.generated_video_url : null);
+  const finalImageUrl =
+    signedImageUrl || (!isB2Url(plan.storyboard_image_url || '') ? plan.storyboard_image_url : null);
+
+  // Card width based on aspect ratio - larger sizes
+  const cardWidth = ar === '9:16' ? 160 : ar === '1:1' ? 200 : 280;
+  const aspectStyle = ar.replace(':', '/');
+
+  // Handle hover autoplay for videos
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    if (isHovered && finalVideoUrl) {
+      video.play().catch(() => {});
+    } else {
+      video.pause();
+      video.currentTime = 0;
+      setVideoProgress(0);
+    }
+  }, [isHovered, finalVideoUrl]);
+
+  // Track video progress
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleTimeUpdate = () => {
+      if (video.duration > 0) {
+        setVideoProgress((video.currentTime / video.duration) * 100);
+      }
+    };
+
+    video.addEventListener('timeupdate', handleTimeUpdate);
+    return () => video.removeEventListener('timeupdate', handleTimeUpdate);
+  }, []);
+
+  return (
+    <div
+      className={cn(
+        'relative flex-shrink-0 rounded-xl overflow-hidden border-2 cursor-pointer transition-all group',
+        isSelected
+          ? isRush
+            ? 'border-blue-500 ring-2 ring-blue-500/30'
+            : 'border-purple-500 ring-2 ring-purple-500/30'
+          : isRush
+            ? 'border-dashed border-white/20 hover:border-white/40'
+            : 'border-white/10 hover:border-white/30'
+      )}
+      style={{ width: cardWidth }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      onClick={onSelect}
+    >
+      {/* Content */}
+      {isGenerating ? (
+        <div className="bg-slate-800 flex items-center justify-center" style={{ aspectRatio: aspectStyle }}>
+          <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
+        </div>
+      ) : finalVideoUrl ? (
+        // Video with hover autoplay
+        <div className="relative" style={{ aspectRatio: aspectStyle }}>
+          <video
+            ref={videoRef}
+            src={finalVideoUrl}
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover bg-black"
+            poster={finalImageUrl || undefined}
+          />
+          {/* Play indicator when not hovered */}
+          {!isHovered && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/20">
+              <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
+                <Play className="w-4 h-4 text-white fill-white ml-0.5" />
+              </div>
+            </div>
+          )}
+          {/* Controls on hover */}
+          {isHovered && (
+            <>
+              {/* Progress bar */}
+              <div className="absolute bottom-8 left-0 right-0 h-1 bg-black/50">
+                <div className="h-full bg-blue-500 transition-all" style={{ width: `${videoProgress}%` }} />
+              </div>
+              {/* Fullscreen button */}
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onExpand();
+                }}
+                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"
+                title="Plein écran"
+              >
+                <Maximize2 className="w-4 h-4 text-white" />
+              </button>
+            </>
+          )}
+        </div>
+      ) : finalImageUrl ? (
+        // Image only
+        <div className="relative" style={{ aspectRatio: aspectStyle }}>
+          <img src={finalImageUrl} alt={`Plan ${plan.shot_number}`} className="w-full h-full object-cover" />
+          {isHovered && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onExpand();
+              }}
+              className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"
+              title="Plein écran"
+            >
+              <Maximize2 className="w-4 h-4 text-white" />
+            </button>
+          )}
+        </div>
+      ) : (
+        // Empty state
+        <div
+          className="bg-slate-800/50 flex flex-col items-center justify-center"
+          style={{ aspectRatio: aspectStyle }}
+        >
+          <Video className="w-6 h-6 text-slate-600 mb-1" />
+          <span className="text-xs text-slate-500">P{plan.shot_number}</span>
+        </div>
+      )}
+
+      {/* Bottom label */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-6">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-white">Plan {plan.shot_number}</span>
+          <span className="text-[10px] text-slate-400">{plan.duration}s</span>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// Gallery slide component for sequences
+const GallerySequenceSlide = ({
+  sequence,
+  isCurrent,
+  sequenceAssemblyStates,
+  getPlansForSequence,
+  aspectRatio,
+}: {
+  sequence: Sequence;
+  isCurrent: boolean;
+  sequenceAssemblyStates: Map<string, { status: string; assembledVideoUrl?: string | null; progress?: number }>;
+  getPlansForSequence: (sequenceId: string) => Plan[];
+  aspectRatio: string;
+}) => {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  // Get the assembled video URL
+  const assemblyState = sequenceAssemblyStates.get(sequence.id);
+  const assembledUrl =
+    assemblyState?.status === 'completed' ? assemblyState.assembledVideoUrl : sequence.assembled_video_url;
+
+  const { signedUrl } = useSignedUrl(assembledUrl || null);
+  const finalVideoUrl = signedUrl || (assembledUrl && !isB2Url(assembledUrl) ? assembledUrl : null);
+
+  // Get sequence plans for info
+  const sequencePlans = getPlansForSequence(sequence.id);
+  const totalDuration = sequencePlans.reduce((sum, p) => sum + p.duration, 0);
+
+  // Auto-play when current and video is ready
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !finalVideoUrl) return;
+
+    const handleCanPlay = () => {
+      if (isCurrent) {
+        video.play().catch(() => {});
+      }
+    };
+
+    if (isCurrent) {
+      // Try to play immediately if already loaded
+      if (video.readyState >= 3) {
+        video.play().catch(() => {});
+      } else {
+        // Wait for video to be ready
+        video.addEventListener('canplay', handleCanPlay);
+      }
+    } else {
+      video.pause();
+      video.currentTime = 0;
+    }
+
+    return () => {
+      video.removeEventListener('canplay', handleCanPlay);
+    };
+  }, [isCurrent, finalVideoUrl]);
+
+  return (
+    <div
+      className={cn(
+        'flex-shrink-0 transition-all duration-300',
+        isCurrent ? 'opacity-100 scale-100' : 'opacity-40 scale-95'
+      )}
+    >
+      <div
+        className={cn('relative rounded-xl overflow-hidden shadow-2xl', isCurrent && 'ring-2 ring-white/20')}
+      >
+        {finalVideoUrl ? (
+          <video
+            ref={videoRef}
+            src={finalVideoUrl}
+            loop
+            muted={!isCurrent}
+            playsInline
+            controls={isCurrent}
+            className="w-full object-cover bg-black"
+            style={{ aspectRatio: aspectRatio.replace(':', '/') }}
+          />
+        ) : null}
+
+        {/* Info overlay - top left */}
+        <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-3 pb-10 pointer-events-none">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-white flex items-center gap-2">
+              <Layers className="w-4 h-4 text-purple-400" />
+              {sequence.title || `Séquence ${sequence.sort_order + 1}`}
+            </span>
+            <span className="text-xs text-slate-300">
+              {sequencePlans.length} plans • {totalDuration}s
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// === MAIN PAGE COMPONENT ===
 
 export default function ShortDetailPage() {
   const params = useParams();
@@ -87,15 +441,18 @@ export default function ShortDetailPage() {
   // Jobs store for QueuePanel integration
   const { jobs, fetchJobs, startPolling } = useJobsStore();
 
-  // Bible store for locations
-  const { projectAssets, fetchProjectAssets } = useBibleStore();
+  // Bible store for locations and characters (including generic)
+  const { projectAssets, projectGenericAssets, fetchProjectAssets, fetchProjectGenericAssets } = useBibleStore();
+
+  // Project data (includes aspect_ratio)
+  const { project } = useProject();
+  const aspectRatio: AspectRatio = (project?.aspect_ratio as AspectRatio) || '16:9';
 
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState('');
   const [isGeneratingVideo, setIsGeneratingVideo] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>('9:16');
   const [generationProgress, setGenerationProgress] = useState<Map<string, VideoGenerationProgress>>(new Map());
 
   // Tab state: 'edition' or 'montage'
@@ -129,22 +486,6 @@ export default function ShortDetailPage() {
     })
   );
 
-  // Fetch project to get aspect ratio
-  useEffect(() => {
-    const fetchProject = async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectId}`);
-        if (res.ok) {
-          const data = await res.json();
-          setAspectRatio(data.project?.aspect_ratio || '9:16');
-        }
-      } catch (error) {
-        console.error('Error fetching project:', error);
-      }
-    };
-    fetchProject();
-  }, [projectId]);
-
   // Fetch shorts if not already loaded
   useEffect(() => {
     if (shorts.length === 0) {
@@ -152,10 +493,11 @@ export default function ShortDetailPage() {
     }
   }, [projectId, shorts.length, fetchShorts]);
 
-  // Fetch project assets for Bible locations
+  // Fetch project assets for Bible locations and characters
   useEffect(() => {
     fetchProjectAssets(projectId);
-  }, [projectId, fetchProjectAssets]);
+    fetchProjectGenericAssets(projectId);
+  }, [projectId, fetchProjectAssets, fetchProjectGenericAssets]);
 
   // Fetch sequences when page loads
   useEffect(() => {
@@ -192,6 +534,38 @@ export default function ShortDetailPage() {
         description: (asset.data as { description?: string })?.description,
       }));
   }, [projectAssets]);
+
+  // Extract characters from project assets AND generic assets (for SegmentEditor dropdown)
+  const promptCharacters = useMemo((): PromptCharacterData[] => {
+    // Global characters from project_assets
+    const globalChars = projectAssets
+      .filter((asset) => asset.asset_type === 'character')
+      .map((asset) => {
+        const data = asset.data as {
+          visual_description?: string;
+          fal_voice_id?: string;
+        } | null;
+        return {
+          id: asset.id,
+          name: asset.name,
+          visualDescription: data?.visual_description,
+          referenceImages: asset.reference_images || [],
+          voiceId: data?.fal_voice_id,
+        };
+      });
+
+    // Generic characters from project_generic_assets
+    // Use project_generic_asset_id (UUID) for uniqueness - multiple FEMME variants can exist
+    const genericChars = projectGenericAssets.map((ga) => ({
+      id: ga.project_generic_asset_id,  // UUID - unique per imported character
+      name: ga.name,  // This is name_override or original name
+      visualDescription: ga.local_overrides?.visual_description || ga.description,
+      referenceImages: ga.reference_images || [],
+      voiceId: ga.local_overrides?.voice_id,
+    }));
+
+    return [...globalChars, ...genericChars];
+  }, [projectAssets, projectGenericAssets]);
 
   const short = getShortById(shortId);
   const activeDragPlan = short?.plans.find(p => p.id === activeDragId) || null;
@@ -930,355 +1304,6 @@ export default function ShortDetailPage() {
     }
   }, [jobs, shortId]);
 
-  // Sortable plan item for rush list
-  const SortablePlanItem = ({ plan }: { plan: Plan }) => {
-    const {
-      attributes,
-      listeners,
-      setNodeRef,
-      transform,
-      transition,
-      isDragging,
-    } = useSortable({ id: plan.id });
-
-    const style = {
-      transform: CSS.Transform.toString(transform),
-      transition,
-      opacity: isDragging ? 0.5 : 1,
-    };
-
-    return (
-      <div ref={setNodeRef} style={style} {...attributes}>
-        <PlanCard
-          plan={plan}
-          isSelected={selectedPlanId === plan.id}
-          onSelect={() => {
-            setSelectedPlanId(plan.id);
-            setIsModalOpen(true);
-          }}
-          onEdit={() => {
-            setSelectedPlanId(plan.id);
-            setIsModalOpen(true);
-          }}
-          onDelete={() => handleDeletePlan(plan.id)}
-          dragHandleProps={listeners}
-          compact
-        />
-      </div>
-    );
-  };
-
-  // Droppable sequence zone
-  const DroppableSequence = ({ sequence, children }: { sequence: Sequence; children: React.ReactNode }) => {
-    const { setNodeRef, isOver } = useDroppable({
-      id: `sequence-${sequence.id}`,
-    });
-
-    return (
-      <div
-        ref={setNodeRef}
-        className={cn(
-          "rounded-xl bg-[#0d1218] border overflow-hidden transition-colors",
-          isOver ? "border-purple-500 bg-purple-500/10" : "border-white/5"
-        )}
-      >
-        {children}
-      </div>
-    );
-  };
-
-  // Droppable rush zone
-  const DroppableRush = ({ children }: { children: React.ReactNode }) => {
-    const { setNodeRef, isOver } = useDroppable({
-      id: 'rush-zone',
-    });
-
-    return (
-      <div
-        ref={setNodeRef}
-        className={cn(
-          "flex-1 overflow-y-auto rounded-lg transition-colors p-2 -m-2",
-          isOver && "bg-blue-500/10"
-        )}
-      >
-        {children}
-      </div>
-    );
-  };
-
-  // Storyboard plan card with hover video autoplay
-  const StoryboardPlanCard = ({
-    plan,
-    aspectRatio: ar,
-    isSelected,
-    isGenerating,
-    isRush,
-    onSelect,
-    onExpand,
-  }: {
-    plan: Plan;
-    aspectRatio: string;
-    isSelected: boolean;
-    isGenerating: boolean;
-    isRush?: boolean;
-    onSelect: () => void;
-    onExpand: () => void;
-  }) => {
-    const [isHovered, setIsHovered] = useState(false);
-    const [videoProgress, setVideoProgress] = useState(0);
-    const videoRef = useRef<HTMLVideoElement>(null);
-
-    // Sign B2 URLs
-    const { signedUrl: signedVideoUrl } = useSignedUrl(plan.generated_video_url || null);
-    const { signedUrl: signedImageUrl } = useSignedUrl(plan.storyboard_image_url || null);
-
-    const finalVideoUrl = signedVideoUrl || (!isB2Url(plan.generated_video_url || '') ? plan.generated_video_url : null);
-    const finalImageUrl = signedImageUrl || (!isB2Url(plan.storyboard_image_url || '') ? plan.storyboard_image_url : null);
-
-    // Card width based on aspect ratio - larger sizes
-    const cardWidth = ar === '9:16' ? 160 : ar === '1:1' ? 200 : 280;
-    const aspectStyle = ar.replace(':', '/');
-
-    // Handle hover autoplay for videos
-    useEffect(() => {
-      const video = videoRef.current;
-      if (!video) return;
-
-      if (isHovered && finalVideoUrl) {
-        video.play().catch(() => {});
-      } else {
-        video.pause();
-        video.currentTime = 0;
-        setVideoProgress(0);
-      }
-    }, [isHovered, finalVideoUrl]);
-
-    // Track video progress
-    useEffect(() => {
-      const video = videoRef.current;
-      if (!video) return;
-
-      const handleTimeUpdate = () => {
-        if (video.duration > 0) {
-          setVideoProgress((video.currentTime / video.duration) * 100);
-        }
-      };
-
-      video.addEventListener('timeupdate', handleTimeUpdate);
-      return () => video.removeEventListener('timeupdate', handleTimeUpdate);
-    }, []);
-
-    return (
-      <div
-        className={cn(
-          "relative flex-shrink-0 rounded-xl overflow-hidden border-2 cursor-pointer transition-all group",
-          isSelected
-            ? isRush
-              ? "border-blue-500 ring-2 ring-blue-500/30"
-              : "border-purple-500 ring-2 ring-purple-500/30"
-            : isRush
-              ? "border-dashed border-white/20 hover:border-white/40"
-              : "border-white/10 hover:border-white/30"
-        )}
-        style={{ width: cardWidth }}
-        onMouseEnter={() => setIsHovered(true)}
-        onMouseLeave={() => setIsHovered(false)}
-        onClick={onSelect}
-      >
-        {/* Content */}
-        {isGenerating ? (
-          <div
-            className="bg-slate-800 flex items-center justify-center"
-            style={{ aspectRatio: aspectStyle }}
-          >
-            <Loader2 className="w-6 h-6 text-blue-400 animate-spin" />
-          </div>
-        ) : finalVideoUrl ? (
-          // Video with hover autoplay
-          <div className="relative" style={{ aspectRatio: aspectStyle }}>
-            <video
-              ref={videoRef}
-              src={finalVideoUrl}
-              loop
-              muted
-              playsInline
-              className="w-full h-full object-cover bg-black"
-              poster={finalImageUrl || undefined}
-            />
-            {/* Play indicator when not hovered */}
-            {!isHovered && (
-              <div className="absolute inset-0 flex items-center justify-center bg-black/20">
-                <div className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
-                  <Play className="w-4 h-4 text-white fill-white ml-0.5" />
-                </div>
-              </div>
-            )}
-            {/* Controls on hover */}
-            {isHovered && (
-              <>
-                {/* Progress bar */}
-                <div className="absolute bottom-8 left-0 right-0 h-1 bg-black/50">
-                  <div
-                    className="h-full bg-blue-500 transition-all"
-                    style={{ width: `${videoProgress}%` }}
-                  />
-                </div>
-                {/* Fullscreen button */}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onExpand();
-                  }}
-                  className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"
-                  title="Plein écran"
-                >
-                  <Maximize2 className="w-4 h-4 text-white" />
-                </button>
-              </>
-            )}
-          </div>
-        ) : finalImageUrl ? (
-          // Image only
-          <div className="relative" style={{ aspectRatio: aspectStyle }}>
-            <img
-              src={finalImageUrl}
-              alt={`Plan ${plan.shot_number}`}
-              className="w-full h-full object-cover"
-            />
-            {isHovered && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onExpand();
-                }}
-                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"
-                title="Plein écran"
-              >
-                <Maximize2 className="w-4 h-4 text-white" />
-              </button>
-            )}
-          </div>
-        ) : (
-          // Empty state
-          <div
-            className="bg-slate-800/50 flex flex-col items-center justify-center"
-            style={{ aspectRatio: aspectStyle }}
-          >
-            <Video className="w-6 h-6 text-slate-600 mb-1" />
-            <span className="text-xs text-slate-500">P{plan.shot_number}</span>
-          </div>
-        )}
-
-        {/* Bottom label */}
-        <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 pt-6">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-white">
-              Plan {plan.shot_number}
-            </span>
-            <span className="text-[10px] text-slate-400">
-              {plan.duration}s
-            </span>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // Gallery slide component for sequences
-  const GallerySequenceSlide = ({
-    sequence,
-    isCurrent,
-  }: {
-    sequence: Sequence;
-    isCurrent: boolean;
-  }) => {
-    const videoRef = useRef<HTMLVideoElement>(null);
-
-    // Get the assembled video URL
-    const assemblyState = sequenceAssemblyStates.get(sequence.id);
-    const assembledUrl = assemblyState?.status === 'completed'
-      ? assemblyState.assembledVideoUrl
-      : sequence.assembled_video_url;
-
-    const { signedUrl } = useSignedUrl(assembledUrl || null);
-    const finalVideoUrl = signedUrl || (assembledUrl && !isB2Url(assembledUrl) ? assembledUrl : null);
-
-    // Get sequence plans for info
-    const sequencePlans = getPlansForSequence(sequence.id);
-    const totalDuration = sequencePlans.reduce((sum, p) => sum + p.duration, 0);
-
-    // Auto-play when current and video is ready
-    useEffect(() => {
-      const video = videoRef.current;
-      if (!video || !finalVideoUrl) return;
-
-      const handleCanPlay = () => {
-        if (isCurrent) {
-          video.play().catch(() => {});
-        }
-      };
-
-      if (isCurrent) {
-        // Try to play immediately if already loaded
-        if (video.readyState >= 3) {
-          video.play().catch(() => {});
-        } else {
-          // Wait for video to be ready
-          video.addEventListener('canplay', handleCanPlay);
-        }
-      } else {
-        video.pause();
-        video.currentTime = 0;
-      }
-
-      return () => {
-        video.removeEventListener('canplay', handleCanPlay);
-      };
-    }, [isCurrent, finalVideoUrl]);
-
-    return (
-      <div
-        className={cn(
-          "flex-shrink-0 transition-all duration-300",
-          isCurrent ? "opacity-100 scale-100" : "opacity-40 scale-95",
-        )}
-      >
-        <div
-          className={cn(
-            "relative rounded-xl overflow-hidden shadow-2xl",
-            isCurrent && "ring-2 ring-white/20",
-          )}
-        >
-          {finalVideoUrl ? (
-            <video
-              ref={videoRef}
-              src={finalVideoUrl}
-              loop
-              muted={!isCurrent}
-              playsInline
-              controls={isCurrent}
-              className="w-full object-cover bg-black"
-              style={{ aspectRatio: aspectRatio.replace(':', '/') }}
-            />
-          ) : null}
-
-          {/* Info overlay - top left */}
-          <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-3 pb-10 pointer-events-none">
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-white flex items-center gap-2">
-                <Layers className="w-4 h-4 text-purple-400" />
-                {sequence.title || `Séquence ${sequence.sort_order + 1}`}
-              </span>
-              <span className="text-xs text-slate-300">
-                {sequencePlans.length} plans • {totalDuration}s
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
@@ -1497,7 +1522,16 @@ export default function ShortDetailPage() {
                       </div>
                     ) : (
                       unassignedPlans.map((plan) => (
-                        <SortablePlanItem key={plan.id} plan={plan} />
+                        <SortablePlanItem
+                          key={plan.id}
+                          plan={plan}
+                          selectedPlanId={selectedPlanId}
+                          onSelect={(planId) => {
+                            setSelectedPlanId(planId);
+                            setIsModalOpen(true);
+                          }}
+                          onDelete={handleDeletePlan}
+                        />
                       ))
                     )}
                   </SortableContext>
@@ -1760,6 +1794,9 @@ export default function ShortDetailPage() {
                   <GallerySequenceSlide
                     sequence={sequence}
                     isCurrent={index === galleryIndex}
+                    sequenceAssemblyStates={sequenceAssemblyStates}
+                    getPlansForSequence={getPlansForSequence}
+                    aspectRatio={aspectRatio}
                   />
                 </div>
               ))}
@@ -1818,6 +1855,8 @@ export default function ShortDetailPage() {
           value={short.cinematic_header as CinematicHeaderConfig | null}
           onChange={handleCinematicHeaderChange}
           projectId={projectId}
+          characters={promptCharacters}
+          targetModel="kling-omni"
         />
       )}
 
@@ -1827,6 +1866,11 @@ export default function ShortDetailPage() {
         if (!editingSeq) return null;
         // Other sequences to copy from (excluding the one being edited)
         const otherSeqs = sequences.filter(s => s.id !== editingSequenceCinematic);
+        // Get segments from all plans in this sequence
+        const sequencePlans = short?.plans.filter(p => p.sequence_id === editingSequenceCinematic) || [];
+        const sequenceSegments = sequencePlans.flatMap(p => p.segments || []);
+        // Check if any plan has a start frame
+        const hasStartFrame = sequencePlans.some(p => p.first_frame_url || p.storyboard_image_url);
         return (
           <CinematicHeaderWizard
             open={true}
@@ -1840,6 +1884,10 @@ export default function ShortDetailPage() {
             }}
             projectId={projectId}
             otherSequences={otherSeqs}
+            characters={promptCharacters}
+            segments={sequenceSegments}
+            hasStartFrame={hasStartFrame}
+            targetModel="kling-omni"
           />
         );
       })()}

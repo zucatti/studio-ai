@@ -21,7 +21,7 @@ export interface VideoGenJobData extends BaseJobData {
   duration: number;
   aspectRatio: AspectRatio;
   prompt: string;
-  firstFrameUrl: string;
+  firstFrameUrl?: string;  // Optional for text-to-video (Kling Omni)
   lastFrameUrl?: string;
   characterReferenceImages?: string[];
   // Dialogue settings
@@ -44,8 +44,15 @@ export interface VideoGenJobData extends BaseJobData {
   }>;
   cinematicVoices?: Array<{
     characterId: string;
-    voiceId: string;  // fal_voice_id
+    voiceId: string;  // fal_voice_id for Kling
   }>;
+  // Seedance audio references (@Audio1, @Audio2)
+  cinematicAudios?: Array<{
+    characterId: string;
+    audioUrl: string;  // Pre-rendered dialogue audio
+  }>;
+  // Dry run mode - generate prompt but don't execute
+  dryRun?: boolean;
 }
 
 // Image generation job data (character refs, etc.)
@@ -154,6 +161,7 @@ export interface QuickShotGenJobData extends BaseJobData {
   type: 'quick-shot-gen';
   projectId: string;
   shotId?: string; // Optional - if updating an existing shot
+  storyboardFrameId?: string; // Optional - if updating a storyboard frame
   // Generation parameters
   prompt: string;
   aspectRatio: AspectRatio;
@@ -162,6 +170,8 @@ export interface QuickShotGenJobData extends BaseJobData {
   model?: 'fal-ai/nano-banana-2' | 'seedream-5' | 'kling-o1';
   // Reference images with metadata for consistency
   referenceImages: ReferenceImageData[];
+  // Style prefix for storyboard frames (pencil sketch)
+  stylePrefix?: string;
 }
 
 // Union type for all job data

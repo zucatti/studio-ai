@@ -75,7 +75,7 @@ Types d'elements possibles:
 
 Pour les dialogues, identifie:
 - character_name: Le nom du personnage (en MAJUSCULES)
-- extension: V.O., O.S., CONT'D, FILTERED, PRE-LAP (si present)
+- extension: "Voix off", "Hors champ", "Suite", "Voix filtrée", "Chevauchement audio" (si present)
 - parenthetical: Indication de jeu entre parentheses (si presente)
 - content: Le texte du dialogue
 
@@ -88,7 +88,7 @@ Reponds UNIQUEMENT avec un JSON valide de la forme:
       "type": "action|dialogue|transition|note",
       "content": "...",
       "character_name": "NOM" (pour dialogues),
-      "extension": "V.O." (si applicable),
+      "extension": "Voix off" (si applicable),
       "parenthetical": "indication" (si applicable)
     }
   ]

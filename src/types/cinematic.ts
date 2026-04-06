@@ -29,6 +29,23 @@ export type ColorSaturation = 'vibrant' | 'natural' | 'desaturated' | 'monochrom
 export type ColorContrast = 'low' | 'medium' | 'high';
 export type ColorStyle = 'cinematic' | 'vintage' | 'modern' | 'noir' | 'pastel' | 'teal_orange' | 'black_white' | 'saturated';
 
+// ============================================================================
+// Cinematic Style Presets (Kling AI 3.0 optimized)
+// ============================================================================
+
+export type CinematicStyle =
+  | 'cinematic_realism'
+  | 'hollywood_blockbuster'
+  | 'film_noir'
+  | 'wes_anderson'
+  | 'christopher_nolan'
+  | 'blade_runner'
+  | 'studio_ghibli'
+  | 'vintage_vhs'
+  | 'documentary'
+  | 'epic_fantasy'
+  | 'custom';
+
 export type ToneGenre = 'action' | 'comedy' | 'documentary' | 'horror' | 'intimate' | 'spectacle' | 'suspense' | 'western';
 export type ToneMood = 'tense' | 'intimate' | 'epic' | 'melancholic' | 'joyful' | 'mysterious' | 'peaceful';
 export type TonePacing = 'slow' | 'moderate' | 'fast' | 'frenetic';
@@ -37,6 +54,11 @@ export interface CinematicHeaderConfig {
   // Preset ID for reuse
   preset_id?: string;
   preset_name?: string;
+
+  // Cinematic Style Preset (Kling AI optimized)
+  cinematic_style?: CinematicStyle;
+  // Custom style bible (only used when cinematic_style is 'custom')
+  custom_style_bible?: string;
 
   // Scene (slugline)
   scene?: {
@@ -68,8 +90,8 @@ export interface CinematicHeaderConfig {
     style: ColorStyle;
   };
 
-  // Tone & Mood (mood and pacing derived from genre)
-  tone: {
+  // Tone & Mood (legacy - now using CinematicStyle presets)
+  tone?: {
     genre: ToneGenre;
   };
 
@@ -139,17 +161,61 @@ export type ShotType =
   | 'two_shot';
 
 export type DialogueTone =
+  // Neutral/Descriptive
   | 'neutral'
   | 'flatly'
   | 'coldly'
+  | 'calmly'
+  | 'quietly'
+  | 'thoughtfully'
+  | 'curiously'
+  | 'cautiously'
+  | 'suspiciously'
+  // Positive emotions
   | 'warmly'
+  | 'happily'
+  | 'excitedly'
+  | 'enthusiastically'
+  | 'lovingly'
+  | 'tenderly'
+  | 'gently'
+  | 'playfully'
+  | 'cheerfully'
+  | 'proudly'
+  | 'confidently'
+  | 'hopefully'
+  | 'gratefully'
+  | 'relieved'
+  // Negative emotions
   | 'angrily'
+  | 'furiously'
+  | 'bitterly'
   | 'sadly'
-  | 'whispers'
-  | 'shouts'
-  | 'sarcastically'
+  | 'mournfully'
+  | 'desperately'
+  | 'fearfully'
+  | 'anxiously'
   | 'nervously'
-  | 'seductively';
+  | 'hesitantly'
+  | 'reluctantly'
+  | 'resentfully'
+  | 'disgustedly'
+  | 'contemptuously'
+  // Intensity/Volume
+  | 'whispers'
+  | 'murmurs'
+  | 'shouts'
+  | 'screams'
+  | 'yells'
+  // Character attitudes
+  | 'sarcastically'
+  | 'mockingly'
+  | 'teasingly'
+  | 'seductively'
+  | 'mysteriously'
+  | 'threateningly'
+  | 'defiantly'
+  | 'smugly';
 
 export type CameraMovement =
   | 'static'
@@ -408,6 +474,86 @@ export const COLOR_STYLE_OPTIONS: ColorStyleOption[] = [
   { value: 'saturated', label: 'Saturé', description: 'Hyper-vivid colors' },
 ];
 
+// ============================================================================
+// Cinematic Style Presets (Kling AI 3.0 optimized)
+// ============================================================================
+
+export interface CinematicStyleOption {
+  value: CinematicStyle;
+  label: string;
+  description: string;
+  styleBible: string;  // The ending prompt line for this style
+}
+
+export const CINEMATIC_STYLE_OPTIONS: CinematicStyleOption[] = [
+  {
+    value: 'cinematic_realism',
+    label: 'Cinematic Realism',
+    description: '35mm film grain, anamorphic lens flares',
+    styleBible: 'cinematic lighting, 35mm film grain, anamorphic lens flares, moody color grade, shallow depth of field, high production value',
+  },
+  {
+    value: 'hollywood_blockbuster',
+    label: 'Hollywood Blockbuster',
+    description: 'Epic wide shots, dramatic lighting, IMAX',
+    styleBible: 'Hollywood blockbuster style, epic wide shots, dramatic lighting, IMAX quality, high production value',
+  },
+  {
+    value: 'film_noir',
+    label: 'Film Noir',
+    description: 'High contrast B&W, harsh shadows',
+    styleBible: 'film noir, high-contrast black and white, harsh shadows, retro detective aesthetic, moody atmosphere',
+  },
+  {
+    value: 'wes_anderson',
+    label: 'Wes Anderson',
+    description: 'Pastel colors, symmetry, quirky framing',
+    styleBible: 'Wes Anderson style, perfect symmetry, pastel colors, deadpan composition, quirky framing, whimsical aesthetic',
+  },
+  {
+    value: 'christopher_nolan',
+    label: 'Christopher Nolan',
+    description: 'Practical effects, cold blue tones',
+    styleBible: 'Christopher Nolan style, practical effects, grounded realism, cold blue tones, IMAX quality, intense atmosphere',
+  },
+  {
+    value: 'blade_runner',
+    label: 'Blade Runner / Cyberpunk',
+    description: 'Neon reflections, rain, dystopia',
+    styleBible: 'Blade Runner cyberpunk, neon reflections, rain-slicked streets, futuristic dystopia, atmospheric haze, high contrast',
+  },
+  {
+    value: 'studio_ghibli',
+    label: 'Studio Ghibli',
+    description: 'Soft hand-drawn look, whimsical nature',
+    styleBible: 'Studio Ghibli inspired, soft hand-drawn aesthetic, whimsical nature elements, warm lighting, dreamlike atmosphere',
+  },
+  {
+    value: 'vintage_vhs',
+    label: 'Vintage VHS',
+    description: '1990s film grain, nostalgic color bleed',
+    styleBible: 'vintage 1990s VHS, film grain, slight distortion, nostalgic color bleed, retro aesthetic',
+  },
+  {
+    value: 'documentary',
+    label: 'Documentary',
+    description: 'Handheld camera, natural lighting',
+    styleBible: 'documentary style, handheld camera, natural lighting, authentic feel, realistic textures',
+  },
+  {
+    value: 'epic_fantasy',
+    label: 'Epic Fantasy',
+    description: 'Volumetric god rays, mist-filled',
+    styleBible: 'epic fantasy, volumetric god rays, mist-filled atmosphere, intricate costume details, magical lighting, high production value',
+  },
+  {
+    value: 'custom',
+    label: 'Custom',
+    description: 'Use your own style bible',
+    styleBible: '',
+  },
+];
+
 export const GENRE_OPTIONS: { value: ToneGenre; label: string }[] = [
   { value: 'action', label: 'Action' },
   { value: 'comedy', label: 'Comedy' },
@@ -485,19 +631,79 @@ export const SHOT_TYPE_OPTIONS: { value: ShotType; label: string; description: s
   { value: 'two_shot', label: 'Two Shot', description: 'Two characters in frame' },
 ];
 
-export const DIALOGUE_TONE_OPTIONS: { value: DialogueTone; label: string }[] = [
-  { value: 'neutral', label: 'Neutral' },
-  { value: 'flatly', label: 'Flatly' },
-  { value: 'coldly', label: 'Coldly' },
-  { value: 'warmly', label: 'Warmly' },
-  { value: 'angrily', label: 'Angrily' },
-  { value: 'sadly', label: 'Sadly' },
-  { value: 'whispers', label: 'Whispers' },
-  { value: 'shouts', label: 'Shouts' },
-  { value: 'sarcastically', label: 'Sarcastically' },
-  { value: 'nervously', label: 'Nervously' },
-  { value: 'seductively', label: 'Seductively' },
+export interface DialogueToneOption {
+  value: DialogueTone;
+  label: string;      // French label
+  labelEn: string;    // English (for prompt)
+  category: 'neutral' | 'positive' | 'negative' | 'intensity' | 'attitude';
+}
+
+export const DIALOGUE_TONE_OPTIONS: DialogueToneOption[] = [
+  // Neutral/Descriptive
+  { value: 'neutral', label: 'Neutre', labelEn: 'Neutral', category: 'neutral' },
+  { value: 'flatly', label: 'Platement', labelEn: 'Flatly', category: 'neutral' },
+  { value: 'coldly', label: 'Froidement', labelEn: 'Coldly', category: 'neutral' },
+  { value: 'calmly', label: 'Calmement', labelEn: 'Calmly', category: 'neutral' },
+  { value: 'quietly', label: 'Doucement', labelEn: 'Quietly', category: 'neutral' },
+  { value: 'thoughtfully', label: 'Pensivement', labelEn: 'Thoughtfully', category: 'neutral' },
+  { value: 'curiously', label: 'Curieusement', labelEn: 'Curiously', category: 'neutral' },
+  { value: 'cautiously', label: 'Prudemment', labelEn: 'Cautiously', category: 'neutral' },
+  { value: 'suspiciously', label: 'Avec suspicion', labelEn: 'Suspiciously', category: 'neutral' },
+  // Positive emotions
+  { value: 'warmly', label: 'Chaleureusement', labelEn: 'Warmly', category: 'positive' },
+  { value: 'happily', label: 'Joyeusement', labelEn: 'Happily', category: 'positive' },
+  { value: 'excitedly', label: 'Avec excitation', labelEn: 'Excitedly', category: 'positive' },
+  { value: 'enthusiastically', label: 'Avec enthousiasme', labelEn: 'Enthusiastically', category: 'positive' },
+  { value: 'lovingly', label: 'Amoureusement', labelEn: 'Lovingly', category: 'positive' },
+  { value: 'tenderly', label: 'Tendrement', labelEn: 'Tenderly', category: 'positive' },
+  { value: 'gently', label: 'Gentiment', labelEn: 'Gently', category: 'positive' },
+  { value: 'playfully', label: 'Espiègle', labelEn: 'Playfully', category: 'positive' },
+  { value: 'cheerfully', label: 'Gaiement', labelEn: 'Cheerfully', category: 'positive' },
+  { value: 'proudly', label: 'Fièrement', labelEn: 'Proudly', category: 'positive' },
+  { value: 'confidently', label: 'Avec assurance', labelEn: 'Confidently', category: 'positive' },
+  { value: 'hopefully', label: 'Avec espoir', labelEn: 'Hopefully', category: 'positive' },
+  { value: 'gratefully', label: 'Avec gratitude', labelEn: 'Gratefully', category: 'positive' },
+  { value: 'relieved', label: 'Soulagé', labelEn: 'Relieved', category: 'positive' },
+  // Negative emotions
+  { value: 'angrily', label: 'Avec colère', labelEn: 'Angrily', category: 'negative' },
+  { value: 'furiously', label: 'Furieusement', labelEn: 'Furiously', category: 'negative' },
+  { value: 'bitterly', label: 'Amèrement', labelEn: 'Bitterly', category: 'negative' },
+  { value: 'sadly', label: 'Tristement', labelEn: 'Sadly', category: 'negative' },
+  { value: 'mournfully', label: 'Avec affliction', labelEn: 'Mournfully', category: 'negative' },
+  { value: 'desperately', label: 'Désespérément', labelEn: 'Desperately', category: 'negative' },
+  { value: 'fearfully', label: 'Avec peur', labelEn: 'Fearfully', category: 'negative' },
+  { value: 'anxiously', label: 'Anxieusement', labelEn: 'Anxiously', category: 'negative' },
+  { value: 'nervously', label: 'Nerveusement', labelEn: 'Nervously', category: 'negative' },
+  { value: 'hesitantly', label: 'Avec hésitation', labelEn: 'Hesitantly', category: 'negative' },
+  { value: 'reluctantly', label: 'À contrecœur', labelEn: 'Reluctantly', category: 'negative' },
+  { value: 'resentfully', label: 'Avec ressentiment', labelEn: 'Resentfully', category: 'negative' },
+  { value: 'disgustedly', label: 'Avec dégoût', labelEn: 'Disgustedly', category: 'negative' },
+  { value: 'contemptuously', label: 'Avec mépris', labelEn: 'Contemptuously', category: 'negative' },
+  // Intensity/Volume
+  { value: 'whispers', label: 'Chuchote', labelEn: 'Whispers', category: 'intensity' },
+  { value: 'murmurs', label: 'Murmure', labelEn: 'Murmurs', category: 'intensity' },
+  { value: 'shouts', label: 'Crie', labelEn: 'Shouts', category: 'intensity' },
+  { value: 'screams', label: 'Hurle', labelEn: 'Screams', category: 'intensity' },
+  { value: 'yells', label: 'S\'écrie', labelEn: 'Yells', category: 'intensity' },
+  // Character attitudes
+  { value: 'sarcastically', label: 'Sarcastiquement', labelEn: 'Sarcastically', category: 'attitude' },
+  { value: 'mockingly', label: 'Moqueusement', labelEn: 'Mockingly', category: 'attitude' },
+  { value: 'teasingly', label: 'Taquinement', labelEn: 'Teasingly', category: 'attitude' },
+  { value: 'seductively', label: 'Séducteur', labelEn: 'Seductively', category: 'attitude' },
+  { value: 'mysteriously', label: 'Mystérieusement', labelEn: 'Mysteriously', category: 'attitude' },
+  { value: 'threateningly', label: 'Menaçant', labelEn: 'Threateningly', category: 'attitude' },
+  { value: 'defiantly', label: 'Avec défi', labelEn: 'Defiantly', category: 'attitude' },
+  { value: 'smugly', label: 'Avec suffisance', labelEn: 'Smugly', category: 'attitude' },
 ];
+
+// Category labels for UI grouping
+export const DIALOGUE_TONE_CATEGORIES: Record<DialogueToneOption['category'], string> = {
+  neutral: '🎭 Neutre',
+  positive: '😊 Positif',
+  negative: '😢 Négatif',
+  intensity: '🔊 Intensité',
+  attitude: '😏 Attitude',
+};
 
 export const CAMERA_MOVEMENT_OPTIONS: { value: CameraMovement; label: string; description: string }[] = [
   { value: 'static', label: 'Static', description: 'No movement' },

@@ -217,7 +217,7 @@ const CAMERA_TYPES: {
 
 export function CameraSelector({ value, onChange }: CameraSelectorProps) {
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {/* Inject keyframes */}
       <style jsx global>{`
         @keyframes camera-handheld {
@@ -256,7 +256,7 @@ export function CameraSelector({ value, onChange }: CameraSelectorProps) {
       `}</style>
 
       {/* Camera Type Cards */}
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-7 gap-1.5">
         {CAMERA_TYPES.map((cam) => {
           const Icon = cam.icon;
           const isSelected = value.type === cam.value;
@@ -266,7 +266,7 @@ export function CameraSelector({ value, onChange }: CameraSelectorProps) {
               key={cam.value}
               onClick={() => onChange({ ...value, type: cam.value })}
               className={cn(
-                'group flex flex-col items-center gap-2 p-3 rounded-xl border transition-all text-center',
+                'group flex flex-col items-center gap-1 p-2 rounded-lg border transition-all text-center',
                 isSelected
                   ? 'bg-blue-500/20 border-blue-500/50'
                   : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
@@ -275,7 +275,7 @@ export function CameraSelector({ value, onChange }: CameraSelectorProps) {
               {/* Icon with animation */}
               <div
                 className={cn(
-                  'w-12 h-12 transition-transform',
+                  'w-8 h-8 transition-transform',
                   isSelected && cam.animation,
                   !isSelected && cam.animation && 'group-hover:' + cam.animation.replace('animate-', '[animation:') + '_0.15s_ease-in-out_infinite]'
                 )}
@@ -289,23 +289,13 @@ export function CameraSelector({ value, onChange }: CameraSelectorProps) {
               </div>
 
               {/* Label */}
-              <div>
-                <div
-                  className={cn(
-                    'text-xs font-medium',
-                    isSelected ? 'text-blue-300' : 'text-slate-300'
-                  )}
-                >
-                  {cam.label}
-                </div>
-                <div
-                  className={cn(
-                    'text-[10px]',
-                    isSelected ? 'text-blue-400/70' : 'text-slate-500'
-                  )}
-                >
-                  {cam.description}
-                </div>
+              <div
+                className={cn(
+                  'text-[10px] font-medium',
+                  isSelected ? 'text-blue-300' : 'text-slate-300'
+                )}
+              >
+                {cam.label}
               </div>
             </button>
           );
@@ -313,9 +303,9 @@ export function CameraSelector({ value, onChange }: CameraSelectorProps) {
       </div>
 
       {/* Depth of Field */}
-      <div className="pt-4 border-t border-white/10">
-        <div className="text-xs text-slate-400 mb-3">Profondeur de champ</div>
-        <div className="grid grid-cols-4 gap-2">
+      <div className="pt-3 border-t border-white/10">
+        <div className="text-xs text-slate-400 mb-2">Profondeur de champ</div>
+        <div className="grid grid-cols-4 gap-1.5">
           {DEPTH_OF_FIELD_OPTIONS.map((dof) => {
             const isSelected = value.depth_of_field === dof.value;
 
@@ -324,16 +314,16 @@ export function CameraSelector({ value, onChange }: CameraSelectorProps) {
                 key={dof.value || 'auto'}
                 onClick={() => onChange({ ...value, depth_of_field: dof.value })}
                 className={cn(
-                  'group flex flex-col items-center gap-2 p-3 rounded-xl border transition-all text-center',
+                  'group flex flex-col items-center gap-1.5 p-2 rounded-lg border transition-all text-center',
                   isSelected
                     ? 'bg-blue-500/20 border-blue-500/50'
                     : 'bg-white/5 border-white/10 hover:bg-white/10 hover:border-white/20'
                 )}
               >
                 {/* Visual representation */}
-                <div className="relative w-12 h-8 rounded overflow-hidden bg-gradient-to-r from-slate-600 to-slate-700">
+                <div className="relative w-10 h-6 rounded overflow-hidden bg-gradient-to-r from-slate-600 to-slate-700">
                   {/* Subject (always sharp) */}
-                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-4 h-4 rounded-full bg-blue-400" />
+                  <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 rounded-full bg-blue-400" />
                   {/* Background (blurred based on DoF) */}
                   <div className={cn(
                     'absolute inset-0 bg-gradient-to-br from-slate-500/50 to-slate-600/50',
@@ -341,24 +331,16 @@ export function CameraSelector({ value, onChange }: CameraSelectorProps) {
                   )} />
                   {/* Foreground blur for shallow */}
                   {dof.value === 'shallow_dof' && (
-                    <div className="absolute bottom-0 left-0 right-0 h-2 bg-slate-500/30 blur-sm" />
+                    <div className="absolute bottom-0 left-0 right-0 h-1.5 bg-slate-500/30 blur-sm" />
                   )}
                 </div>
 
                 {/* Label */}
-                <div>
-                  <div className={cn(
-                    'text-xs font-medium',
-                    isSelected ? 'text-blue-300' : 'text-slate-300'
-                  )}>
-                    {dof.label}
-                  </div>
-                  <div className={cn(
-                    'text-[10px]',
-                    isSelected ? 'text-blue-400/70' : 'text-slate-500'
-                  )}>
-                    {dof.description}
-                  </div>
+                <div className={cn(
+                  'text-[10px] font-medium',
+                  isSelected ? 'text-blue-300' : 'text-slate-300'
+                )}>
+                  {dof.label}
                 </div>
               </button>
             );
