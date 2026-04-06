@@ -1,3 +1,15 @@
+// Video rush - a video generation kept for comparison/selection
+export interface VideoRush {
+  id: string;
+  url: string;
+  model: string;
+  provider: string;
+  duration: number;
+  prompt?: string;
+  createdAt: string;
+  isSelected: boolean;
+}
+
 export interface Shot {
   id: string;
   sceneId: string;
@@ -10,6 +22,7 @@ export interface Shot {
   firstFrame?: Frame;
   lastFrame?: Frame;
   generatedVideoUrl?: string;
+  videoRushes?: VideoRush[]; // All video generations for this shot
   generationStatus: GenerationStatus;
   order: number;
 }

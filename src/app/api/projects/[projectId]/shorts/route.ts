@@ -109,7 +109,8 @@ export async function GET(request: Request, { params }: RouteParams) {
           title,
           cinematic_header,
           segments,
-          sequence_id
+          sequence_id,
+          video_rushes
         )
       `)
       .eq('project_id', projectId)
@@ -156,7 +157,8 @@ export async function GET(request: Request, { params }: RouteParams) {
             audio_asset_id,
             audio_start,
             audio_end,
-            sequence_id
+            sequence_id,
+            video_rushes
           )
         `)
         .eq('project_id', projectId)
@@ -233,6 +235,8 @@ export async function GET(request: Request, { params }: RouteParams) {
           segments: (shot as Record<string, unknown>).segments ?? [],
           // Sequence assignment
           sequence_id: (shot as Record<string, unknown>).sequence_id ?? null,
+          // Video rushes (multiple generations)
+          video_rushes: (shot as Record<string, unknown>).video_rushes ?? null,
         })));
 
       const totalDuration = plans.reduce((sum, p) => sum + p.duration, 0);

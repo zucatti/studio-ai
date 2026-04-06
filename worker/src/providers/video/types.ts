@@ -42,12 +42,16 @@ export interface VideoGenerationRequest {
     characterId: string;
     voiceId: string;  // fal_voice_id for Kling
   }>;
-  // Seedance audio references (@Audio1, @Audio2, etc.)
-  // Pre-rendered audio files for lip-sync
+  // Audio references (@Audio1, @Audio2, etc.) for lip-sync
+  // Pre-rendered audio files (max 3, combined max 15s)
   cinematicAudios?: Array<{
     characterId: string;
     audioUrl: string;  // Pre-rendered dialogue audio (MP3/WAV)
   }>;
+
+  // Video continuity: previous plan's generated video
+  // Referenced as @Video1 in prompt for visual continuity
+  previousVideoUrl?: string;
 }
 
 export interface VideoGenerationResult {

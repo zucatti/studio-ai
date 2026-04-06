@@ -2,16 +2,18 @@
 
 import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Plus, Trash2, GripVertical, MessageSquare, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, MessageSquare, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { Segment, ShotFraming, ShotComposition } from '@/types/cinematic';
 import { SHOT_FRAMING_OPTIONS, SHOT_COMPOSITION_OPTIONS, createDefaultSegment } from '@/types/cinematic';
 
 // Constants
-export const MIN_SEGMENT_DURATION = 3; // Minimum segment duration in seconds
+export const MIN_SEGMENT_DURATION = 1; // Minimum segment duration in seconds (1s per shot)
+export const MIN_PLAN_DURATION = 3; // Minimum total plan duration (Kling minimum)
 export const MAX_TOTAL_DURATION = 15; // Kling max duration
 const DEFAULT_NEW_SEGMENT_DURATION = 3; // Default duration for new segments
 const TIMELINE_DISPLAY_WIDTH = 20; // Display 20s total (15s usable + 5s dark zone)
+const SNAP_THRESHOLD = 0.3; // Snap within 0.3 seconds
 
 interface SegmentTimelineProps {
   segments: Segment[];
@@ -25,11 +27,12 @@ interface SegmentTimelineProps {
 }
 
 /**
- * Calculate minimum plan duration = number of segments × MIN_SEGMENT_DURATION
+ * Calculate minimum plan duration
+ * Must be at least MIN_PLAN_DURATION (3s) and fit all segments at MIN_SEGMENT_DURATION (1s) each
  */
 export function calculateMinPlanDuration(segmentCount: number): number {
-  if (segmentCount === 0) return MIN_SEGMENT_DURATION;
-  return segmentCount * MIN_SEGMENT_DURATION;
+  if (segmentCount === 0) return MIN_PLAN_DURATION;
+  return Math.max(MIN_PLAN_DURATION, segmentCount * MIN_SEGMENT_DURATION);
 }
 
 /**
@@ -120,19 +123,22 @@ export function SegmentTimeline({
 }: SegmentTimelineProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Resize state
+  // Resize state - now tracks which segment and which edge (left or right)
   const [resizing, setResizing] = useState<{
-    borderIndex: number;
+    segmentId: string;
+    edge: 'left' | 'right';
     initialX: number;
     initialTime: number;
   } | null>(null);
 
-  // Drag reorder state
-  const [draggingSegment, setDraggingSegment] = useState<{
+  // Drag move state - for moving entire segment
+  const [moving, setMoving] = useState<{
     segmentId: string;
-    segmentIndex: number;
+    initialX: number;
+    initialStart: number;
+    initialEnd: number;
   } | null>(null);
-  const [dropTargetIndex, setDropTargetIndex] = useState<number | null>(null);
+
 
   // Sorted segments
   const sortedSegments = useMemo(
@@ -140,10 +146,10 @@ export function SegmentTimeline({
     [segments]
   );
 
-  // Calculate total duration from segments
+  // Calculate total duration from segments (max end_time, supports non-contiguous)
   const totalDuration = useMemo(() => {
     if (sortedSegments.length === 0) return 0;
-    return sortedSegments[sortedSegments.length - 1].end_time;
+    return sortedSegments.reduce((max, seg) => Math.max(max, seg.end_time), 0);
   }, [sortedSegments]);
 
   // Is over limit?
@@ -172,19 +178,65 @@ export function SegmentTimeline({
   }, []);
 
   // ========================================
-  // RESIZE HANDLING
+  // RESIZE HANDLING (with snapping and overlap prevention)
   // ========================================
 
-  const handleBorderDragStart = useCallback(
-    (e: React.MouseEvent, borderIndex: number) => {
+  // Find snap targets (other segment edges + plan boundaries)
+  const getSnapTargets = useCallback(
+    (excludeSegmentId: string): number[] => {
+      const targets: number[] = [0, planDuration]; // Snap to 0 and plan duration
+      for (const seg of sortedSegments) {
+        if (seg.id !== excludeSegmentId) {
+          targets.push(seg.start_time, seg.end_time);
+        }
+      }
+      return targets;
+    },
+    [sortedSegments, planDuration]
+  );
+
+  // Apply snapping to a time value
+  const applySnap = useCallback(
+    (time: number, snapTargets: number[]): number => {
+      for (const target of snapTargets) {
+        if (Math.abs(time - target) <= SNAP_THRESHOLD) {
+          return target;
+        }
+      }
+      return time;
+    },
+    []
+  );
+
+  // Check if a time range would overlap with other segments
+  const wouldOverlap = useCallback(
+    (segmentId: string, newStart: number, newEnd: number): boolean => {
+      for (const seg of sortedSegments) {
+        if (seg.id === segmentId) continue;
+        // Check if ranges overlap (excluding exact touching)
+        if (newStart < seg.end_time && newEnd > seg.start_time) {
+          return true;
+        }
+      }
+      return false;
+    },
+    [sortedSegments]
+  );
+
+  const handleEdgeDragStart = useCallback(
+    (e: React.MouseEvent, segmentId: string, edge: 'left' | 'right') => {
       e.stopPropagation();
       e.preventDefault();
-      const borderTime = sortedSegments[borderIndex].end_time;
+      const segment = sortedSegments.find((s) => s.id === segmentId);
+      if (!segment) return;
+
+      const initialTime = edge === 'left' ? segment.start_time : segment.end_time;
 
       setResizing({
-        borderIndex,
+        segmentId,
+        edge,
         initialX: e.clientX,
-        initialTime: borderTime,
+        initialTime,
       });
     },
     [sortedSegments]
@@ -196,136 +248,176 @@ export function SegmentTimeline({
 
       const rect = containerRef.current.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
-      let newBorderTime = Math.round(pixelToTime(mouseX));
+      let newTime = pixelToTime(mouseX);
 
-      // Get adjacent segments
-      const leftSegment = sortedSegments[resizing.borderIndex];
-      const rightSegment = sortedSegments[resizing.borderIndex + 1];
+      // Round to 0.5s precision
+      newTime = Math.round(newTime * 2) / 2;
 
-      // Constraints
-      const minTime = leftSegment.start_time + MIN_SEGMENT_DURATION;
-      const maxTime = rightSegment
-        ? rightSegment.end_time - MIN_SEGMENT_DURATION
-        : MAX_TOTAL_DURATION;
+      const segment = sortedSegments.find((s) => s.id === resizing.segmentId);
+      if (!segment) return;
 
-      newBorderTime = Math.max(minTime, Math.min(maxTime, newBorderTime));
+      // Get snap targets
+      const snapTargets = getSnapTargets(resizing.segmentId);
 
-      // Update segments
-      const updated = sortedSegments.map((seg, i) => {
-        if (i === resizing.borderIndex) {
-          return { ...seg, end_time: newBorderTime };
+      // Apply snapping
+      newTime = applySnap(newTime, snapTargets);
+
+      // Calculate new start/end based on which edge is being dragged
+      let newStart = segment.start_time;
+      let newEnd = segment.end_time;
+
+      if (resizing.edge === 'left') {
+        newStart = newTime;
+        // Enforce minimum duration
+        if (newEnd - newStart < MIN_SEGMENT_DURATION) {
+          newStart = newEnd - MIN_SEGMENT_DURATION;
         }
-        if (i === resizing.borderIndex + 1) {
-          return { ...seg, start_time: newBorderTime };
+        // Don't go below 0
+        if (newStart < 0) newStart = 0;
+      } else {
+        newEnd = newTime;
+        // Enforce minimum duration
+        if (newEnd - newStart < MIN_SEGMENT_DURATION) {
+          newEnd = newStart + MIN_SEGMENT_DURATION;
+        }
+        // Don't exceed timeline display
+        if (newEnd > TIMELINE_DISPLAY_WIDTH) newEnd = TIMELINE_DISPLAY_WIDTH;
+      }
+
+      // Check for overlap
+      if (wouldOverlap(resizing.segmentId, newStart, newEnd)) {
+        return; // Don't update if it would cause overlap
+      }
+
+      // Update segment
+      const updated = sortedSegments.map((seg) => {
+        if (seg.id === resizing.segmentId) {
+          return { ...seg, start_time: newStart, end_time: newEnd };
         }
         return seg;
       });
 
       onSegmentsChange(updated);
     },
-    [resizing, sortedSegments, pixelToTime, onSegmentsChange]
+    [resizing, sortedSegments, pixelToTime, getSnapTargets, applySnap, wouldOverlap, onSegmentsChange]
   );
 
   const handleResizeEnd = useCallback(() => {
     if (resizing) {
-      // Notify parent of new duration
-      const newDuration = sortedSegments[sortedSegments.length - 1]?.end_time || 0;
-      onDurationChange?.(newDuration);
+      // Notify parent of new duration (max end_time of all segments)
+      const maxEnd = sortedSegments.reduce((max, seg) => Math.max(max, seg.end_time), 0);
+      onDurationChange?.(maxEnd);
     }
     setResizing(null);
   }, [resizing, sortedSegments, onDurationChange]);
 
   // ========================================
-  // DRAG REORDER HANDLING
+  // MOVE SEGMENT HANDLING (drag entire segment)
   // ========================================
 
-  const handleDragStart = useCallback(
-    (e: React.DragEvent, segmentId: string, segmentIndex: number) => {
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', segmentId);
+  const handleMoveStart = useCallback(
+    (e: React.MouseEvent, segmentId: string) => {
+      e.stopPropagation();
+      e.preventDefault();
+      const segment = sortedSegments.find((s) => s.id === segmentId);
+      if (!segment) return;
 
-      // Create custom drag image
-      const dragEl = e.currentTarget.closest('[data-segment]') as HTMLElement;
-      if (dragEl) {
-        const rect = dragEl.getBoundingClientRect();
-        e.dataTransfer.setDragImage(dragEl, rect.width / 2, rect.height / 2);
-      }
-
-      setDraggingSegment({ segmentId, segmentIndex });
+      setMoving({
+        segmentId,
+        initialX: e.clientX,
+        initialStart: segment.start_time,
+        initialEnd: segment.end_time,
+      });
     },
-    []
+    [sortedSegments]
   );
 
-  const handleDragOver = useCallback(
-    (e: React.DragEvent, targetIndex: number) => {
-      e.preventDefault();
-      e.dataTransfer.dropEffect = 'move';
+  const handleMoveMove = useCallback(
+    (e: MouseEvent) => {
+      if (!moving || !containerRef.current) return;
 
-      if (draggingSegment && targetIndex !== draggingSegment.segmentIndex) {
-        setDropTargetIndex(targetIndex);
+      const rect = containerRef.current.getBoundingClientRect();
+      const deltaX = e.clientX - moving.initialX;
+      const deltaTime = (deltaX / rect.width) * TIMELINE_DISPLAY_WIDTH;
+
+      const segment = sortedSegments.find((s) => s.id === moving.segmentId);
+      if (!segment) return;
+
+      const duration = moving.initialEnd - moving.initialStart;
+      let newStart = moving.initialStart + deltaTime;
+      let newEnd = newStart + duration;
+
+      // Round to 0.5s precision
+      newStart = Math.round(newStart * 2) / 2;
+      newEnd = newStart + duration;
+
+      // Don't go below 0
+      if (newStart < 0) {
+        newStart = 0;
+        newEnd = duration;
       }
-    },
-    [draggingSegment]
-  );
 
-  const handleDragLeave = useCallback(() => {
-    setDropTargetIndex(null);
-  }, []);
-
-  const handleDrop = useCallback(
-    (e: React.DragEvent, targetIndex: number) => {
-      e.preventDefault();
-
-      if (!draggingSegment || targetIndex === draggingSegment.segmentIndex) {
-        setDraggingSegment(null);
-        setDropTargetIndex(null);
-        return;
+      // Don't exceed timeline display
+      if (newEnd > TIMELINE_DISPLAY_WIDTH) {
+        newEnd = TIMELINE_DISPLAY_WIDTH;
+        newStart = newEnd - duration;
       }
 
-      const sourceIndex = draggingSegment.segmentIndex;
+      // Get snap targets and apply snapping to both edges
+      const snapTargets = getSnapTargets(moving.segmentId);
+      const snappedStart = applySnap(newStart, snapTargets);
+      const snappedEnd = applySnap(newEnd, snapTargets);
 
-      // Reorder: remove from source, insert at target
-      const newSegments = [...sortedSegments];
-      const [removed] = newSegments.splice(sourceIndex, 1);
+      // If start snapped, adjust end; if end snapped, adjust start
+      if (snappedStart !== newStart) {
+        newStart = snappedStart;
+        newEnd = newStart + duration;
+      } else if (snappedEnd !== newEnd) {
+        newEnd = snappedEnd;
+        newStart = newEnd - duration;
+      }
 
-      // Adjust target index if source was before target
-      const adjustedTarget = sourceIndex < targetIndex ? targetIndex - 1 : targetIndex;
-      newSegments.splice(adjustedTarget, 0, removed);
+      // Check for overlap
+      if (wouldOverlap(moving.segmentId, newStart, newEnd)) {
+        return; // Don't update if it would cause overlap
+      }
 
-      // Recalculate timecodes (preserve durations, update positions)
-      let currentTime = 0;
-      const reorderedSegments = newSegments.map((seg) => {
-        const duration = seg.end_time - seg.start_time;
-        const updated = {
-          ...seg,
-          start_time: currentTime,
-          end_time: currentTime + duration,
-        };
-        currentTime += duration;
-        return updated;
+      // Update segment
+      const updated = sortedSegments.map((seg) => {
+        if (seg.id === moving.segmentId) {
+          return { ...seg, start_time: newStart, end_time: newEnd };
+        }
+        return seg;
       });
 
-      onSegmentsChange(reorderedSegments);
-      setDraggingSegment(null);
-      setDropTargetIndex(null);
+      onSegmentsChange(updated);
     },
-    [draggingSegment, sortedSegments, onSegmentsChange]
+    [moving, sortedSegments, getSnapTargets, applySnap, wouldOverlap, onSegmentsChange]
   );
 
-  const handleDragEnd = useCallback(() => {
-    setDraggingSegment(null);
-    setDropTargetIndex(null);
-  }, []);
+  const handleMoveEnd = useCallback(() => {
+    if (moving) {
+      const maxEnd = sortedSegments.reduce((max, seg) => Math.max(max, seg.end_time), 0);
+      onDurationChange?.(maxEnd);
+    }
+    setMoving(null);
+  }, [moving, sortedSegments, onDurationChange]);
 
   // ========================================
-  // ATTACH RESIZE LISTENERS
+  // ATTACH RESIZE/MOVE LISTENERS
   // ========================================
 
   useEffect(() => {
-    if (!resizing) return;
+    if (!resizing && !moving) return;
 
-    const handleMove = (e: MouseEvent) => handleResizeMove(e);
-    const handleUp = () => handleResizeEnd();
+    const handleMove = (e: MouseEvent) => {
+      if (resizing) handleResizeMove(e);
+      if (moving) handleMoveMove(e);
+    };
+    const handleUp = () => {
+      if (resizing) handleResizeEnd();
+      if (moving) handleMoveEnd();
+    };
 
     document.addEventListener('mousemove', handleMove);
     document.addEventListener('mouseup', handleUp);
@@ -334,71 +426,24 @@ export function SegmentTimeline({
       document.removeEventListener('mousemove', handleMove);
       document.removeEventListener('mouseup', handleUp);
     };
-  }, [resizing, handleResizeMove, handleResizeEnd]);
+  }, [resizing, moving, handleResizeMove, handleResizeEnd, handleMoveMove, handleMoveEnd]);
 
   // ========================================
   // ADD / DELETE SEGMENTS
   // ========================================
 
   const handleAddSegment = useCallback(() => {
-    const newCount = segments.length + 1;
-    const maxSegs = Math.floor(MAX_TOTAL_DURATION / MIN_SEGMENT_DURATION);
+    // Find the max end time of all segments
+    const maxEndTime = sortedSegments.reduce((max, seg) => Math.max(max, seg.end_time), 0);
+    const newStartTime = maxEndTime;
+    const newEndTime = newStartTime + DEFAULT_NEW_SEGMENT_DURATION;
 
-    // Can't add more than max segments
-    if (newCount > maxSegs) {
-      return;
-    }
-
-    // Calculate if we need to redistribute
-    const newTotalIfSimpleAdd = totalDuration + DEFAULT_NEW_SEGMENT_DURATION;
-
-    if (newTotalIfSimpleAdd <= MAX_TOTAL_DURATION) {
-      // Simple add - there's room
-      const newSegment = createDefaultSegment(totalDuration, DEFAULT_NEW_SEGMENT_DURATION);
-      const updated = [...segments, newSegment];
-      onSegmentsChange(updated);
-      onSelectSegment(newSegment.id);
-      onDurationChange?.(newTotalIfSimpleAdd);
-    } else {
-      // Need to redistribute: shrink existing segments to make room for new one
-      // New segment gets MIN_SEGMENT_DURATION, others share the remaining time proportionally
-      const spaceForExisting = MAX_TOTAL_DURATION - MIN_SEGMENT_DURATION;
-      const ratio = spaceForExisting / totalDuration;
-
-      // Redistribute existing segments
-      let currentTime = 0;
-      const redistributed: Segment[] = sortedSegments.map((seg, i) => {
-        const oldDuration = seg.end_time - seg.start_time;
-        // Scale proportionally but ensure minimum
-        let newDur = Math.max(MIN_SEGMENT_DURATION, Math.round(oldDuration * ratio));
-
-        const updated = {
-          ...seg,
-          start_time: currentTime,
-          end_time: currentTime + newDur,
-        };
-        currentTime += newDur;
-        return updated;
-      });
-
-      // Adjust last existing segment to fit exactly before new segment
-      if (redistributed.length > 0) {
-        const lastIdx = redistributed.length - 1;
-        redistributed[lastIdx] = {
-          ...redistributed[lastIdx],
-          end_time: spaceForExisting,
-        };
-      }
-
-      // Add new segment at the end
-      const newSegment = createDefaultSegment(spaceForExisting, MIN_SEGMENT_DURATION);
-      const updated = [...redistributed, newSegment];
-
-      onSegmentsChange(updated);
-      onSelectSegment(newSegment.id);
-      onDurationChange?.(MAX_TOTAL_DURATION);
-    }
-  }, [segments, sortedSegments, totalDuration, onSegmentsChange, onSelectSegment, onDurationChange]);
+    const newSegment = createDefaultSegment(newStartTime, DEFAULT_NEW_SEGMENT_DURATION);
+    const updated = [...segments, newSegment];
+    onSegmentsChange(updated);
+    onSelectSegment(newSegment.id);
+    onDurationChange?.(newEndTime);
+  }, [segments, sortedSegments, onSegmentsChange, onSelectSegment, onDurationChange]);
 
   const handleDeleteSegment = useCallback(
     (segmentId: string) => {
@@ -425,7 +470,9 @@ export function SegmentTimeline({
       });
 
       onSegmentsChange(updated);
-      onDurationChange?.(totalDuration - deletedDuration);
+      // Recalculate max end time after deletion
+      const newMaxEnd = updated.reduce((max, seg) => Math.max(max, seg.end_time), 0);
+      onDurationChange?.(newMaxEnd);
 
       // Select adjacent segment
       if (selectedSegmentId === segmentId) {
@@ -455,12 +502,8 @@ export function SegmentTimeline({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [selectedSegmentId, segments.length, handleDeleteSegment]);
 
-  // Can add segment? Based on max number of segments that can fit (each at MIN_SEGMENT_DURATION)
-  const maxSegments = Math.floor(MAX_TOTAL_DURATION / MIN_SEGMENT_DURATION); // 15/3 = 5
-  const canAddSegment = segments.length < maxSegments;
-
-  // Space remaining (can be 0 but still allow adding if we can redistribute)
-  const spaceRemaining = MAX_TOTAL_DURATION - totalDuration;
+  // Always allow adding segments (total duration can exceed 15s)
+  const canAddSegment = true;
 
   return (
     <div className={cn('space-y-2 select-none', className)}>
@@ -509,32 +552,27 @@ export function SegmentTimeline({
           </div>
         ))}
 
-        {/* Dark zone after 15s */}
+        {/* Dark zone after plan duration */}
         <div
-          className="absolute top-0 bottom-0 bg-red-900/30 pointer-events-none"
+          className="absolute top-0 bottom-0 bg-slate-950/50 pointer-events-none"
           style={{
-            left: `${timeToPercent(MAX_TOTAL_DURATION)}%`,
+            left: `${timeToPercent(planDuration)}%`,
             right: 0,
           }}
         >
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-red-400/50 text-xs font-medium rotate-[-10deg]">
-              ZONE LIMITE
-            </span>
-          </div>
           {/* Diagonal stripes pattern */}
           <div
-            className="absolute inset-0 opacity-20"
+            className="absolute inset-0 opacity-30"
             style={{
-              backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 10px, rgba(239,68,68,0.3) 10px, rgba(239,68,68,0.3) 20px)',
+              backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(100,116,139,0.3) 8px, rgba(100,116,139,0.3) 16px)',
             }}
           />
         </div>
 
-        {/* 15s limit line */}
+        {/* Plan duration limit line - offset slightly to not overlap segments */}
         <div
-          className="absolute top-0 bottom-0 w-0.5 bg-red-500/60 z-30"
-          style={{ left: `${timeToPercent(MAX_TOTAL_DURATION)}%` }}
+          className="absolute top-0 bottom-0 w-0.5 bg-orange-500/80 z-10"
+          style={{ left: `calc(${timeToPercent(planDuration)}% + 4px)` }}
         />
 
         {/* Segments */}
@@ -543,9 +581,8 @@ export function SegmentTimeline({
           const width = timeToPercent(segment.end_time - segment.start_time);
           const isSelected = selectedSegmentId === segment.id;
           const duration = segment.end_time - segment.start_time;
-          const isLast = index === sortedSegments.length - 1;
-          const isDragging = draggingSegment?.segmentId === segment.id;
-          const isDropTarget = dropTargetIndex === index;
+          const isMoving = moving?.segmentId === segment.id;
+          const isResizing = resizing?.segmentId === segment.id;
           const hasElements = (segment.elements?.length || 0) > 0 || (segment.beats?.length || 0) > 0;
 
           return (
@@ -558,8 +595,7 @@ export function SegmentTimeline({
                 isSelected
                   ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 z-20'
                   : 'hover:brightness-110',
-                isDragging && 'opacity-50 z-10',
-                isDropTarget && 'ring-2 ring-blue-400 ring-offset-1 ring-offset-slate-900'
+                (isMoving || isResizing) && 'ring-2 ring-blue-400 z-30'
               )}
               style={{
                 left: `${left}%`,
@@ -567,87 +603,66 @@ export function SegmentTimeline({
               }}
               onClick={() => onSelectSegment(segment.id)}
               onDoubleClick={() => onEditSegment?.(segment)}
-              onDragOver={(e) => handleDragOver(e, index)}
-              onDragLeave={handleDragLeave}
-              onDrop={(e) => handleDrop(e, index)}
             >
-              {/* Drop indicator line (before this segment) */}
-              {isDropTarget && draggingSegment && draggingSegment.segmentIndex > index && (
-                <div className="absolute -left-1 top-0 bottom-0 w-1 bg-blue-400 rounded-full z-30" />
-              )}
-              {/* Drop indicator line (after this segment) */}
-              {isDropTarget && draggingSegment && draggingSegment.segmentIndex < index && (
-                <div className="absolute -right-1 top-0 bottom-0 w-1 bg-blue-400 rounded-full z-30" />
-              )}
-
-              {/* Drag handle */}
+              {/* Move handle - center of segment (must be BEFORE resize handles for z-order) */}
               <div
-                draggable
-                onDragStart={(e) => handleDragStart(e, segment.id, index)}
-                onDragEnd={handleDragEnd}
-                className="absolute left-0 top-0 bottom-0 w-5 flex items-center justify-center cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity bg-black/20 rounded-l"
+                className="absolute left-3 right-3 top-0 bottom-0 cursor-move"
+                onMouseDown={(e) => handleMoveStart(e, segment.id)}
+              />
+
+              {/* Left resize handle - always visible */}
+              <div
+                className="absolute left-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/40 hover:bg-white/70 rounded-l flex items-center justify-center"
+                onMouseDown={(e) => handleEdgeDragStart(e, segment.id, 'left')}
               >
-                <GripVertical className="w-3 h-3 text-white/70" />
+                <div className="w-0.5 h-6 bg-white/80 rounded-full" />
               </div>
 
-              {/* Resize handle (right edge) - only between segments */}
-              {!isLast && (
-                <div
-                  className="absolute right-0 top-0 bottom-0 w-2 cursor-ew-resize z-20 flex items-center justify-center hover:bg-white/30 translate-x-1/2"
-                  onMouseDown={(e) => handleBorderDragStart(e, index)}
-                >
-                  <div className="w-0.5 h-8 bg-white/60 rounded-full" />
-                </div>
-              )}
+              {/* Right resize handle - always visible */}
+              <div
+                className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize bg-white/40 hover:bg-white/70 rounded-r flex items-center justify-center"
+                onMouseDown={(e) => handleEdgeDragStart(e, segment.id, 'right')}
+              >
+                <div className="w-0.5 h-6 bg-white/80 rounded-full" />
+              </div>
 
-              {/* Content */}
-              <div className="absolute inset-0 pl-5 pr-2 flex items-center justify-between min-w-0 pointer-events-none">
-                {/* Left: Shot type */}
-                <div className="flex items-center gap-1 text-white/90 text-[10px] font-medium min-w-0">
-                  <span className="bg-black/30 px-1 rounded truncate">
-                    {width > 15
-                      ? getShotLabel(segment.shot_framing, segment.shot_composition)
-                      : getShotAbbr(segment.shot_framing, segment.shot_composition)}
-                  </span>
-                  {hasElements && (
-                    <MessageSquare className="w-2.5 h-2.5 flex-shrink-0 opacity-75" />
-                  )}
-                </div>
-
-                {/* Center: Shot number */}
-                <div className="text-white/80 text-[11px] font-bold flex-shrink-0 bg-black/20 px-1.5 py-0.5 rounded">
-                  {index + 1}
-                </div>
-
-                {/* Right: Duration */}
-                <div className="text-white/60 text-[10px] flex-shrink-0">
-                  {Math.round(duration)}s
-                </div>
+              {/* Content - adapts to segment width */}
+              <div className="absolute inset-0 px-4 flex items-center justify-center min-w-0 pointer-events-none">
+                {width < 15 ? (
+                  /* Small (1-2s): Stacked vertically - centered with spacing */
+                  <div className="flex flex-col items-center justify-center gap-1">
+                    <span className="bg-black/30 px-1 rounded text-white/90 text-[9px] font-medium">
+                      {getShotAbbr(segment.shot_framing, segment.shot_composition)}
+                    </span>
+                    <div className="flex items-center gap-0.5">
+                      <span className="text-white/70 text-[9px] font-bold">
+                        {Math.round(duration)}s
+                      </span>
+                      {hasElements && (
+                        <MessageSquare className="w-2 h-2 text-white/60" />
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  /* Medium+: Shot type + duration + icon horizontal */
+                  <div className="flex items-center gap-2">
+                    <span className="bg-black/30 px-1 rounded text-white/90 text-[10px] font-medium truncate">
+                      {width > 25
+                        ? getShotLabel(segment.shot_framing, segment.shot_composition)
+                        : getShotAbbr(segment.shot_framing, segment.shot_composition)}
+                    </span>
+                    <span className="text-white/80 text-[10px] font-bold">
+                      {Math.round(duration)}s
+                    </span>
+                    {hasElements && (
+                      <MessageSquare className="w-2.5 h-2.5 text-white/70" />
+                    )}
+                  </div>
+                )}
               </div>
             </div>
           );
         })}
-
-        {/* Drop zone at the end (for reordering to last position) */}
-        {draggingSegment && (
-          <div
-            className={cn(
-              'absolute top-2 bottom-2 w-8 rounded border-2 border-dashed transition-colors',
-              dropTargetIndex === sortedSegments.length
-                ? 'border-blue-400 bg-blue-400/20'
-                : 'border-white/20 bg-white/5'
-            )}
-            style={{
-              left: `${timeToPercent(totalDuration)}%`,
-            }}
-            onDragOver={(e) => {
-              e.preventDefault();
-              setDropTargetIndex(sortedSegments.length);
-            }}
-            onDragLeave={handleDragLeave}
-            onDrop={(e) => handleDrop(e, sortedSegments.length)}
-          />
-        )}
 
         {/* Empty state */}
         {segments.length === 0 && (
@@ -668,21 +683,11 @@ export function SegmentTimeline({
           )}
           onClick={handleAddSegment}
           disabled={!canAddSegment}
-          title={
-            canAddSegment
-              ? spaceRemaining >= DEFAULT_NEW_SEGMENT_DURATION
-                ? 'Ajouter un segment (3s)'
-                : 'Ajouter un segment (redistribue les autres)'
-              : `Maximum ${maxSegments} segments atteint`
-          }
+          title="Ajouter un segment (+3s)"
         >
           <Plus className="w-3 h-3 mr-1" />
           Ajouter
-          {canAddSegment && (
-            <span className="ml-1 text-slate-500">
-              {spaceRemaining >= DEFAULT_NEW_SEGMENT_DURATION ? '(+3s)' : '(redistribue)'}
-            </span>
-          )}
+          <span className="ml-1 text-slate-500">(+3s)</span>
         </Button>
 
         {selectedSegmentId && segments.length > 1 && (
@@ -697,15 +702,15 @@ export function SegmentTimeline({
           </Button>
         )}
 
-        {/* Remaining space indicator */}
+        {/* Duration indicator */}
         <div className="ml-auto flex items-center gap-2 text-xs">
-          {spaceRemaining > 0 ? (
-            <span className="text-slate-400">
-              Reste: <span className="text-green-400">{spaceRemaining}s</span>
-            </span>
-          ) : (
-            <span className="text-red-400">Limite atteinte</span>
-          )}
+          <span className={cn(
+            'text-slate-400',
+            totalDuration > MAX_TOTAL_DURATION && 'text-orange-400'
+          )}>
+            Total: <span className={totalDuration > MAX_TOTAL_DURATION ? 'text-orange-300' : 'text-green-400'}>{totalDuration}s</span>
+            {totalDuration > MAX_TOTAL_DURATION && <span className="ml-1">({'>'}{MAX_TOTAL_DURATION}s)</span>}
+          </span>
         </div>
 
         {/* Selected segment info */}

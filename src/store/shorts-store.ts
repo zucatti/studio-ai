@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { ShotType, CameraAngle, CameraMovement } from '@/types/database';
+import type { VideoRush } from '@/types/shot';
 import type {
   CinematicHeaderConfig,
   GenerationMode,
@@ -40,6 +41,7 @@ export interface Plan {
   // Generation
   generated_video_url: string | null;
   generation_status: string;
+  video_rushes: VideoRush[] | null; // All video generations for this plan
 
   // Legacy fields (for compatibility during migration)
   shot_type: ShotType | null;
@@ -335,6 +337,7 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           // Generation
           generated_video_url: data.plan.generated_video_url,
           generation_status: data.plan.generation_status || 'not_started',
+          video_rushes: data.plan.video_rushes ?? null,
           // Legacy fields (for compatibility)
           shot_type: data.plan.shot_type,
           camera_angle: data.plan.camera_angle,

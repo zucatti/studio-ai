@@ -178,13 +178,23 @@ export async function DELETE(request: Request, { params }: RouteParams) {
     // Get shot data to retrieve file URLs for cleanup
     const { data: shot } = await supabase
       .from('shots')
-      .select('storyboard_image_url, first_frame_url, last_frame_url, generated_video_url, dialogue_audio_url')
+      .select('storyboard_image_url, first_frame_url, last_frame_url, generated_video_url, dialogue_audio_url, video_rushes')
       .eq('id', shotId)
       .single();
 
     // Clean up S3/B2 storage files
     if (shot) {
       try {
+        // Collect all video rush URLs for cleanup
+        const rushUrls: string[] = [];
+        if (shot.video_rushes && Array.isArray(shot.video_rushes)) {
+          for (const rush of shot.video_rushes) {
+            if (rush.url && rush.url.startsWith('b2://')) {
+              rushUrls.push(rush.url);
+            }
+          }
+        }
+
         const deletedCount = await cleanupShotStorage(
           session.user.sub,
           projectId,
@@ -195,9 +205,10 @@ export async function DELETE(request: Request, { params }: RouteParams) {
             lastFrameUrl: shot.last_frame_url,
             generatedVideoUrl: shot.generated_video_url,
             dialogueAudioUrl: shot.dialogue_audio_url,
+            additionalUrls: rushUrls,
           }
         );
-        console.log(`[Shot Delete] Cleaned up ${deletedCount} files from S3`);
+        console.log(`[Shot Delete] Cleaned up ${deletedCount} files from S3 (including ${rushUrls.length} rushes)`);
       } catch (storageError) {
         // Log but don't fail - DB deletion is more important
         console.error('[Shot Delete] Storage cleanup error:', storageError);

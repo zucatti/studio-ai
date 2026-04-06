@@ -1928,6 +1928,7 @@ export default function ShortDetailPage() {
               audio_start: selectedPlan.audio_start,
               audio_end: selectedPlan.audio_end,
               generated_video_url: selectedPlan.generated_video_url,
+              video_rushes: selectedPlan.video_rushes,
               // New segment-based fields
               title: selectedPlan.title,
               segments: selectedPlan.segments,

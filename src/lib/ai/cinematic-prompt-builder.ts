@@ -9,12 +9,17 @@
  * - Voice refs: <<<voice_1>>>, <<<voice_2>>> (max 2)
  * - Requires voice_ids parameter for TTS
  * - Max 6 elements, 7 total images (including start frame)
+ * - Timecode format: "0-4s:"
+ * - Section headers: [CHARACTER LEGEND], [TIMELINE], [STYLE]
  *
  * SEEDANCE 2.0:
- * - Character refs: @image1, @image2 (max 9)
- * - Audio: Native from prompt (no voice_ids needed)
- * - Describe voices in prompt: "speaks in a warm, elderly voice"
+ * - Character refs: @Image1, @Image2 (max 9, capitalized)
+ * - Audio refs: @Audio1, @Audio2 (max 3, pre-rendered)
+ * - Native audio from prompt description or audio_urls
  * - Max 9 reference images via images_list
+ * - Timecode format: "[00:00-00:04]" (bracketed MM:SS)
+ * - Section headers: 【Duration】, 【Scene】, 【Characters】, 【Timeline】, 【Style】
+ * - Shot format: "[00:00-00:04] Shot 1 (Camera Type): Description."
  */
 
 import type { Plan, Short } from '@/store/shorts-store';
@@ -39,8 +44,11 @@ interface ModelConfig {
   maxVoices: number; // For Kling voice_ids
   maxAudios: number; // For Seedance audio references
   totalImageBudget: number;
-  elementPrefix: string; // '@Element' or '@image'
+  elementPrefix: string; // '@Element' or '@Image'
   voiceSyntax: 'kling' | 'audio-ref'; // <<<voice_1>>> or @Audio1
+  timecodeFormat: 'short' | 'bracketed'; // '0-4s:' or '[00:00-00:04]'
+  audioPrefix: string; // '@Audio' for Seedance
+  promptStyle: 'kling' | 'seedance'; // Determines overall prompt structure
 }
 
 const MODEL_CONFIGS: Record<string, ModelConfig> = {
@@ -51,22 +59,31 @@ const MODEL_CONFIGS: Record<string, ModelConfig> = {
     totalImageBudget: 7, // 6 elements + 1 start frame
     elementPrefix: '@Element',
     voiceSyntax: 'kling',
+    timecodeFormat: 'short',
+    audioPrefix: '',
+    promptStyle: 'kling',
   },
   'seedance-2': {
     maxElements: 9,
     maxVoices: 0,
     maxAudios: 3, // Up to 3 audio files, combined max 15s
     totalImageBudget: 9, // Max images_list
-    elementPrefix: '@image',
-    voiceSyntax: 'audio-ref', // @Audio1, @Audio2, etc.
+    elementPrefix: '@Image', // Capitalized for Seedance
+    voiceSyntax: 'audio-ref',
+    timecodeFormat: 'bracketed', // [00:00-00:04] format
+    audioPrefix: '@Audio',
+    promptStyle: 'seedance',
   },
   'seedance-2-fast': {
     maxElements: 9,
     maxVoices: 0,
     maxAudios: 3,
     totalImageBudget: 9,
-    elementPrefix: '@image',
+    elementPrefix: '@Image',
     voiceSyntax: 'audio-ref',
+    timecodeFormat: 'bracketed',
+    audioPrefix: '@Audio',
+    promptStyle: 'seedance',
   },
 };
 
@@ -290,7 +307,9 @@ export function analyzeCharacters(
   for (const char of sortedChars) {
     const charData = char.data as Record<string, unknown> | null;
     const hasImages = char.reference_images && char.reference_images.length > 0;
-    const voiceId = charData?.fal_voice_id as string | undefined;
+    // Voice IDs: fal_voice_id for Kling, voice_id (ElevenLabs) for Seedance
+    const falVoiceId = charData?.fal_voice_id as string | undefined;
+    const elevenLabsVoiceId = charData?.voice_id as string | undefined;
     const visualDesc = charData?.visual_description as string | undefined;
     const voiceDesc = charData?.voice_description as string | undefined;
 
@@ -299,7 +318,7 @@ export function analyzeCharacters(
       name: char.name,
       isStar: hasImages,
       visualDescription: visualDesc,
-      voiceId,
+      voiceId: falVoiceId, // Keep fal_voice_id as the main voiceId for Kling
       voiceDescription: voiceDesc,
     };
 
@@ -312,15 +331,16 @@ export function analyzeCharacters(
       figurants.push(promptChar);
     }
 
-    // Assign voice index (Kling only, max 2)
-    if (modelConfig.voiceSyntax === 'kling' && voiceId && voiceIndex <= modelConfig.maxVoices) {
+    // Assign voice index (Kling only, max 2) - uses fal_voice_id
+    if (modelConfig.voiceSyntax === 'kling' && falVoiceId && voiceIndex <= modelConfig.maxVoices) {
       promptChar.voiceIndex = voiceIndex;
       voiceIndex++;
     }
 
-    // Assign audio index (Seedance only, max 3)
+    // Assign audio index (Seedance only, max 3) - uses ElevenLabs voice_id
     // Audio files must be pre-rendered and passed as audio_urls
-    if (modelConfig.voiceSyntax === 'audio-ref' && voiceId && audioIndex <= modelConfig.maxAudios) {
+    // Only assign to stars (characters with images) - figurants use Seedance native TTS
+    if (modelConfig.voiceSyntax === 'audio-ref' && elevenLabsVoiceId && hasImages && audioIndex <= modelConfig.maxAudios) {
       promptChar.audioIndex = audioIndex;
       audioIndex++;
     }
@@ -440,11 +460,13 @@ function getVoiceDescription(
  * - Seedance: Maps @image1 → character with voice description
  */
 function buildCharacterLegend(analysis: CharacterAnalysis): string {
-  if (analysis.stars.length === 0) return '';
+  if (analysis.stars.length === 0 && analysis.figurants.filter(f => f.visualDescription).length === 0) {
+    return '';
+  }
 
-  const isKling = analysis.modelConfig.voiceSyntax === 'kling';
-  const isSeedance = analysis.modelConfig.voiceSyntax === 'audio-ref';
-  const prefix = isKling ? 'Element' : 'image';
+  const config = analysis.modelConfig;
+  const isKling = config.voiceSyntax === 'kling';
+  const isSeedance = config.promptStyle === 'seedance';
 
   const lines: string[] = [];
 
@@ -454,18 +476,21 @@ function buildCharacterLegend(analysis: CharacterAnalysis): string {
     if (isKling) {
       // Kling: "Element 1 = Name: description [Voice 1]"
       const voiceInfo = star.voiceIndex ? ` [Voice ${star.voiceIndex}]` : '';
-      lines.push(`${prefix} ${star.elementIndex} = ${star.name}: ${desc}${voiceInfo}`);
+      lines.push(`Element ${star.elementIndex} = ${star.name}: ${desc}${voiceInfo}`);
     } else {
-      // Seedance: "image 1 = Name: description (voice: elderly warm voice)"
+      // Seedance: Explicit reference linking for character consistency
+      // Format: "- Name: Use @Image1 for Name's appearance. [description] (voice: ...)"
       const voiceInfo = star.voiceDescription ? ` (voice: ${star.voiceDescription})` : '';
-      lines.push(`${prefix} ${star.elementIndex} = ${star.name}: ${desc}${voiceInfo}`);
+      lines.push(`- ${star.name}: Use @Image${star.elementIndex} for ${star.name}'s appearance. ${desc}${voiceInfo}`);
     }
   }
 
   // Add figurants with dialogue potential
   const figurantsWithDesc = analysis.figurants.filter(f => f.visualDescription);
   if (figurantsWithDesc.length > 0) {
-    lines.push(''); // Empty line separator
+    if (lines.length > 0) {
+      lines.push(''); // Empty line separator
+    }
     lines.push('Additional characters (no reference images):');
     for (const fig of figurantsWithDesc) {
       const voiceInfo = isSeedance && fig.voiceDescription ? ` (voice: ${fig.voiceDescription})` : '';
@@ -540,6 +565,30 @@ function formatTimeShort(seconds: number): number {
 }
 
 /**
+ * Format time in MM:SS format for Seedance bracketed timecodes
+ * e.g., 4 seconds -> "00:04"
+ */
+function formatTimeMMSS(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+/**
+ * Format timecode based on model configuration
+ * Kling: "0-4s:" format
+ * Seedance: "[00:00-00:04]" format
+ */
+function formatTimecode(startSeconds: number, endSeconds: number, config: ModelConfig): string {
+  if (config.timecodeFormat === 'bracketed') {
+    // Seedance style: [00:00-00:04]
+    return `[${formatTimeMMSS(startSeconds)}-${formatTimeMMSS(endSeconds)}]`;
+  }
+  // Kling style: 0-4s:
+  return `${formatTimeShort(startSeconds)}-${formatTimeShort(endSeconds)}s:`;
+}
+
+/**
  * Clean content that may contain formatting tags from old data
  * Strips patterns like [DIALOGUE], [ACTION], (character: Name), [off-screen], etc.
  */
@@ -592,19 +641,41 @@ function buildElementPrompt(
         const voiceRef = getVoiceReference(element.character_id, analysis);
         const voiceDesc = getVoiceDescription(element.character_id, analysis);
         const toneDesc = getToneDescription(element.tone);
-        const offScreen = element.presence === 'off' ? ' (off-screen)' : '';
+        const isOffScreen = element.presence === 'off';
+        const isSeedance = analysis.modelConfig.promptStyle === 'seedance';
+
+        // Off-screen: Voice-over (no character visible, no lipsync needed)
+        // On-screen: Dialogue lipsync (Kling does lipsync with native audio or TTS voice_ids)
+        // For Seedance: Be explicit about not showing off-screen characters
+        let dialogueType: string;
+        if (isOffScreen) {
+          dialogueType = isSeedance
+            ? `Voice-over (audio only, do not show ${charRef} on screen)`
+            : 'Voice-over';
+        } else {
+          dialogueType = 'Dialogue lipsync';
+        }
 
         if (voiceRef) {
-          return `[Dialogue lipsync: ${charRef}${offScreen} says ${voiceRef}${toneDesc ? ' ' + toneDesc : ''}: "${textContent}"]`;
+          return `[${dialogueType}: ${charRef} says ${voiceRef}${toneDesc ? ' ' + toneDesc : ''}: "${textContent}"]`;
         } else if (voiceDesc) {
-          return `[Dialogue lipsync: ${charRef}${offScreen} says ${voiceDesc}${toneDesc ? ', ' + toneDesc : ''}: "${textContent}"]`;
+          return `[${dialogueType}: ${charRef} says ${voiceDesc}${toneDesc ? ', ' + toneDesc : ''}: "${textContent}"]`;
         } else {
-          return `[Dialogue lipsync: ${charRef}${offScreen} says${toneDesc ? ' ' + toneDesc : ''}: "${textContent}"]`;
+          return `[${dialogueType}: ${charRef} says${toneDesc ? ' ' + toneDesc : ''}: "${textContent}"]`;
         }
       } else if (element.character_name) {
         const toneDesc = getToneDescription(element.tone);
-        const offScreen = element.presence === 'off' ? ' (off-screen)' : '';
-        return `[Dialogue lipsync: ${element.character_name}${offScreen} says${toneDesc ? ' ' + toneDesc : ''}: "${textContent}"]`;
+        const isOffScreen = element.presence === 'off';
+        const isSeedance = analysis.modelConfig.promptStyle === 'seedance';
+        let dialogueType: string;
+        if (isOffScreen) {
+          dialogueType = isSeedance
+            ? `Voice-over (audio only, do not show ${element.character_name} on screen)`
+            : 'Voice-over';
+        } else {
+          dialogueType = 'Dialogue lipsync';
+        }
+        return `[${dialogueType}: ${element.character_name} says${toneDesc ? ' ' + toneDesc : ''}: "${textContent}"]`;
       }
       return null;
     }
@@ -748,9 +819,12 @@ function buildSegmentsPrompt(
       shotParts.push(segment.custom_prompt);
     }
 
-    // Build the final line: "0-4s: [Shot Type] + [Element1] + [Element2]"
-    const timecode = `${formatTimeShort(segment.start_time)}-${formatTimeShort(segment.end_time)}s`;
-    lines.push(`${timecode}: ${shotParts.join(' + ')}`);
+    // Build the final line (Kling format - Seedance uses buildSeedanceSegments)
+    const config = analysis.modelConfig;
+    const timecode = formatTimecode(segment.start_time, segment.end_time, config);
+
+    // Kling style: 0-4s: [Shot Type] + [Element1] + [Element2]
+    lines.push(`${timecode} ${shotParts.join(' + ')}`);
   }
 
   // Join shots with space (single line prompt)
@@ -765,14 +839,27 @@ function buildSegmentsPrompt(
  * Build the cinematic mega-prompt for video generation
  *
  * Adapts output based on target model:
- * - Kling: @Element1 + <<<voice_1>>> syntax
- * - Seedance: @image1 + natural voice descriptions
+ * - Kling: @Element1 + <<<voice_1>>> syntax with 【】 headers
+ * - Seedance: @Image1 + reference prompt format (no establishing shots)
  *
- * Structure:
- * 1. Cinematic Header (scene, lighting, camera, color)
- * 2. Character Legend (model-specific element mappings)
- * 3. Shots with timecoded beats
- * 4. Style Bible (at the very end)
+ * Seedance Reference Format (proven to work):
+ * ```
+ * Film stock: 35mm Kodak Vision3 500T, heavy organic film grain.
+ * Lens/Aperture: 35mm Anamorphic lens, f/2.8.
+ * Color Grade: "Saturated 90s Diner" palette.
+ * Camera Behavior: Slow, rhythmic movements.
+ * Atmosphere: A half-empty, sun-drenched diner. (MOOD, not instruction to film)
+ * Audio: Immersive spatial sound design.
+ *
+ * [IMAGE REFERENCES / LEGEND]
+ * @Image1: Character description...
+ *
+ * [TIMELINE SECOND BY SECOND]
+ * 0-4s: [Shot type] + [Focus on @Image1] + [Action: ...] + [SFX: ...]
+ *
+ * [STYLE & QUALITY BOOSTERS]
+ * Movie-level realistic facial features...
+ * ```
  *
  * @param short - Short configuration with dialogue_language
  * @param plans - Array of plans with segments
@@ -789,12 +876,12 @@ export function buildCinematicPrompt(
   targetModel: VideoModelType = 'kling-omni',
   includeTimecodes: boolean = false
 ): string {
-  const lines: string[] = [];
   const dialogueLanguage = short.dialogue_language || 'en';
 
   // Analyze characters for Stars vs Figurants (model-aware)
   const analysis = analyzeCharacters(characters, hasStartFrame, targetModel);
-  const isSeedance = analysis.modelConfig.voiceSyntax === 'audio-ref';
+  const config = analysis.modelConfig;
+  const isSeedance = config.promptStyle === 'seedance';
 
   console.log(`[PromptBuilder] Building prompt for ${targetModel} (${isSeedance ? 'Seedance' : 'Kling'} syntax)`);
 
@@ -804,47 +891,112 @@ export function buildCinematicPrompt(
   // Collect style bible from short or first plan's cinematic style
   let styleBible = (short as CinematicShort & { style_bible?: string | null }).style_bible || '';
 
-  // ========================================
-  // Part 1: Cinematic Header
-  // ========================================
-  for (const plan of sortedPlans) {
-    const header = plan.cinematic_header;
-    if (header) {
-      const headerPrompt = cinematicHeaderToPrompt(header);
-      lines.push(headerPrompt);
+  // Calculate total duration
+  const totalDuration = sortedPlans.reduce((sum, p) => sum + p.duration, 0);
 
+  // Use Seedance-specific format that avoids establishing shots
+  if (isSeedance) {
+    return buildSeedancePrompt(sortedPlans, analysis, dialogueLanguage, styleBible, totalDuration);
+  }
+
+  // Kling format (with rich descriptions like master prompt)
+  const lines: string[] = [];
+
+  // Get cinematic header from first plan
+  let header: CinematicHeaderConfig | null = null;
+  for (const plan of sortedPlans) {
+    if (plan.cinematic_header) {
+      header = plan.cinematic_header;
       // If no style_bible on short, use the cinematic_style's bible
       if (!styleBible) {
         const effectiveStyle = header.cinematic_style || 'cinematic_realism';
         styleBible = getStyleBibleFromCinematicStyle(effectiveStyle, header.custom_style_bible);
       }
-      break; // Only use first plan's header
+      break;
     }
   }
 
   // ========================================
-  // Part 2: Character Legend
+  // Part 1: Rich Technical Specs (Master Prompt Quality)
   // ========================================
-  const characterLegend = buildCharacterLegend(analysis);
-  if (characterLegend) {
-    lines.push('[CHARACTER LEGEND]');
-    lines.push(characterLegend);
+
+  // Film stock with rich technical description
+  const cinematicStyle = header?.cinematic_style || 'cinematic_realism';
+  const filmStock = FILM_STOCK_RICH[cinematicStyle] || FILM_STOCK_RICH['cinematic_realism'];
+  lines.push(`Film stock: ${filmStock}.`);
+
+  // Lens/Aperture with specific technical specs
+  const dof = header?.camera?.depth_of_field || 'medium_dof';
+  const lensAperture = LENS_APERTURE_RICH[dof] || LENS_APERTURE_RICH['medium_dof'];
+  lines.push(`Lens/Aperture: ${lensAperture}.`);
+
+  // Color Grade with rich palette description
+  const colorStyle = header?.color_grade?.style || 'cinematic';
+  const colorGrade = COLOR_GRADE_RICH[colorStyle] || COLOR_GRADE_RICH['cinematic'];
+  lines.push(`Color Grade: ${colorGrade}.`);
+
+  // Camera Behavior with expressive description
+  const cameraType = header?.camera?.type || 'handheld';
+  const cameraBehavior = CAMERA_BEHAVIOR_RICH[cameraType] || CAMERA_BEHAVIOR_RICH['handheld'];
+  lines.push(`Camera Behavior: ${cameraBehavior}.`);
+
+  // Atmosphere with location + rich mood description (like master prompt)
+  const timeOfDay = header?.time_of_day || 'morning';
+  const weather = header?.weather || 'clear';
+  const locationDesc = header?.scene?.location_custom || '';
+  const atmosphereDesc = ATMOSPHERE_RICH[timeOfDay]?.[weather]
+    || ATMOSPHERE_RICH[timeOfDay]?.['clear']
+    || 'Natural ambient lighting with cinematic mood';
+  // Master prompt format: "A half-empty, sun-drenched diner. Dust motes floating in the light."
+  if (locationDesc) {
+    lines.push(`Atmosphere: ${locationDesc}. ${atmosphereDesc}.`);
+  } else {
+    lines.push(`Atmosphere: ${atmosphereDesc}.`);
+  }
+
+  // Audio with contextual ambient sounds (like master prompt)
+  const sceneSetting = header?.scene?.setting || 'ext';
+  const audioTimeKey = ['morning', 'night', 'golden_hour', 'dusk'].includes(timeOfDay) ? timeOfDay : (weather === 'rain' ? 'rain' : 'default');
+  const audioAmbianceObj = AUDIO_AMBIANCE_RICH[sceneSetting] || AUDIO_AMBIANCE_RICH['ext'];
+  const audioAmbiance = audioAmbianceObj[audioTimeKey] || audioAmbianceObj['default'] || '';
+  lines.push(`Audio: Immersive spatial sound design. ${audioAmbiance}. Dialogue lipsync where indicated.`);
+
+  // ========================================
+  // Part 2: Character Legend (Kling format with rich descriptions)
+  // ========================================
+  lines.push('[CHARACTER LEGEND]');
+
+  for (const star of analysis.stars) {
+    const desc = star.visualDescription || '';
+    const voiceInfo = star.voiceIndex ? ` [Voice ${star.voiceIndex}]` : '';
+    if (desc) {
+      lines.push(`Element ${star.elementIndex} = ${star.name}: ${desc}.${voiceInfo}`);
+    } else {
+      lines.push(`Element ${star.elementIndex} = ${star.name}.${voiceInfo}`);
+    }
+  }
+
+  // Add figurants with descriptions
+  const figurantsWithDesc = analysis.figurants.filter(f => f.visualDescription);
+  if (figurantsWithDesc.length > 0) {
+    lines.push(`Additional characters (no reference images):`);
+    for (const fig of figurantsWithDesc) {
+      lines.push(`- ${fig.name}: ${fig.visualDescription}`);
+    }
   }
 
   // ========================================
-  // Part 3: Shots with timecoded beats
+  // Part 3: Timeline with timecoded beats
   // ========================================
   lines.push('[TIMELINE]');
 
   for (const plan of sortedPlans) {
     if (plan.segments && plan.segments.length > 0) {
-      // New segment-based workflow
       const segmentsPrompt = buildSegmentsPrompt(plan.segments, analysis, dialogueLanguage, plan.description, includeTimecodes);
       lines.push(segmentsPrompt);
     } else {
       // Legacy: Use plan-level fields
       const shotType = getShotTypeLabel(plan.shot_type);
-      const subject = plan.shot_subject || plan.description?.split('.')[0] || 'Scene';
       const startTime = plan.start_time ?? 0;
       const endTime = startTime + plan.duration;
       const cameraLabel = getCameraMovementLabel(plan.camera_movement || null);
@@ -889,15 +1041,348 @@ export function buildCinematicPrompt(
   }
 
   // ========================================
-  // Part 4: Style Bible Line (at the very end)
+  // Part 4: Style & Quality Boosters
   // ========================================
+  const qualityBoosters = QUALITY_BOOSTERS_RICH[cinematicStyle] || QUALITY_BOOSTERS_RICH['default'];
   if (styleBible) {
-    lines.push('[STYLE]');
-    lines.push(styleBible);
+    lines.push(`[STYLE & QUALITY BOOSTERS] ${styleBible} ${qualityBoosters}`);
+  } else {
+    lines.push(`[STYLE & QUALITY BOOSTERS] ${qualityBoosters}`);
   }
 
   // IMPORTANT: Join with space, not newline. Newlines cause audio glitches in video generation.
   return lines.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+// ============================================================================
+// Seedance-specific Prompt Builder
+// ============================================================================
+
+/**
+ * Build Seedance 2.0 prompt using the reference format that avoids establishing shots.
+ *
+ * Reference format (proven to work - Master Prompt quality):
+ * ```
+ * Film stock: 35mm Kodak Vision3 500T, heavy organic film grain, high contrast.
+ * Lens/Aperture: 35mm Anamorphic lens, f/2.8. Deep depth of field.
+ * Color Grade: "Saturated 90s Diner" palette. Warm nicotine yellows, bright red vinyl booths.
+ * Camera Behavior: Slow, rhythmic "Shot/Reverse Shot" switching.
+ * Atmosphere: A half-empty, sun-drenched diner. Dust motes floating in the light. Tense, quiet.
+ * Audio: Immersive spatial sound design. The distant clinking of silverware, a coffee pot pouring.
+ *
+ * [IMAGE REFERENCES / LEGEND]
+ * @Image1: The lead enforcer. Maintain exact beard, dark sunglasses... Keep exact same character.
+ *
+ * [TIMELINE SECOND BY SECOND]
+ * 0-4s: [Medium Shot - Over the Shoulder] + [Focus on @Image1] + [Action: stirs coffee] + [SFX: tink-tink]
+ *
+ * [STYLE & QUALITY BOOSTERS]
+ * Movie-level realistic facial features, no deformation, stable character consistency.
+ * ```
+ */
+function buildSeedancePrompt(
+  sortedPlans: CinematicPlan[],
+  analysis: CharacterAnalysis,
+  dialogueLanguage: string,
+  styleBible: string,
+  totalDuration: number
+): string {
+  const lines: string[] = [];
+
+  // Get cinematic header from first plan
+  let header: CinematicHeaderConfig | null = null;
+  for (const plan of sortedPlans) {
+    if (plan.cinematic_header) {
+      header = plan.cinematic_header;
+      break;
+    }
+  }
+
+  // ========================================
+  // Part 1: Rich Technical Specs (Master Prompt Quality)
+  // ========================================
+
+  // Film stock with rich technical description
+  const cinematicStyle = header?.cinematic_style || 'cinematic_realism';
+  const filmStock = FILM_STOCK_RICH[cinematicStyle] || FILM_STOCK_RICH['cinematic_realism'];
+  lines.push(`Film stock: ${filmStock}.`);
+
+  // Lens/Aperture with specific technical specs
+  const dof = header?.camera?.depth_of_field || 'medium_dof';
+  const lensAperture = LENS_APERTURE_RICH[dof] || LENS_APERTURE_RICH['medium_dof'];
+  lines.push(`Lens/Aperture: ${lensAperture}.`);
+
+  // Color Grade with rich palette description
+  const colorStyle = header?.color_grade?.style || 'cinematic';
+  const colorGrade = COLOR_GRADE_RICH[colorStyle] || COLOR_GRADE_RICH['cinematic'];
+  lines.push(`Color Grade: ${colorGrade}.`);
+
+  // Camera Behavior with expressive description
+  const cameraType = header?.camera?.type || 'handheld';
+  const cameraBehavior = CAMERA_BEHAVIOR_RICH[cameraType] || CAMERA_BEHAVIOR_RICH['handheld'];
+  lines.push(`Camera Behavior: ${cameraBehavior}.`);
+
+  // Atmosphere with location + rich mood description (like master prompt)
+  // Master format: "A half-empty, sun-drenched diner. Dust motes floating in the light."
+  const timeOfDay = header?.time_of_day || 'morning';
+  const weather = header?.weather || 'clear';
+  const locationDesc = header?.scene?.location_custom || '';
+  const atmosphereDesc = ATMOSPHERE_RICH[timeOfDay]?.[weather]
+    || ATMOSPHERE_RICH[timeOfDay]?.['clear']
+    || 'Natural ambient lighting with cinematic mood';
+  if (locationDesc) {
+    lines.push(`Atmosphere: ${locationDesc}. ${atmosphereDesc}.`);
+  } else {
+    lines.push(`Atmosphere: ${atmosphereDesc}.`);
+  }
+
+  // Audio with contextual ambient sounds (like master prompt)
+  // Master format: "The distant clinking of silverware, a coffee pot pouring."
+  const sceneSetting = header?.scene?.setting || 'ext';
+  const audioTimeKey = ['morning', 'night', 'golden_hour', 'dusk'].includes(timeOfDay) ? timeOfDay : (weather === 'rain' ? 'rain' : 'default');
+  const audioAmbianceObj = AUDIO_AMBIANCE_RICH[sceneSetting] || AUDIO_AMBIANCE_RICH['ext'];
+  const audioAmbiance = audioAmbianceObj[audioTimeKey] || audioAmbianceObj['default'] || '';
+  lines.push(`Audio: Immersive spatial sound design. ${audioAmbiance}. Dialogue lipsync where indicated.`);
+
+  // ========================================
+  // Part 2: Character Legend (Rich Descriptions)
+  // ========================================
+  lines.push(`[IMAGE REFERENCES / LEGEND]`);
+
+  for (const star of analysis.stars) {
+    // Build rich character description
+    const visualDesc = star.visualDescription || '';
+    const audioInfo = star.audioIndex ? ` Voice synced to @Audio${star.audioIndex}.` : '';
+
+    // Format like master prompt: "@Image1: The lead enforcer. Maintain exact beard, dark sunglasses..."
+    if (visualDesc) {
+      lines.push(`@Image${star.elementIndex}: ${star.name}. ${visualDesc}.${audioInfo} Maintain exact appearance consistency throughout all frames.`);
+    } else {
+      lines.push(`@Image${star.elementIndex}: ${star.name}.${audioInfo} Maintain exact appearance consistency throughout all frames.`);
+    }
+  }
+
+  // Add figurants with detailed descriptions
+  const figurantsWithDesc = analysis.figurants.filter(f => f.visualDescription);
+  if (figurantsWithDesc.length > 0) {
+    lines.push(`Additional characters (no reference images):`);
+    for (const fig of figurantsWithDesc) {
+      lines.push(`- ${fig.name}: ${fig.visualDescription}.`);
+    }
+  }
+
+  // ========================================
+  // Part 3: Timeline (Rich Format with SFX, Physics, Lighting)
+  // ========================================
+  lines.push(`[TIMELINE SECOND BY SECOND]`);
+
+  for (const plan of sortedPlans) {
+    if (plan.segments && plan.segments.length > 0) {
+      const segmentsPrompt = buildSeedanceSegments(plan.segments, analysis, plan.description);
+      lines.push(segmentsPrompt);
+    }
+  }
+
+  // ========================================
+  // Part 4: Style & Quality Boosters (Style-specific)
+  // ========================================
+  const qualityBoosters = QUALITY_BOOSTERS_RICH[cinematicStyle] || QUALITY_BOOSTERS_RICH['default'];
+  if (styleBible) {
+    lines.push(`[STYLE & QUALITY BOOSTERS] ${styleBible} ${qualityBoosters}`);
+  } else {
+    lines.push(`[STYLE & QUALITY BOOSTERS] ${qualityBoosters}`);
+  }
+
+  // Join with space (single line)
+  return lines.join(' ').replace(/\s+/g, ' ').trim();
+}
+
+// ============================================================================
+// Rich Cinematic Text Mappings (Master Prompt Quality)
+// ============================================================================
+
+// Film stock descriptions with technical specs
+const FILM_STOCK_RICH: Record<string, string> = {
+  cinematic_realism: '35mm Kodak Vision3 500T, natural organic film grain, cinematic depth of field',
+  hollywood_blockbuster: '35mm Panavision Primo lenses, clean digital finish with subtle grain, blockbuster production quality',
+  film_noir: '35mm Kodak Double-X black and white stock, heavy grain, extreme high contrast with deep blacks',
+  wes_anderson: '35mm Fujifilm Pro 400H, symmetrical framing, soft pastel tones with precise color control',
+  christopher_nolan: 'IMAX 70mm film, ultra-sharp resolution, dramatic scale with natural grain texture',
+  blade_runner: '35mm Anamorphic with Panavision C-Series, neon-reflective coating, rain-soaked cyberpunk atmosphere',
+  studio_ghibli: 'Hand-painted animation style, soft watercolor textures, dreamy organic movement',
+  vintage_vhs: 'VHS tape aesthetic, scan lines, tracking artifacts, color bleeding, 90s nostalgia distortion',
+  documentary: 'Digital handheld, available light, raw authenticity with natural imperfections',
+  epic_fantasy: '65mm large format film, sweeping vistas, rich saturated colors with mythical quality',
+};
+
+// Lens and aperture descriptions
+const LENS_APERTURE_RICH: Record<string, string> = {
+  shallow_dof: '85mm prime lens, f/1.4 wide open, creamy bokeh background separation',
+  medium_dof: '50mm prime lens, f/2.8, balanced depth with subtle background blur',
+  deep_dof: '24mm wide lens, f/8, everything in sharp focus from foreground to infinity',
+};
+
+// Rich color grade descriptions with palette names
+const COLOR_GRADE_RICH: Record<string, string> = {
+  cinematic: 'Cinematic color grading with crushed blacks, lifted shadows, and teal-orange complementary tones',
+  vintage: 'Vintage film emulation with warm faded highlights, lifted blacks, and nostalgic color cast',
+  modern: 'Clean modern grade with neutral whites, subtle contrast, and accurate skin tones',
+  noir: 'High contrast black and white with deep shadows, bright highlights, and film noir mood',
+  pastel: 'Soft pastel palette with desaturated primaries, lifted shadows, and dreamy ethereal quality',
+  teal_orange: 'Hollywood teal and orange grade with warm skin tones against cool shadows',
+  black_white: 'Rich monochrome with full tonal range, from deep blacks to clean whites',
+  saturated: 'Punchy saturated colors with vivid primaries, high contrast, and bold visual impact',
+};
+
+// Camera behavior descriptions
+const CAMERA_BEHAVIOR_RICH: Record<string, string> = {
+  handheld: 'Handheld camera with subtle organic breathing movement, naturalistic human presence',
+  steadicam: 'Steadicam with fluid gliding motion, smooth tracking through space',
+  tripod: 'Tripod-locked static composition, precise framing with intentional stillness',
+  drone: 'Aerial drone perspective with sweeping reveals and dynamic elevation changes',
+  gimbal: 'Gimbal-stabilized movement, precise controlled motion with modern smoothness',
+  crane: 'Crane shots with vertical movement, dramatic reveals and sweeping perspectives',
+  dolly: 'Dolly tracking with parallel movement, classic Hollywood precision',
+};
+
+// Atmosphere/mood descriptions (evocative, not instructional)
+const ATMOSPHERE_RICH: Record<string, Record<string, string>> = {
+  dawn: {
+    clear: 'First light breaking over the horizon, cool blue shadows giving way to warm pink highlights',
+    cloudy: 'Soft diffused dawn light filtering through cloud layers, gentle awakening atmosphere',
+    fog: 'Ethereal morning mist catching the first rays of light, mysterious and peaceful',
+  },
+  morning: {
+    clear: 'Bright morning sun casting long shadows, crisp air and fresh energy',
+    cloudy: 'Soft overcast morning light, even illumination with gentle mood',
+    rain: 'Morning rain pattering against windows, cozy interior warmth against grey exterior',
+  },
+  midday: {
+    clear: 'Harsh overhead sun with minimal shadows, high-contrast midday intensity',
+    cloudy: 'Diffused midday light through cloud cover, soft and even',
+  },
+  afternoon: {
+    clear: 'Warm afternoon sunlight streaming at an angle, relaxed golden ambiance',
+    cloudy: 'Gentle afternoon overcast, comfortable and contemplative mood',
+  },
+  golden_hour: {
+    clear: 'Magic hour golden light, long warm shadows, cinematic perfection',
+    cloudy: 'Soft golden tones filtering through clouds, romantic diffused warmth',
+  },
+  dusk: {
+    clear: 'Fading twilight with deep orange and purple sky, day surrendering to night',
+    cloudy: 'Moody dusk with heavy clouds, dramatic end-of-day atmosphere',
+  },
+  night: {
+    clear: 'Dark night with moonlight and practical sources, pools of light in darkness',
+    rain: 'Rain-soaked night streets, neon reflections on wet pavement, noir atmosphere',
+    storm: 'Stormy night with lightning flashes, dramatic tension and raw power',
+  },
+  blue_hour: {
+    clear: 'Deep blue twilight, magical transition between day and night',
+    fog: 'Blue hour mist creating layers of atmosphere, ethereal and mysterious',
+  },
+};
+
+// Audio/ambiance descriptions - specific evocative sounds like master prompt
+// Master format: "The distant clinking of silverware, a coffee pot pouring."
+const AUDIO_AMBIANCE_RICH: Record<string, Record<string, string>> = {
+  int: {
+    default: 'The subtle hum of air conditioning, distant footsteps on hardwood, the soft tick of a wall clock',
+    morning: 'The clink of coffee cups, morning radio murmur, birds chirping outside windows, floorboards creaking underfoot',
+    night: 'The tick of a clock in the silence, distant car passing, the hum of a refrigerator, settling house sounds',
+    rain: 'Rain pattering against windows, the cozy hiss of a radiator, occasional thunder rumble, water dripping from gutters',
+    golden_hour: 'Late afternoon quietude, distant children playing, the soft whir of a ceiling fan',
+    dusk: 'Evening settling in, the click of turning on lamps, distant dinner preparations, TV murmur from another room',
+  },
+  ext: {
+    default: 'Wind rustling through leaves, distant traffic hum, birds calling, ambient city life',
+    morning: 'Dawn chorus of birdsong, distant traffic starting up, dew dripping from leaves, jogger footsteps',
+    night: 'Crickets chirping, distant dogs barking, the hum of streetlights, occasional car passing',
+    rain: 'Rain drumming on surfaces, water rushing in gutters, splashing footsteps, thunder rolling in the distance',
+    fog: 'Muffled sounds through the mist, foghorn in the distance, damp footsteps, eerie silence',
+    golden_hour: 'Evening birdsong, children playing in the distance, the warm buzz of summer insects',
+    dusk: 'Twilight sounds, bats chirping, streetlights buzzing to life, distant dinner sounds',
+  },
+  int_ext: {
+    default: 'Muffled outside traffic, conversation bleeding through walls, the transition between spaces',
+    rain: 'Rain audible through open windows, interior warmth meeting wet exterior, umbrella drops',
+  },
+};
+
+// Quality boosters by style
+const QUALITY_BOOSTERS_RICH: Record<string, string> = {
+  default: 'Movie-level realistic facial features, no deformation, stable character consistency. High-fidelity skin textures with visible pores and natural details. Professional cinematography with intentional composition.',
+  cinematic_realism: 'Photorealistic rendering with natural skin subsurface scattering, accurate eye reflections, and micro-expressions. Cinema-quality production values throughout.',
+  film_noir: 'Dramatic shadow play on faces, period-accurate styling, expressive eyes catching highlights. Classic Hollywood glamour with modern detail.',
+  vintage_vhs: 'Authentic 90s aesthetic with period-appropriate styling, CRT screen texture overlay, nostalgic color science. Retro charm with intentional imperfections.',
+};
+
+/**
+ * Build segments for Seedance using reference format:
+ * 0-4s: [Shot type] + [Focus on @Image1] + [Action: ...] + [SFX: ...]
+ */
+function buildSeedanceSegments(
+  segments: Segment[],
+  analysis: CharacterAnalysis,
+  planDescription?: string | null
+): string {
+  const lines: string[] = [];
+
+  // Sort segments by start_time
+  const sortedSegments = [...segments].sort((a, b) => a.start_time - b.start_time);
+
+  for (let i = 0; i < sortedSegments.length; i++) {
+    const segment = sortedSegments[i];
+    const shotParts: string[] = [];
+
+    // Build shot type
+    let shotType: string;
+    if (segment.shot_framing) {
+      const framing = segment.shot_framing.replace(/_/g, ' ');
+      const formattedFraming = framing.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
+      const composition = segment.shot_composition && segment.shot_composition !== 'single'
+        ? ` - ${segment.shot_composition.replace(/_/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')}`
+        : '';
+      shotType = `${formattedFraming}${composition}`;
+    } else {
+      shotType = getShotTypeLabel(segment.shot_type);
+    }
+
+    // Camera movement
+    const cameraMovement = segment.camera_movement && segment.camera_movement !== 'static'
+      ? `, ${getCameraMovementLabel(segment.camera_movement)}`
+      : '';
+    shotParts.push(`[${shotType}${cameraMovement}]`);
+
+    // Process elements - use reference format with " + " joins
+    const elements = segment.elements || segment.beats;
+    if (elements && elements.length > 0) {
+      for (const element of elements) {
+        const elementPrompt = buildElementPrompt(element, analysis);
+        if (elementPrompt) {
+          shotParts.push(elementPrompt);
+        }
+      }
+    }
+
+    // Add segment description if no elements
+    if (shotParts.length === 1 && segment.description) {
+      shotParts.push(segment.description);
+    } else if (shotParts.length === 1 && planDescription && i === 0) {
+      shotParts.push(planDescription);
+    }
+
+    // Build timecode in simple format: 0-4s:
+    const startSec = Math.round(segment.start_time);
+    const endSec = Math.round(segment.end_time);
+    const timecode = `${startSec}-${endSec}s:`;
+
+    // Join parts with " + " (reference format)
+    lines.push(`${timecode} ${shotParts.join(' + ')}`);
+  }
+
+  return lines.join(' ');
 }
 
 /**

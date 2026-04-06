@@ -47,6 +47,13 @@ export async function GET(request: Request, { params }: RouteParams) {
         character_mappings,
         generation_mode,
         dialogue_language,
+        style_bible,
+        music_asset_id,
+        music_volume,
+        music_fade_in,
+        music_fade_out,
+        assembled_video_url,
+        assembled_video_duration,
         created_at,
         updated_at,
         shots (
@@ -58,8 +65,26 @@ export async function GET(request: Request, { params }: RouteParams) {
           camera_angle,
           camera_movement,
           storyboard_image_url,
+          first_frame_url,
+          last_frame_url,
+          generated_video_url,
           generation_status,
-          sort_order
+          sort_order,
+          title,
+          segments,
+          sequence_id,
+          video_rushes,
+          animation_prompt,
+          has_dialogue,
+          dialogue_text,
+          dialogue_character_id,
+          dialogue_audio_url,
+          audio_mode,
+          audio_asset_id,
+          audio_start,
+          audio_end,
+          audio_offset,
+          audio_volume
         )
       `)
       .eq('id', shortId)
@@ -67,30 +92,12 @@ export async function GET(request: Request, { params }: RouteParams) {
       .single();
 
     if (fullQuery.error && fullQuery.error.message?.includes('column')) {
-      // Fallback: cinematic columns don't exist yet
+      // Fallback: some columns don't exist yet - use wildcard
       const basicQuery = await supabase
         .from('scenes')
         .select(`
-          id,
-          project_id,
-          scene_number,
-          title,
-          description,
-          sort_order,
-          created_at,
-          updated_at,
-          shots (
-            id,
-            shot_number,
-            description,
-            duration,
-            shot_type,
-            camera_angle,
-            camera_movement,
-            storyboard_image_url,
-            generation_status,
-            sort_order
-          )
+          *,
+          shots (*)
         `)
         .eq('id', shortId)
         .eq('project_id', projectId)
@@ -110,8 +117,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     }
 
     const plans = (scene.shots || [])
-      .sort((a, b) => a.sort_order - b.sort_order)
-      .map((shot) => ({
+      .sort((a: Record<string, unknown>, b: Record<string, unknown>) =>
+        (a.sort_order as number) - (b.sort_order as number)
+      )
+      .map((shot: Record<string, unknown>) => ({
         id: shot.id,
         short_id: scene.id,
         shot_number: shot.shot_number,
@@ -121,12 +130,31 @@ export async function GET(request: Request, { params }: RouteParams) {
         camera_angle: shot.camera_angle,
         camera_movement: shot.camera_movement,
         storyboard_image_url: shot.storyboard_image_url,
+        first_frame_url: shot.first_frame_url || null,
+        last_frame_url: shot.last_frame_url || null,
+        generated_video_url: shot.generated_video_url || null,
         generation_status: shot.generation_status || 'not_started',
         sort_order: shot.sort_order,
+        title: shot.title || null,
+        segments: shot.segments || [],
+        sequence_id: shot.sequence_id || null,
+        video_rushes: shot.video_rushes || null,
+        animation_prompt: shot.animation_prompt || null,
+        has_dialogue: shot.has_dialogue || false,
+        dialogue_text: shot.dialogue_text || null,
+        dialogue_character_id: shot.dialogue_character_id || null,
+        dialogue_audio_url: shot.dialogue_audio_url || null,
+        audio_mode: shot.audio_mode || 'mute',
+        audio_asset_id: shot.audio_asset_id || null,
+        audio_start: shot.audio_start || 0,
+        audio_end: shot.audio_end || null,
+        audio_offset: shot.audio_offset || 0,
+        audio_volume: shot.audio_volume ?? 1,
       }));
 
-    const totalDuration = plans.reduce((sum, p) => sum + p.duration, 0);
+    const totalDuration = plans.reduce((sum: number, p: { duration: number }) => sum + p.duration, 0);
 
+    const sceneData = scene as Record<string, unknown>;
     return NextResponse.json({
       short: {
         id: scene.id,
@@ -135,10 +163,17 @@ export async function GET(request: Request, { params }: RouteParams) {
         description: scene.description,
         scene_number: scene.scene_number,
         sort_order: scene.sort_order,
-        cinematic_header: (scene as Record<string, unknown>).cinematic_header || null,
-        character_mappings: (scene as Record<string, unknown>).character_mappings || null,
-        generation_mode: (scene as Record<string, unknown>).generation_mode || 'standard',
-        dialogue_language: (scene as Record<string, unknown>).dialogue_language || 'en',
+        cinematic_header: sceneData.cinematic_header || null,
+        character_mappings: sceneData.character_mappings || null,
+        generation_mode: sceneData.generation_mode || 'standard',
+        dialogue_language: sceneData.dialogue_language || 'en',
+        style_bible: sceneData.style_bible || null,
+        music_asset_id: sceneData.music_asset_id || null,
+        music_volume: sceneData.music_volume ?? 0.5,
+        music_fade_in: sceneData.music_fade_in ?? 0,
+        music_fade_out: sceneData.music_fade_out ?? 0,
+        assembled_video_url: sceneData.assembled_video_url || null,
+        assembled_video_duration: sceneData.assembled_video_duration || null,
         plans,
         totalDuration,
         created_at: scene.created_at,

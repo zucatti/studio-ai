@@ -15,7 +15,9 @@ export type VideoProvider = 'fal' | 'runway';
 // Provider-specific model mappings (2026 catalog)
 export const VIDEO_PROVIDER_MODELS: Record<VideoProvider, { value: string; label: string; duration: number[] }[]> = {
   fal: [
-    { value: 'kling-omni', label: 'Kling 3.0 Omni', duration: [5, 10] },
+    { value: 'kling-omni', label: 'Kling 3.0 Omni', duration: [5, 10, 15] },
+    { value: 'seedance-2', label: 'Seedance 2.0', duration: [5, 10, 12] },
+    { value: 'seedance-2-fast', label: 'Seedance 2.0 Fast', duration: [5, 10, 12] },
     { value: 'veo-3', label: 'Veo 3.1', duration: [4, 6, 8] },
     { value: 'omnihuman', label: 'OmniHuman 1.5', duration: [5, 10] },
   ],

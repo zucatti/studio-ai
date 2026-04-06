@@ -24,11 +24,12 @@ import type {
 import { aiConfig } from '../../config.js';
 
 // Model mapping: short names to fal.ai endpoints (image-to-video)
+// Note: Seedance 2.0 uses bytedance/ prefix, not fal-ai/bytedance/
 const MODEL_ENDPOINTS: Record<string, string> = {
   'omnihuman': 'fal-ai/omnihuman',
   // Seedance 2.0 - use reference-to-video when we have character refs
-  'seedance-2': 'fal-ai/bytedance/seedance-2.0/image-to-video',
-  'seedance-2-fast': 'fal-ai/bytedance/seedance-2.0/fast/image-to-video',
+  'seedance-2': 'bytedance/seedance-2.0/image-to-video',
+  'seedance-2-fast': 'bytedance/seedance-2.0/fast/image-to-video',
   // Kling
   'kling-omni': 'fal-ai/kling-video/o3/pro/image-to-video',
   'kling-2.6': 'fal-ai/kling-video/v2.6/pro/image-to-video',
@@ -41,15 +42,17 @@ const MODEL_ENDPOINTS: Record<string, string> = {
 };
 
 // Reference-to-video endpoints (character consistency with reference images)
+// Note: Seedance 2.0 uses bytedance/ prefix, not fal-ai/bytedance/
 const REFERENCE_TO_VIDEO_ENDPOINTS: Record<string, string> = {
-  'seedance-2': 'fal-ai/bytedance/seedance-2.0/reference-to-video',
-  'seedance-2-fast': 'fal-ai/bytedance/seedance-2.0/fast/reference-to-video',
+  'seedance-2': 'bytedance/seedance-2.0/reference-to-video',
+  'seedance-2-fast': 'bytedance/seedance-2.0/fast/reference-to-video',
 };
 
 // Text-to-video endpoints (no starting image required)
+// Note: Seedance 2.0 uses bytedance/ prefix, not fal-ai/bytedance/
 const TEXT_TO_VIDEO_ENDPOINTS: Record<string, string> = {
-  'seedance-2': 'fal-ai/bytedance/seedance-2.0/text-to-video',
-  'seedance-2-fast': 'fal-ai/bytedance/seedance-2.0/fast/text-to-video',
+  'seedance-2': 'bytedance/seedance-2.0/text-to-video',
+  'seedance-2-fast': 'bytedance/seedance-2.0/fast/text-to-video',
   'kling-omni': 'fal-ai/kling-video/o3/pro/text-to-video',
   'kling-2.6': 'fal-ai/kling-video/v2.6/pro/text-to-video',
   'sora-2': 'fal-ai/sora/v2/text-to-video',
@@ -71,21 +74,21 @@ const MODELS: VideoModel[] = [
   {
     id: 'seedance-2',
     name: 'Seedance 2.0',
-    description: 'ByteDance - native audio, refs via @image1 syntax ($0.30/s)',
-    maxDuration: 15,
-    minDuration: 3,
+    description: 'ByteDance Pro - native audio, refs via @Image1 syntax ($0.30/s)',
+    maxDuration: 15, // Pro supports up to 15s
+    minDuration: 2,
     supportsEndFrame: false,
     supportsDialogue: false, // No voice_ids like Kling, but native audio from prompt
     supportsAudio: true, // Native audio generation (music, dialogue, SFX)
     supportsTextToVideo: true,
-    supportsReferences: true, // Supports reference-to-video with images_list
+    supportsReferences: true, // Supports reference-to-video with reference_image_urls
   },
   {
     id: 'seedance-2-fast',
     name: 'Seedance 2.0 Fast',
     description: 'ByteDance Fast - 20% cheaper, faster ($0.24/s)',
-    maxDuration: 15,
-    minDuration: 3,
+    maxDuration: 12,
+    minDuration: 2,
     supportsEndFrame: false,
     supportsDialogue: false,
     supportsAudio: true,
@@ -210,11 +213,13 @@ export class FalProvider implements VideoProvider {
 
     // Seedance 2.0 configuration
     if (isSeedance) {
-      // Seedance 2.0 supports 3-15 seconds
-      input.duration = Math.min(Math.max(request.duration, 3), 15);
+      // Seedance Pro supports 2-15 seconds, Fast supports 2-12 seconds
+      const maxDuration = model === 'seedance-2' ? 15 : 12;
+      const durationNum = Math.min(Math.max(request.duration, 2), maxDuration);
+      input.duration = String(durationNum);
 
-      // Reference-to-video: pass character images via images_list
-      // Seedance uses @image1, @image2 syntax in prompt (already handled by prompt builder)
+      // Reference-to-video: pass character images via reference_image_urls
+      // Seedance uses @Image1, @Image2 syntax in prompt (handled by prompt builder)
       if (endpointType === 'reference-to-video' && request.cinematicElements?.length) {
         // Collect all reference images (frontal + additional)
         const imagesList: string[] = [];
@@ -226,9 +231,10 @@ export class FalProvider implements VideoProvider {
             imagesList.push(...el.referenceImageUrls);
           }
         }
-        // Max 9 images for Seedance
-        const limitedImages = imagesList.slice(0, 9);
-        input.images_list = limitedImages;
+        // Max 4 images for Seedance reference-to-video (doc says 1-4)
+        const limitedImages = imagesList.slice(0, 4);
+        // Seedance API expects "image_urls" not "reference_image_urls"
+        input.image_urls = limitedImages;
         console.log(`[Fal] Seedance 2.0 reference-to-video with ${limitedImages.length} images`);
       }
 
@@ -275,45 +281,59 @@ export class FalProvider implements VideoProvider {
       input.tail_image_url = request.lastFrameUrl;
     }
 
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI REQUEST ==========`);
+    console.log(`[Fal] Model: ${model}`);
+    console.log(`[Fal] Endpoint: ${endpoint}`);
+    console.log(`[Fal] Endpoint Type: ${endpointType}`);
+    console.log(`[Fal] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`====================================\n`);
+
     // === DRY RUN MODE ===
     const dryRun = process.env.FAL_DRY_RUN === 'true';
-    console.log(`[Fal] Input:`, JSON.stringify(input, null, 2));
-
     if (dryRun) {
-      console.log(`\n========== FAL.AI DRY RUN ==========`);
-      console.log(`[Fal] Endpoint: ${endpoint}`);
-      console.log(`[Fal] FULL PAYLOAD:`);
-      console.log(JSON.stringify(input, null, 2));
-      console.log(`====================================\n`);
       throw new Error('DRY RUN MODE - No API call made. Set FAL_DRY_RUN=false to actually generate.');
     }
 
-    const result = await fal.subscribe(endpoint, {
-      input,
-      logs: true,
-      onQueueUpdate: (update) => {
-        console.log(`[Fal] Queue update:`, JSON.stringify(update, null, 2));
-        if (update.status === 'IN_QUEUE') {
-          const position = (update as { position?: number }).position;
-          onProgress?.(15, position ? `File d'attente (position ${position})...` : 'En file d\'attente...');
-        } else if (update.status === 'IN_PROGRESS') {
-          const logs = update.logs || [];
-          const lastLog = logs[logs.length - 1];
-          // Try to extract percentage from log message if available
-          const percentMatch = lastLog?.message?.match(/(\d+)%/);
-          if (percentMatch) {
-            const percent = parseInt(percentMatch[1], 10);
-            // Map 0-100% to 20-85% of our progress bar
-            const mappedProgress = 20 + Math.floor(percent * 0.65);
-            onProgress?.(mappedProgress, lastLog.message);
-          } else if (lastLog?.message) {
-            onProgress?.(50, lastLog.message);
-          } else {
-            onProgress?.(50, 'Génération en cours...');
+    let result;
+    try {
+      result = await fal.subscribe(endpoint, {
+        input,
+        logs: true,
+        onQueueUpdate: (update) => {
+          console.log(`[Fal] Queue update:`, JSON.stringify(update, null, 2));
+          if (update.status === 'IN_QUEUE') {
+            const position = (update as { position?: number }).position;
+            onProgress?.(15, position ? `File d'attente (position ${position})...` : 'En file d\'attente...');
+          } else if (update.status === 'IN_PROGRESS') {
+            const logs = update.logs || [];
+            const lastLog = logs[logs.length - 1];
+            // Try to extract percentage from log message if available
+            const percentMatch = lastLog?.message?.match(/(\d+)%/);
+            if (percentMatch) {
+              const percent = parseInt(percentMatch[1], 10);
+              // Map 0-100% to 20-85% of our progress bar
+              const mappedProgress = 20 + Math.floor(percent * 0.65);
+              onProgress?.(mappedProgress, lastLog.message);
+            } else if (lastLog?.message) {
+              onProgress?.(50, lastLog.message);
+            } else {
+              onProgress?.(50, 'Génération en cours...');
+            }
           }
-        }
-      },
-    });
+        },
+      });
+    } catch (error: unknown) {
+      // Log detailed error for debugging
+      const falError = error as { status?: number; body?: unknown; requestId?: string };
+      console.error(`[Fal] API Error:`, {
+        status: falError.status,
+        body: JSON.stringify(falError.body, null, 2),
+        requestId: falError.requestId,
+      });
+      throw error;
+    }
 
     await onProgress?.(90, 'Génération terminée');
 
@@ -352,7 +372,13 @@ export class FalProvider implements VideoProvider {
       input.reference_images = request.characterReferenceImages;
     }
 
-    console.log(`[Fal] OmniHuman input:`, JSON.stringify(input, null, 2));
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI REQUEST ==========`);
+    console.log(`[Fal] Model: omnihuman`);
+    console.log(`[Fal] Endpoint: fal-ai/omnihuman`);
+    console.log(`[Fal] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`====================================\n`);
 
     const result = await fal.subscribe('fal-ai/omnihuman', {
       input,

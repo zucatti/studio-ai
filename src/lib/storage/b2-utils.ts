@@ -153,19 +153,22 @@ export async function cleanupShotStorage(
     lastFrameUrl?: string | null;
     generatedVideoUrl?: string | null;
     dialogueAudioUrl?: string | null;
+    additionalUrls?: string[];
   }
 ): Promise<number> {
   let deletedCount = 0;
 
   // If specific URLs provided, delete those
   if (specificUrls) {
-    deletedCount += await deleteMultipleFromB2([
+    const urlsToDelete = [
       specificUrls.storyboardImageUrl,
       specificUrls.firstFrameUrl,
       specificUrls.lastFrameUrl,
       specificUrls.generatedVideoUrl,
       specificUrls.dialogueAudioUrl,
-    ]);
+      ...(specificUrls.additionalUrls || []),
+    ];
+    deletedCount += await deleteMultipleFromB2(urlsToDelete);
   }
 
   // Also try to delete by prefix patterns (catches any orphaned files)

@@ -23,6 +23,8 @@ import { ProjectBiblePicker } from '@/components/clip/ProjectBiblePicker';
 import { QuickShotGenerator } from '@/components/quick-shot/QuickShotGenerator';
 import { StorageImg } from '@/components/ui/storage-image';
 import { FrameEditor } from './FrameEditor';
+import { VideoRushesPanel } from './VideoRushesPanel';
+import { History } from 'lucide-react';
 import {
   Film,
   Play,
@@ -47,7 +49,7 @@ import { useBibleStore } from '@/store/bible-store';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { useSignedUrl } from '@/hooks/use-signed-url';
-import type { VideoProvider } from '@/lib/ai/video-provider';
+import { VIDEO_PROVIDER_MODELS, type VideoProvider } from '@/lib/ai/video-provider';
 
 import type {
   PlanEditorProps,
@@ -183,6 +185,12 @@ export function PlanEditor({
   // Sync state with plan
   useEffect(() => {
     if (plan) {
+      console.log('[PlanEditor] Plan loaded:', {
+        id: plan.id,
+        hasVideo: !!plan.generated_video_url,
+        rushes: plan.video_rushes,
+        rushesCount: plan.video_rushes?.length ?? 0,
+      });
       setAnimationPrompt(plan.animation_prompt || plan.description || '');
       setHasDialogue(plan.has_dialogue ?? false);
       setDialogueText(plan.dialogue_text ?? '');
@@ -496,8 +504,10 @@ export function PlanEditor({
       videoProvider,
     });
 
-    // Simple user-friendly message
-    const modelName = hasDialogue ? 'OmniHuman' : 'Kling O3 Pro';
+    // Simple user-friendly message - get actual model name from config
+    const allModels = Object.values(VIDEO_PROVIDER_MODELS).flat();
+    const modelConfig = allModels.find(m => m.value === videoModel);
+    const modelName = modelConfig?.label || videoModel;
     toast.success(`Génération ${modelName} lancée...`);
   }, [plan, videoModel, videoProvider, hasDialogue, onGenerateVideo]);
 
@@ -980,7 +990,11 @@ export function PlanEditor({
 
                       <div className="text-center">
                         <div className="text-white font-medium text-lg">
-                          {hasDialogue ? 'OmniHuman 1.5' : 'Kling O3 Pro'}
+                          {(() => {
+                            const allModels = Object.values(VIDEO_PROVIDER_MODELS).flat();
+                            const modelConfig = allModels.find(m => m.value === videoModel);
+                            return modelConfig?.label || videoModel;
+                          })()}
                         </div>
                         <div className="text-slate-300 text-sm mt-1">
                           {videoGenerationProgress?.message || 'Génération en cours...'}
@@ -1139,6 +1153,27 @@ export function PlanEditor({
                     'absolute top-2 right-2 flex items-center gap-2 transition-opacity duration-200',
                     isVideoHovered ? 'opacity-100' : 'opacity-0'
                   )}>
+                    {/* Rushes button */}
+                    {plan?.video_rushes && plan.video_rushes.length > 0 && (
+                      <VideoRushesPanel
+                        projectId={projectId}
+                        shotId={plan.id}
+                        rushes={plan.video_rushes}
+                        onRushSelected={(rush) => {
+                          // Update local state - the store will be refreshed on next fetch
+                          onUpdate({ generated_video_url: rush.url });
+                        }}
+                        onRushDeleted={(rushId) => {
+                          // Update local state
+                          const updatedRushes = plan.video_rushes?.filter(r => r.id !== rushId) || [];
+                          const newSelected = updatedRushes.find(r => r.isSelected);
+                          onUpdate({
+                            video_rushes: updatedRushes,
+                            generated_video_url: newSelected?.url || null,
+                          });
+                        }}
+                      />
+                    )}
                     <button
                       onClick={handleDownloadVideo}
                       className="w-8 h-8 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"

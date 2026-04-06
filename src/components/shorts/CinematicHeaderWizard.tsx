@@ -172,7 +172,7 @@ export function CinematicHeaderWizard({
 
   // Helper: Get character reference
   // Kling: @Element1, @Element2
-  // Seedance: @image1, @image2
+  // Seedance: @Image1, @Image2 (capitalized)
   const getCharRef = (charName: string): string => {
     const normalizedName = charName.toUpperCase().replace(/\s+/g, '');
     const char = characterByName.get(normalizedName) || characterByName.get(charName.toUpperCase());
@@ -249,30 +249,32 @@ export function CinematicHeaderWizard({
     lines.push(headerPrompt);
 
     // Part 2: Character Legend (if we have character data)
-    if (characterAnalysis && characterAnalysis.stars.length > 0) {
-      const isKling = characterAnalysis.modelConfig.voiceSyntax === 'kling';
-      const isSeedance = characterAnalysis.modelConfig.voiceSyntax === 'audio-ref';
-      const prefix = isKling ? 'Element' : 'image';
+    const hasStars = characterAnalysis && characterAnalysis.stars.length > 0;
+    const figurantsWithDesc = characterAnalysis?.figurants.filter(f => f.visualDescription) || [];
+
+    if (hasStars || figurantsWithDesc.length > 0) {
+      const isKling = characterAnalysis!.modelConfig.voiceSyntax === 'kling';
+      const isSeedance = !isKling;
+      const prefix = characterAnalysis!.modelConfig.elementPrefix; // @Element or @Image
 
       lines.push('');
       lines.push('=== CHARACTER LEGEND ===');
 
-      for (const star of characterAnalysis.stars) {
+      for (const star of characterAnalysis!.stars) {
         const desc = star.visualDescription || star.name;
 
         if (isKling) {
           // Kling: "Element 1 = Name: description [Voice 1]"
           const voiceInfo = star.voiceIndex ? ` [Voice ${star.voiceIndex}]` : '';
-          lines.push(`${prefix} ${star.elementIndex} = ${star.name}: ${desc}${voiceInfo}`);
+          lines.push(`Element ${star.elementIndex} = ${star.name}: ${desc}${voiceInfo}`);
         } else {
-          // Seedance: "image 1 = Name: description (voice: elderly warm voice)"
+          // Seedance: "@Image1 as character reference = Name: description (voice: warm voice)"
           const voiceInfo = star.voiceDescription ? ` (voice: ${star.voiceDescription})` : '';
-          lines.push(`${prefix} ${star.elementIndex} = ${star.name}: ${desc}${voiceInfo}`);
+          lines.push(`${prefix}${star.elementIndex} as character reference = ${star.name}: ${desc}${voiceInfo}`);
         }
       }
 
       // Figurants with dialogue potential
-      const figurantsWithDesc = characterAnalysis.figurants.filter(f => f.visualDescription);
       if (figurantsWithDesc.length > 0) {
         lines.push('');
         lines.push('Additional characters (no reference images):');

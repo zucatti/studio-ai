@@ -1,5 +1,6 @@
 import type { AspectRatio, ShotType, CameraAngle, CameraMovement } from '@/types/database';
 import type { Segment, CinematicHeaderConfig } from '@/types/cinematic';
+import type { VideoRush } from '@/types/shot';
 
 /**
  * Mode du PlanEditor:
@@ -51,6 +52,7 @@ export interface PlanData {
 
   // Vidéo générée (optionnel)
   generated_video_url?: string | null;
+  video_rushes?: VideoRush[] | null;
 
   // Prompts utilisés pour la génération (traçabilité)
   storyboard_prompt?: string | null;

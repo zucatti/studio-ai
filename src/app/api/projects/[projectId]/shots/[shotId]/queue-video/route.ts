@@ -14,8 +14,10 @@ import { createServerSupabaseClient } from '@/lib/supabase';
 import { enqueueVideoGen, type VideoGenJobData } from '@/lib/bullmq';
 import { buildCinematicPrompt, analyzeCharacters, type VideoModelType } from '@/lib/ai/cinematic-prompt-builder';
 import { GENERIC_CHARACTERS } from '@/lib/generic-characters';
+import { createElevenLabsWrapper, ELEVENLABS_MODELS } from '@/lib/ai/elevenlabs-wrapper';
+import { uploadFile, STORAGE_BUCKET } from '@/lib/storage';
 import type { GlobalAsset } from '@/types/database';
-import type { Segment, CinematicHeaderConfig } from '@/types/cinematic';
+import type { Segment, CinematicHeaderConfig, SegmentElement } from '@/types/cinematic';
 
 // Kling AI limits
 const MAX_ELEMENTS = 6;
@@ -55,6 +57,23 @@ const CAMERA_MOVEMENT_PROMPTS: Record<string, string> = {
   smooth_zoom_in: 'smooth zoom in',
   smooth_zoom_out: 'smooth zoom out',
 };
+
+// Clean dialogue text for TTS - remove mention tags that shouldn't be spoken
+function cleanDialogueForTTS(text: string): string {
+  return text
+    // Remove @mentions (characters)
+    .replace(/@\w+/g, '')
+    // Remove #mentions (locations)
+    .replace(/#\w+/g, '')
+    // Remove !mentions (looks/styles)
+    .replace(/!\w+/g, '')
+    // Remove &in/&out references
+    .replace(/&in\b/gi, '')
+    .replace(/&out\b/gi, '')
+    // Clean up extra whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
 
 // Build optimized video prompt
 function buildVideoPrompt(opts: {
@@ -426,13 +445,19 @@ export async function POST(request: Request, { params }: RouteParams) {
       characterId: string;
       voiceId: string;
     }> = [];
+    // Seedance audio references (pre-rendered ElevenLabs TTS for stars)
+    let cinematicAudios: Array<{
+      characterId: string;
+      audioUrl: string;
+    }> = [];
 
     if (isCinematicMode && characterMap.size > 0) {
       // Cinematic mode: use analyzeCharacters for smart image distribution
       console.log('[QueueVideo] Building cinematic elements for', characterMap.size, 'characters');
 
       // Analyze characters to determine Stars vs Figurants and image budget
-      const analysis = analyzeCharacters(characterMap, hasFrameIn);
+      // Pass videoModel so it uses the correct config (Seedance vs Kling)
+      const analysis = analyzeCharacters(characterMap, hasFrameIn, videoModel as VideoModelType);
 
       console.log('[QueueVideo] Character analysis:');
       console.log(`[QueueVideo] - Stars (with images): ${analysis.stars.length}`);
@@ -491,6 +516,117 @@ export async function POST(request: Request, { params }: RouteParams) {
       console.log('[QueueVideo] Cinematic elements built:', cinematicElements.length);
       console.log('[QueueVideo] Cinematic voices built:', cinematicVoices.map(v => `${v.characterId}: ${v.voiceId}`));
       console.log('[QueueVideo] Total reference images:', characterReferenceImages.length);
+
+      // =====================================================================
+      // SEEDANCE 2.0: Generate ElevenLabs TTS for stars with dialogue
+      // Stars = characters with reference images (will be in @Image1, @Image2, etc.)
+      // Figurants = characters without images (use Seedance native English TTS)
+      //
+      // IMPORTANT: The order of audio generation must match the order of audioIndex
+      // assignment in the prompt builder (analysis.stars order with audioIndex set).
+      // This ensures @Audio1 in the prompt corresponds to the first audio file.
+      // =====================================================================
+      const isSeedance = videoModel.startsWith('seedance-2');
+      if (isSeedance && analysis.stars.length > 0 && segments) {
+        console.log('[QueueVideo] Seedance 2.0: Checking for star dialogues to generate TTS...');
+
+        // First, collect all dialogues from segments, grouped by character
+        const allDialogues = new Map<string, string[]>();
+
+        for (const segment of segments) {
+          const elements = segment.elements || segment.beats || [];
+          for (const element of elements) {
+            if (element.type === 'dialogue' && element.character_id) {
+              // Get dialogue text (prefer English translation if available)
+              const dialogueText = element.content_en || element.content;
+              if (!dialogueText) continue;
+
+              // Clean the dialogue for TTS
+              const cleanedDialogue = cleanDialogueForTTS(dialogueText);
+              if (!cleanedDialogue) continue;
+
+              // Add to character's dialogues
+              if (!allDialogues.has(element.character_id)) {
+                allDialogues.set(element.character_id, []);
+              }
+              allDialogues.get(element.character_id)!.push(cleanedDialogue);
+            }
+          }
+        }
+
+        // Now iterate over stars in the same order as audioIndex was assigned
+        // (analysis.stars with audioIndex set, in order)
+        const starsWithAudioIndex = analysis.stars.filter(s => s.audioIndex !== undefined);
+        console.log(`[QueueVideo] Stars with audioIndex: ${starsWithAudioIndex.map(s => `${s.name}(@Audio${s.audioIndex})`).join(', ')}`);
+
+        for (const star of starsWithAudioIndex) {
+          // Check if this star has dialogues
+          const dialogues = allDialogues.get(star.id);
+          if (!dialogues || dialogues.length === 0) {
+            console.log(`[QueueVideo] Star ${star.name} (@Audio${star.audioIndex}) has no dialogues, skipping`);
+            continue;
+          }
+
+          // Get the character's ElevenLabs voice_id
+          const char = characterMap.get(star.id);
+          if (!char) continue;
+
+          const charData = char.data as Record<string, unknown> | null;
+          const elevenLabsVoiceId = charData?.voice_id as string | undefined;
+
+          if (!elevenLabsVoiceId) {
+            console.log(`[QueueVideo] Star ${star.name} has no ElevenLabs voice_id, skipping TTS`);
+            continue;
+          }
+
+          // Combine all dialogues for this character into one audio file
+          const fullDialogue = dialogues.join(' ... ');
+          console.log(`[QueueVideo] Generating TTS for ${star.name} (@Audio${star.audioIndex}): "${fullDialogue.substring(0, 100)}..."`);
+
+          try {
+            // Create ElevenLabs wrapper
+            const elevenlabs = createElevenLabsWrapper({
+              userId: session.user.sub,
+              projectId,
+              supabase,
+              operation: 'seedance-dialogue-tts',
+            });
+
+            // Generate TTS using eleven_v3 model (supports audio tags like [laughs])
+            const audioResult = await elevenlabs.textToSpeech({
+              voiceId: elevenLabsVoiceId,
+              text: fullDialogue,
+              modelId: ELEVENLABS_MODELS.V3,
+            });
+
+            console.log(`[QueueVideo] TTS generated: ${audioResult.audio.byteLength} bytes`);
+
+            // Upload to B2
+            const sanitizedUserId = session.user.sub.replace(/[|]/g, '_');
+            const timestamp = Date.now();
+            const audioKey = `audio/${sanitizedUserId}/${projectId}/${shotId}_seedance_${star.id}_${timestamp}.mp3`;
+
+            await uploadFile(audioKey, Buffer.from(audioResult.audio), 'audio/mpeg');
+            const audioUrl = `b2://${STORAGE_BUCKET}/${audioKey}`;
+
+            console.log(`[QueueVideo] Audio uploaded: ${audioUrl}`);
+
+            // Add to cinematicAudios array (in order matching audioIndex)
+            cinematicAudios.push({
+              characterId: star.id,
+              audioUrl,
+            });
+
+            console.log(`[QueueVideo] Added @Audio${cinematicAudios.length} for ${star.name}`);
+
+          } catch (ttsError) {
+            console.error(`[QueueVideo] TTS generation failed for ${star.name}:`, ttsError);
+            // Continue with other characters, don't fail the whole request
+          }
+        }
+
+        console.log(`[QueueVideo] Seedance TTS complete: ${cinematicAudios.length} audio files generated`);
+      }
     } else if (isCinematicMode && characterMap.size === 0) {
       console.log('[QueueVideo] WARNING: Cinematic mode but no characters detected!');
       console.log('[QueueVideo] - Segments exist:', !!segments);
@@ -514,6 +650,16 @@ export async function POST(request: Request, { params }: RouteParams) {
     console.log('[QueueVideo] - characterMap.size:', characterMap.size);
     console.log('[QueueVideo] - cinematicElements:', JSON.stringify(cinematicElements, null, 2));
     console.log('[QueueVideo] - cinematicVoices:', JSON.stringify(cinematicVoices, null, 2));
+    console.log('[QueueVideo] - cinematicAudios:', JSON.stringify(cinematicAudios, null, 2));
+
+    // Determine cinematicAudios to pass:
+    // 1. Use generated Seedance TTS audios if available
+    // 2. Fall back to legacy shot.dialogue_audio_url if present
+    const finalCinematicAudios = cinematicAudios.length > 0
+      ? cinematicAudios
+      : shot.dialogue_audio_url
+        ? [{ characterId: shot.dialogue_character_id || 'narrator', audioUrl: shot.dialogue_audio_url }]
+        : undefined;
 
     const jobData: Omit<VideoGenJobData, 'type'> = {
       userId: session.user.sub,
@@ -543,6 +689,10 @@ export async function POST(request: Request, { params }: RouteParams) {
       isCinematicMode,
       cinematicElements: isCinematicMode ? cinematicElements : undefined,
       cinematicVoices: isCinematicMode ? cinematicVoices : undefined,
+      // Dialogue audio for lip-sync (@Audio1, @Audio2, @Audio3 in prompt)
+      // For Seedance: generated ElevenLabs TTS for stars
+      // For other models or fallback: legacy shot.dialogue_audio_url
+      cinematicAudios: finalCinematicAudios,
       // Dry run mode
       dryRun: !!dryRun,
     };

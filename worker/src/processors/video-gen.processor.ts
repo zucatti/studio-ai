@@ -83,6 +83,7 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
     isCinematicMode,
     cinematicElements,
     cinematicVoices,
+    cinematicAudios,
   } = data;
 
   console.log(`[VideoGen] Processing job ${jobId} for shot ${shotId}`);
@@ -181,6 +182,47 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
       console.log(`[VideoGen] Cinematic voices:`, cinematicVoices?.map(v => v.voiceId) || 'none');
     }
 
+    // Convert cinematic audio URLs to public URLs (for lip-sync)
+    let cinematicAudiosPublic: typeof cinematicAudios = undefined;
+    if (isCinematicMode && cinematicAudios && cinematicAudios.length > 0) {
+      console.log(`[VideoGen] Cinematic mode: converting ${cinematicAudios.length} audio files to public URLs`);
+      cinematicAudiosPublic = await Promise.all(
+        cinematicAudios.map(async (a) => ({
+          characterId: a.characterId,
+          audioUrl: await getPublicUrl(a.audioUrl),
+        }))
+      );
+      console.log(`[VideoGen] Cinematic audios ready (@Audio1-@Audio${cinematicAudiosPublic.length})`);
+    }
+
+    // Get previous plan's video URL for continuity (@Video1)
+    let previousVideoPublicUrl: string | undefined;
+    if (isCinematicMode) {
+      // Get current shot's sort_order to find the previous one
+      const { data: currentShot } = await supabase
+        .from('shots')
+        .select('sort_order, scene_id')
+        .eq('id', shotId)
+        .single();
+
+      if (currentShot && currentShot.sort_order > 0) {
+        // Find the previous shot (by sort_order)
+        const { data: previousShot } = await supabase
+          .from('shots')
+          .select('generated_video_url')
+          .eq('scene_id', currentShot.scene_id)
+          .lt('sort_order', currentShot.sort_order)
+          .order('sort_order', { ascending: false })
+          .limit(1)
+          .single();
+
+        if (previousShot?.generated_video_url) {
+          previousVideoPublicUrl = await getPublicUrl(previousShot.generated_video_url);
+          console.log(`[VideoGen] Previous video for continuity (@Video1): ${previousVideoPublicUrl.substring(0, 50)}...`);
+        }
+      }
+    }
+
     // Build generation request with all public URLs
     const request: VideoGenerationRequest = {
       prompt,
@@ -200,6 +242,8 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
       isCinematicMode,
       cinematicElements: cinematicElementsPublic,
       cinematicVoices,
+      cinematicAudios: cinematicAudiosPublic,
+      previousVideoUrl: previousVideoPublicUrl,
     };
 
     // DRY RUN MODE - Log everything but don't execute
@@ -222,6 +266,8 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
           console.log(`  ${i + 1}. ${v.characterId}: ${v.voiceId}`);
         });
       }
+      console.log(`[VideoGen] ========== FULL REQUEST JSON ==========`);
+      console.log(JSON.stringify(request, null, 2));
       console.log(`[VideoGen] ========== PROMPT ==========`);
       console.log(prompt);
       console.log(`[VideoGen] ========== END DRY RUN ==========`);
@@ -280,19 +326,55 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
 
     console.log(`[VideoGen] Uploaded to B2: ${b2Url}`);
 
-    // Update shot in database
+    // Update shot in database with video rushes
     await updateJobProgress(jobId, 92, 'Mise à jour de la base de données...');
+
+    // Fetch current rushes
+    const { data: currentShot } = await supabase
+      .from('shots')
+      .select('video_rushes')
+      .eq('id', shotId)
+      .single();
+
+    // Create new rush entry
+    const newRush = {
+      id: crypto.randomUUID(),
+      url: b2Url,
+      model,
+      provider: providerName,
+      duration: result.duration,
+      prompt: prompt.substring(0, 500), // Truncate long prompts
+      createdAt: new Date().toISOString(),
+      isSelected: true,
+    };
+
+    // Get existing rushes and mark all as not selected
+    const existingRushes = (currentShot?.video_rushes || []) as Array<{
+      id: string;
+      url: string;
+      model: string;
+      provider: string;
+      duration: number;
+      prompt?: string;
+      createdAt: string;
+      isSelected: boolean;
+    }>;
+    const updatedRushes = existingRushes.map(r => ({ ...r, isSelected: false }));
+    updatedRushes.push(newRush);
 
     await supabase
       .from('shots')
       .update({
         generated_video_url: b2Url,
+        video_rushes: updatedRushes,
         generation_status: 'completed',
         video_provider: model,
         video_duration: result.duration,
         video_generation_progress: JSON.stringify({ status: 'completed', progress: 100 }),
       })
       .eq('id', shotId);
+
+    console.log(`[VideoGen] Added rush #${updatedRushes.length} for shot ${shotId}`);
 
     // Check if we need to add music overlay
     // Skip if OmniHuman already used the music audio
