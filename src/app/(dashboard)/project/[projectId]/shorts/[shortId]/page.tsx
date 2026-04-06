@@ -543,12 +543,15 @@ export default function ShortDetailPage() {
       .map((asset) => {
         const data = asset.data as {
           visual_description?: string;
+          description?: string;
           fal_voice_id?: string;
         } | null;
+        // Fallback: visual_description → description → name
+        const visualDescription = data?.visual_description || data?.description || asset.name;
         return {
           id: asset.id,
           name: asset.name,
-          visualDescription: data?.visual_description,
+          visualDescription,
           referenceImages: asset.reference_images || [],
           voiceId: data?.fal_voice_id,
         };
@@ -559,7 +562,11 @@ export default function ShortDetailPage() {
     const genericChars = projectGenericAssets.map((ga) => ({
       id: ga.project_generic_asset_id,  // UUID - unique per imported character
       name: ga.name,  // This is name_override or original name
-      visualDescription: ga.local_overrides?.visual_description || ga.description,
+      // Fallback chain: visual_description > description (user's) > original description > name
+      visualDescription: ga.local_overrides?.visual_description
+        || ga.local_overrides?.description
+        || ga.description
+        || ga.name,
       referenceImages: ga.reference_images || [],
       voiceId: ga.local_overrides?.voice_id,
     }));

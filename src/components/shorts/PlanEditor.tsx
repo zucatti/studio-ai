@@ -22,6 +22,7 @@ import {
 import { DurationPicker } from './DurationPicker';
 import { SegmentTimeline } from './SegmentTimeline';
 import { SegmentEditor } from './SegmentEditor';
+import { toast } from 'sonner';
 import {
   Wand2,
   RefreshCw,
@@ -112,13 +113,81 @@ export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating
     onUpdate({ segments });
   }, [onUpdate]);
 
-  // Handle segment save from editor
-  const handleSegmentSave = useCallback((segment: Segment) => {
+  // Handle segment save from editor with optional duration adjustment
+  const handleSegmentSave = useCallback((segment: Segment, suggestedDuration?: number) => {
     if (!plan?.segments) return;
-    const updated = plan.segments.map((s) => s.id === segment.id ? segment : s);
-    onUpdate({ segments: updated });
+
+    const MAX_PLAN_DURATION = 15; // Kling max
+    const MIN_SEGMENT_DURATION = 1; // Minimum segment duration
+
+    // Find the segment index
+    const segmentIndex = plan.segments.findIndex(s => s.id === segment.id);
+    if (segmentIndex === -1) return;
+
+    // Current segment duration
+    const currentSegmentDuration = segment.end_time - segment.start_time;
+
+    // If no suggested duration or same as current, just save
+    if (!suggestedDuration || Math.abs(suggestedDuration - currentSegmentDuration) < 0.1) {
+      const updated = plan.segments.map((s) => s.id === segment.id ? segment : s);
+      onUpdate({ segments: updated });
+      setEditingSegment(null);
+      return;
+    }
+
+    // Calculate delta
+    const delta = suggestedDuration - currentSegmentDuration;
+    const newPlanDuration = plan.duration + delta;
+
+    // Check if we can accommodate the change
+    if (delta > 0) {
+      // Need more time - check if we can extend
+      if (newPlanDuration > MAX_PLAN_DURATION) {
+        // Can't extend beyond max - show warning
+        toast.warning(`Durée suggérée: ${suggestedDuration}s`, {
+          description: `Le plan dépasserait ${MAX_PLAN_DURATION}s. Durée actuelle conservée.`,
+          duration: 5000,
+        });
+        const updated = plan.segments.map((s) => s.id === segment.id ? segment : s);
+        onUpdate({ segments: updated });
+        setEditingSegment(null);
+        return;
+      }
+    } else {
+      // Need less time - check if we can shrink
+      // For now, just allow shrinking (will free up time)
+    }
+
+    // Apply the duration change - shift subsequent segments
+    let currentEnd = segment.start_time + suggestedDuration;
+    const finalSegments = plan.segments.map((s, i) => {
+      if (i < segmentIndex) return s;
+      if (i === segmentIndex) {
+        currentEnd = segment.start_time + suggestedDuration;
+        return { ...segment, end_time: currentEnd };
+      }
+      // Subsequent segments - shift them
+      const segmentDuration = plan.segments[i].end_time - plan.segments[i].start_time;
+      const shifted = {
+        ...s,
+        start_time: currentEnd,
+        end_time: currentEnd + segmentDuration,
+      };
+      currentEnd = shifted.end_time;
+      return shifted;
+    });
+
+    // Update plan with new segments and duration
+    onUpdate({
+      segments: finalSegments,
+      duration: Math.round(newPlanDuration * 10) / 10,
+    });
     setEditingSegment(null);
-  }, [plan?.segments, onUpdate]);
+
+    toast.success(`Durée ajustée: ${suggestedDuration}s`, {
+      description: `Plan: ${plan.duration}s → ${Math.round(newPlanDuration * 10) / 10}s`,
+    });
+  }, [plan?.segments, plan?.duration, onUpdate]);
 
   // Handle edit segment (double-click)
   const handleEditSegment = useCallback((segment: Segment) => {
@@ -252,6 +321,7 @@ export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating
           onSelectSegment={setSelectedSegmentId}
           onSegmentsChange={handleSegmentsChange}
           onEditSegment={handleEditSegment}
+          onDurationChange={(newDuration) => onUpdate({ duration: newDuration })}
         />
       </div>
 
@@ -266,6 +336,7 @@ export function PlanEditor({ plan, projectId, onUpdate, onGenerate, isGenerating
         planDuration={plan.duration}
         segmentIndex={editingSegmentIndex}
         projectId={projectId}
+        shotId={plan.id}
       />
 
       {/* Description */}

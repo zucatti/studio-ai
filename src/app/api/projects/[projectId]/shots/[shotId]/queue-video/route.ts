@@ -184,10 +184,12 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     // Check if this is cinematic mode (has segments)
     const segments = shot.segments as Segment[] | null;
-    let cinematicHeader = shot.cinematic_header as CinematicHeaderConfig | null;
     const isCinematicMode = !!(segments && segments.length > 0);
 
-    // If shot belongs to a sequence, inherit cinematic_header from sequence
+    // Deep merge cinematic_header: Sequence (base) + Shot (overrides)
+    // Plan inherits from Sequence by default, but can override specific fields
+    let cinematicHeader: CinematicHeaderConfig | null = null;
+
     if (shot.sequence_id) {
       const { data: sequence } = await supabase
         .from('sequences')
@@ -196,9 +198,32 @@ export async function POST(request: Request, { params }: RouteParams) {
         .single();
 
       if (sequence?.cinematic_header) {
-        console.log('[QueueVideo] Inheriting cinematic_header from sequence:', shot.sequence_id);
-        cinematicHeader = sequence.cinematic_header as CinematicHeaderConfig;
+        // Start with sequence's header as base
+        cinematicHeader = { ...sequence.cinematic_header } as CinematicHeaderConfig;
+        console.log('[QueueVideo] Base cinematic_header from sequence:', shot.sequence_id);
       }
+    }
+
+    // Deep merge shot's cinematic_header (Plan-level overrides)
+    const shotHeader = shot.cinematic_header as CinematicHeaderConfig | null;
+    if (shotHeader) {
+      if (cinematicHeader) {
+        // Merge: shot fields override sequence fields (only non-null/undefined values)
+        cinematicHeader = {
+          ...cinematicHeader,
+          ...Object.fromEntries(
+            Object.entries(shotHeader).filter(([_, v]) => v !== null && v !== undefined)
+          ),
+        } as CinematicHeaderConfig;
+        console.log('[QueueVideo] Merged shot-level overrides into cinematic_header');
+      } else {
+        // No sequence header, use shot header directly
+        cinematicHeader = shotHeader;
+      }
+    }
+
+    if (cinematicHeader) {
+      console.log('[QueueVideo] Effective cinematic_header:', JSON.stringify(cinematicHeader, null, 2));
     }
 
     let prompt: string;
@@ -215,7 +240,22 @@ export async function POST(request: Request, { params }: RouteParams) {
 
       const globalCharacters = (projectAssets || [])
         .map(pa => pa.global_asset as unknown as GlobalAsset)
-        .filter(a => a && a.asset_type === 'character');
+        .filter(a => a && a.asset_type === 'character')
+        .map(char => {
+          // Ensure visual_description has a fallback for CHARACTER LEGEND
+          const charData = char.data as Record<string, unknown> | null;
+          if (!charData?.visual_description) {
+            const fallbackDesc = (charData?.description as string) || char.name;
+            return {
+              ...char,
+              data: {
+                ...(charData || {}),
+                visual_description: fallbackDesc,
+              },
+            } as GlobalAsset;
+          }
+          return char;
+        });
 
       // Also get generic characters from project_generic_assets
       // Note: generic_asset_id is a TEXT field (e.g., "generic:woman"), not a FK
@@ -235,6 +275,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           const localOverrides = (pga.local_overrides || {}) as {
             reference_images_metadata?: Array<{ url: string }>;
             visual_description?: string;
+            description?: string;  // User's description fallback
             fal_voice_id?: string;
           };
           const referenceImages = (localOverrides.reference_images_metadata || []).map(img => img.url);
@@ -247,7 +288,10 @@ export async function POST(request: Request, { params }: RouteParams) {
             asset_type: 'character' as const,
             reference_images: referenceImages,
             data: {
-              visual_description: localOverrides.visual_description || genericChar.description,
+              // Fallback chain: visual_description > description (user's) > generic description
+              visual_description: localOverrides.visual_description
+                || localOverrides.description
+                || genericChar.description,
               fal_voice_id: localOverrides.fal_voice_id,
             },
           } as unknown as GlobalAsset;
@@ -264,12 +308,26 @@ export async function POST(request: Request, { params }: RouteParams) {
 
       // Auto-detect characters from segments
       for (const segment of segments) {
+        // New format: segment.elements
+        if (segment.elements && Array.isArray(segment.elements)) {
+          for (const element of segment.elements) {
+            if (element.character_id) {
+              const char = allCharacters.find(c => c.id === element.character_id);
+              if (char) {
+                characterMap.set(char.id, char);
+                console.log(`[QueueVideo] Found character in element: ${char.name} (${char.id})`);
+              }
+            }
+          }
+        }
+        // Legacy format: segment.beats
         if (segment.beats && Array.isArray(segment.beats)) {
           for (const beat of segment.beats) {
             if (beat.character_id) {
               const char = allCharacters.find(c => c.id === beat.character_id);
               if (char) {
                 characterMap.set(char.id, char);
+                console.log(`[QueueVideo] Found character in beat: ${char.name} (${char.id})`);
               }
             }
           }
@@ -279,6 +337,7 @@ export async function POST(request: Request, { params }: RouteParams) {
           const char = allCharacters.find(c => c.id === segment.dialogue!.character_id);
           if (char) {
             characterMap.set(char.id, char);
+            console.log(`[QueueVideo] Found character in dialogue: ${char.name} (${char.id})`);
           }
         }
       }

@@ -333,13 +333,30 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     });
 
-    // Inherit cinematic_header from sequence for each plan
+    // Deep merge cinematic_header: Sequence (base) + Plan (overrides)
+    // Plan inherits from Sequence by default, but can override specific fields
     for (const plan of plans) {
-      const planAny = plan as unknown as { sequence_id?: string; cinematic_header?: unknown };
-      if (planAny.sequence_id && sequenceHeaders.has(planAny.sequence_id)) {
-        planAny.cinematic_header = sequenceHeaders.get(planAny.sequence_id);
-        console.log(`[Cinematic] Plan ${plan.id} inherits cinematic_header from sequence ${planAny.sequence_id}`);
+      const planAny = plan as unknown as { sequence_id?: string; cinematic_header?: Record<string, unknown> | null };
+      const sequenceHeader = planAny.sequence_id ? sequenceHeaders.get(planAny.sequence_id) as Record<string, unknown> | null : null;
+      const planHeader = planAny.cinematic_header;
+
+      if (sequenceHeader) {
+        if (planHeader) {
+          // Deep merge: sequence as base, plan overrides (only non-null/undefined values)
+          planAny.cinematic_header = {
+            ...sequenceHeader,
+            ...Object.fromEntries(
+              Object.entries(planHeader).filter(([_, v]) => v !== null && v !== undefined)
+            ),
+          };
+          console.log(`[Cinematic] Plan ${plan.id} merged cinematic_header from sequence + plan overrides`);
+        } else {
+          // No plan header, use sequence header directly
+          planAny.cinematic_header = { ...sequenceHeader };
+          console.log(`[Cinematic] Plan ${plan.id} inherits cinematic_header from sequence ${planAny.sequence_id}`);
+        }
       }
+      // If no sequence header, keep plan's header as-is (or null)
     }
 
     // Fetch ALL project characters for auto-detection

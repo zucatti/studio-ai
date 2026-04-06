@@ -619,24 +619,92 @@ export function PlanEditor({
     setShowSegmentEditor(true);
   }, []);
 
-  const handleSaveSegment = useCallback((updatedSegment: Segment) => {
+  const handleSaveSegment = useCallback((updatedSegment: Segment, suggestedDuration?: number) => {
     const segments = plan?.segments || [];
-    const updated = segments.map((s) =>
-      s.id === updatedSegment.id ? updatedSegment : s
-    );
-    onUpdate({ segments: updated });
+    if (!plan) return;
+
+    const MAX_PLAN_DURATION = 15; // Kling max
+
+    // Find the segment index
+    const segmentIndex = segments.findIndex(s => s.id === updatedSegment.id);
+    if (segmentIndex === -1) return;
+
+    // Current segment duration
+    const currentSegmentDuration = updatedSegment.end_time - updatedSegment.start_time;
+
+    // If no suggested duration or same as current, just save
+    if (!suggestedDuration || Math.abs(suggestedDuration - currentSegmentDuration) < 0.1) {
+      const updated = segments.map((s) => s.id === updatedSegment.id ? updatedSegment : s);
+      onUpdate({ segments: updated });
+      setShowSegmentEditor(false);
+      setEditingSegment(null);
+      return;
+    }
+
+    // Calculate delta
+    const delta = suggestedDuration - currentSegmentDuration;
+    const newPlanDuration = plan.duration + delta;
+
+    // Check if we can accommodate the change
+    if (delta > 0 && newPlanDuration > MAX_PLAN_DURATION) {
+      // Can't extend beyond max - show warning
+      toast.warning(`Durée suggérée: ${suggestedDuration}s`, {
+        description: `Le plan dépasserait ${MAX_PLAN_DURATION}s. Durée actuelle conservée.`,
+        duration: 5000,
+      });
+      const updated = segments.map((s) => s.id === updatedSegment.id ? updatedSegment : s);
+      onUpdate({ segments: updated });
+      setShowSegmentEditor(false);
+      setEditingSegment(null);
+      return;
+    }
+
+    // Apply the duration change - shift subsequent segments
+    let currentEnd = updatedSegment.start_time + suggestedDuration;
+    const finalSegments = segments.map((s, i) => {
+      if (i < segmentIndex) return s;
+      if (i === segmentIndex) {
+        currentEnd = updatedSegment.start_time + suggestedDuration;
+        return { ...updatedSegment, end_time: currentEnd };
+      }
+      // Subsequent segments - shift them
+      const segmentDuration = segments[i].end_time - segments[i].start_time;
+      const shifted = {
+        ...s,
+        start_time: currentEnd,
+        end_time: currentEnd + segmentDuration,
+      };
+      currentEnd = shifted.end_time;
+      return shifted;
+    });
+
+    // Update plan with new segments and duration
+    onUpdate({
+      segments: finalSegments,
+      duration: Math.round(newPlanDuration * 10) / 10,
+    });
     setShowSegmentEditor(false);
     setEditingSegment(null);
-  }, [plan?.segments, onUpdate]);
+
+    toast.success(`Durée ajustée: ${suggestedDuration}s`, {
+      description: `Plan: ${plan.duration}s → ${Math.round(newPlanDuration * 10) / 10}s`,
+    });
+  }, [plan, onUpdate]);
 
   // Get characters for segment dialogue (custom characters + figurants with name_override)
   const segmentCharacters = useMemo(() => {
     const customCharacters = projectAssets
       .filter((asset) => asset.asset_type === 'character')
-      .map((asset) => ({
-        id: asset.id,
-        name: asset.name,
-      }));
+      .map((asset) => {
+        const data = asset.data as { visual_description?: string; description?: string; fal_voice_id?: string } | null;
+        return {
+          id: asset.id,
+          name: asset.name,
+          visualDescription: data?.visual_description || data?.description || asset.name,
+          referenceImages: asset.reference_images || [],
+          voiceId: data?.fal_voice_id,
+        };
+      });
 
     // Add figurants with name_override
     const figurants = projectGenericAssets
@@ -644,6 +712,13 @@ export function PlanEditor({
       .map((g) => ({
         id: g.project_generic_asset_id,
         name: g.name_override!,
+        // Fallback chain: visual_description > description (user's) > original description > name
+        visualDescription: g.local_overrides?.visual_description
+          || g.local_overrides?.description
+          || g.description
+          || g.name_override!,
+        referenceImages: g.reference_images || [],
+        voiceId: g.local_overrides?.voice_id,
       }));
 
     return [...customCharacters, ...figurants];
@@ -1192,6 +1267,7 @@ export function PlanEditor({
                 onSelectSegment={setSelectedSegmentId}
                 onSegmentsChange={handleSegmentsChange}
                 onEditSegment={handleEditSegment}
+                onDurationChange={(newDuration) => onUpdate({ duration: newDuration })}
               />
             </div>
           )}
@@ -1230,6 +1306,7 @@ export function PlanEditor({
           characters={segmentCharacters}
           planDuration={plan.duration}
           projectId={projectId}
+          shotId={plan.id}
         />
 
         {/* Gallery Picker */}
@@ -1375,12 +1452,7 @@ export function PlanEditor({
         projectId={projectId}
         segments={plan.segments || []}
         locations={locations}
-        characters={segmentCharacters.map(c => ({
-          id: c.id,
-          name: c.name,
-          referenceImages: projectAssets.find(a => a.id === c.id)?.reference_images || [],
-          voiceId: (projectAssets.find(a => a.id === c.id)?.data as { fal_voice_id?: string })?.fal_voice_id,
-        }))}
+        characters={segmentCharacters}
         targetModel={videoModel}
         hasStartFrame={hasFrameIn}
         defaultViewMode="prompt"

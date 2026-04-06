@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { generateReferenceName } from '@/lib/reference-name';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -35,18 +35,23 @@ import {
   Zap,
   Video,
   RotateCcw,
-  Languages,
   Loader2,
+  Target,
+  Volume2,
+  Wind,
+  Sun,
+  ChevronDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { TonePicker } from './TonePicker';
-import type { Segment, ShotFraming, ShotComposition, CameraMovement, DialogueTone, ShotBeat, BeatType, DialoguePresence } from '@/types/cinematic';
+import type { Segment, ShotFraming, ShotComposition, CameraMovement, DialogueTone, SegmentElement, ElementType, DialoguePresence } from '@/types/cinematic';
 import {
   SHOT_FRAMING_OPTIONS,
   SHOT_COMPOSITION_OPTIONS,
   CAMERA_MOVEMENT_OPTIONS,
-  createDefaultBeat,
+  ELEMENT_TYPE_OPTIONS,
+  createDefaultElement,
 } from '@/types/cinematic';
 
 // ============================================================================
@@ -172,27 +177,69 @@ function CameraPreview({ movement, framing, composition }: CameraPreviewProps) {
 }
 
 // ============================================================================
-// Beat Editor Component
+// Element Type Icons
 // ============================================================================
 
-interface BeatEditorProps {
-  beat: ShotBeat;
+const ELEMENT_ICONS: Record<ElementType, React.ReactNode> = {
+  action: <Zap className="w-3 h-3" />,
+  dialogue: <MessageSquare className="w-3 h-3" />,
+  focus: <Target className="w-3 h-3" />,
+  sfx: <Volume2 className="w-3 h-3" />,
+  physics: <Wind className="w-3 h-3" />,
+  lighting: <Sun className="w-3 h-3" />,
+};
+
+const ELEMENT_COLORS: Record<ElementType, string> = {
+  action: 'amber',
+  dialogue: 'indigo',
+  focus: 'cyan',
+  sfx: 'green',
+  physics: 'blue',
+  lighting: 'yellow',
+};
+
+const ELEMENT_PLACEHOLDERS: Record<ElementType, string> = {
+  action: 'approaches slowly, hands clenched...',
+  dialogue: 'What did you find in my phone?',
+  focus: 'maintaining eye contact with the camera',
+  sfx: 'Rhythmic metallic tink-tink of spoon against porcelain',
+  physics: 'Small wisps of steam rising from the coffee cup',
+  lighting: 'Sunlight glints sharply off the chrome',
+};
+
+// ============================================================================
+// Element Editor Component
+// ============================================================================
+
+interface ElementEditorProps {
+  element: SegmentElement;
   index: number;
   characters: Array<{ id: string; name: string }>;
-  onChange: (beat: ShotBeat) => void;
+  onChange: (element: SegmentElement) => void;
   onDelete: () => void;
   canDelete: boolean;
+  isDragging?: boolean;
+  onDragStart?: () => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: () => void;
+  onDragEnd?: () => void;
 }
 
-function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: BeatEditorProps) {
-  const [isTranslating, setIsTranslating] = useState(false);
+function ElementEditor({ element, index, characters, onChange, onDelete, canDelete, isDragging, onDragStart, onDragOver, onDrop, onDragEnd }: ElementEditorProps) {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Get element type config
+  const elementConfig = ELEMENT_TYPE_OPTIONS.find(o => o.value === element.type);
+  const needsCharacter = elementConfig?.needsCharacter ?? false;
+  const color = ELEMENT_COLORS[element.type] || 'slate';
 
   // Estimate dialogue duration based on word count and speech patterns
-  // Average speaking rate: ~150-160 words/min, but varies by tone
+  // Use content_en if available (more accurate for English prompt), fallback to content
   const estimateDuration = useMemo(() => {
-    if (beat.type !== 'dialogue' || !beat.content) return null;
+    if (element.type !== 'dialogue') return null;
 
-    const text = beat.content.trim();
+    // Prefer English version for estimation (more accurate)
+    const text = (element.content_en || element.content || '').trim();
     if (!text) return null;
 
     // Count words (split by whitespace)
@@ -212,7 +259,7 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
       shouted: 0.8,     // Fast and loud
     };
 
-    const toneMultiplier = toneMultipliers[beat.tone || 'neutral'] || 1.0;
+    const toneMultiplier = toneMultipliers[element.tone || 'neutral'] || 1.0;
 
     // Add time for punctuation pauses
     const commas = (text.match(/,/g) || []).length;
@@ -225,143 +272,143 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
     const totalDuration = baseDuration + pauseTime;
 
     return Math.round(totalDuration * 10) / 10; // Round to 0.1s
-  }, [beat.content, beat.tone, beat.type]);
-
-  // Translate dialogue to English using Claude
-  const translateToEnglish = async () => {
-    if (!beat.content || beat.type !== 'dialogue') return;
-
-    setIsTranslating(true);
-    try {
-      const res = await fetch('/api/translate-dialogue', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: beat.content,
-          from: 'auto', // Auto-detect source language
-          to: 'en',
-          context: {
-            characterName: beat.character_name,
-            tone: beat.tone,
-          },
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error('Translation failed');
-      }
-
-      const data = await res.json();
-      if (data.translation && !data.unchanged) {
-        onChange({ ...beat, content: data.translation });
-        toast.success('Translated to English');
-      } else if (data.unchanged) {
-        toast.info('Already in English');
-      }
-    } catch (error) {
-      console.error('Translation error:', error);
-      toast.error('Translation failed');
-    } finally {
-      setIsTranslating(false);
-    }
-  };
+  }, [element.content, element.content_en, element.tone, element.type]);
 
   const handleCharacterChange = (characterId: string) => {
     const character = characters.find(c => c.id === characterId);
     const noCharacter = characterId === '_none';
     onChange({
-      ...beat,
+      ...element,
       character_id: noCharacter ? undefined : characterId,
       character_name: character?.name,
       // Switch to action if removing character while in dialogue mode
-      type: noCharacter && beat.type === 'dialogue' ? 'action' : beat.type,
+      type: noCharacter && element.type === 'dialogue' ? 'action' : element.type,
       // Clear dialogue-specific fields if switching to action
-      tone: noCharacter && beat.type === 'dialogue' ? undefined : beat.tone,
-      presence: noCharacter && beat.type === 'dialogue' ? undefined : beat.presence,
+      tone: noCharacter && element.type === 'dialogue' ? undefined : element.tone,
+      presence: noCharacter && element.type === 'dialogue' ? undefined : element.presence,
     });
   };
 
-  const handleTypeChange = (type: BeatType) => {
+  const handleTypeChange = (type: ElementType) => {
+    const typeConfig = ELEMENT_TYPE_OPTIONS.find(o => o.value === type);
+    const typeNeedsCharacter = typeConfig?.needsCharacter ?? false;
+
     onChange({
-      ...beat,
+      ...element,
       type,
-      // Clear dialogue-specific fields if switching to action
-      tone: type === 'action' ? undefined : beat.tone,
-      presence: type === 'action' ? undefined : beat.presence,
+      // Clear character if switching to a type that doesn't need one
+      character_id: typeNeedsCharacter ? element.character_id : undefined,
+      character_name: typeNeedsCharacter ? element.character_name : undefined,
+      // Clear dialogue-specific fields if not dialogue
+      tone: type === 'dialogue' ? element.tone : undefined,
+      presence: type === 'dialogue' ? element.presence : undefined,
     });
+  };
+
+  // Get background color class for element type
+  const getBgColorClass = (type: ElementType, isSelected: boolean) => {
+    const colors: Record<ElementType, string> = {
+      action: isSelected ? 'bg-amber-600/80' : '',
+      dialogue: isSelected ? 'bg-indigo-600/80' : '',
+      focus: isSelected ? 'bg-cyan-600/80' : '',
+      sfx: isSelected ? 'bg-green-600/80' : '',
+      physics: isSelected ? 'bg-blue-600/80' : '',
+      lighting: isSelected ? 'bg-yellow-600/80' : '',
+    };
+    return colors[type] || '';
   };
 
   return (
-    <div className="relative p-3 bg-slate-800/30 rounded-lg border border-white/5 space-y-3">
-      {/* Header row: index, character, type toggle, delete */}
-      <div className="flex items-center gap-2">
-        <GripVertical className="w-4 h-4 text-slate-600 cursor-grab flex-shrink-0" />
+    <div
+      ref={containerRef}
+      className={cn(
+        "relative p-3 bg-slate-800/30 rounded-lg border border-white/5 space-y-3 transition-all",
+        isDragging && "opacity-50 border-blue-500/50"
+      )}
+      onDragOver={(e) => {
+        e.preventDefault();
+        onDragOver?.(e);
+      }}
+      onDrop={() => onDrop?.()}
+    >
+      {/* Header row: index, type selector, character (if applicable), delete */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {/* Drag handle - ONLY this element is draggable */}
+        <div
+          draggable
+          onDragStart={(e) => {
+            // Set the entire container as the drag image
+            if (containerRef.current) {
+              const rect = containerRef.current.getBoundingClientRect();
+              e.dataTransfer.setDragImage(containerRef.current, rect.width / 2, 20);
+            }
+            e.dataTransfer.effectAllowed = 'move';
+            onDragStart?.();
+          }}
+          onDragEnd={() => onDragEnd?.()}
+          className="cursor-grab active:cursor-grabbing"
+        >
+          <GripVertical className="w-4 h-4 text-slate-500 hover:text-slate-300 flex-shrink-0" />
+        </div>
         <span className="text-[10px] text-slate-500 font-mono flex-shrink-0">#{index + 1}</span>
 
-        {/* Character select */}
+        {/* Type selector dropdown */}
         <Select
-          value={beat.character_id || '_none'}
-          onValueChange={handleCharacterChange}
+          value={element.type}
+          onValueChange={(v) => handleTypeChange(v as ElementType)}
         >
-          <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-7 text-xs w-[130px]">
-            <SelectValue placeholder="Character" />
+          <SelectTrigger className={cn(
+            "h-7 text-xs w-[110px] border-white/10",
+            getBgColorClass(element.type, true),
+            element.type ? 'text-white' : 'text-slate-400'
+          )}>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent className="bg-slate-800 border-white/10">
-            <SelectItem value="_none" className="text-slate-400 text-xs">
-              —
-            </SelectItem>
-            {characters.map((char) => (
-              <SelectItem key={char.id} value={char.id} className="text-white text-xs">
-                @{char.name}
+            {ELEMENT_TYPE_OPTIONS.map((opt) => (
+              <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
+                <div className="flex items-center gap-2">
+                  {ELEMENT_ICONS[opt.value]}
+                  {opt.label}
+                </div>
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        {/* Type toggle group */}
-        <div className="inline-flex rounded-md bg-slate-800/50 p-0.5 border border-white/10">
-          <button
-            type="button"
-            onClick={() => handleTypeChange('action')}
-            className={cn(
-              'px-2.5 py-1 text-[11px] font-medium rounded transition-all flex items-center gap-1',
-              beat.type === 'action'
-                ? 'bg-amber-600/80 text-white'
-                : 'text-slate-400 hover:text-slate-200'
-            )}
+        {/* Character select - only for types that need it */}
+        {needsCharacter && (
+          <Select
+            value={element.character_id || '_none'}
+            onValueChange={handleCharacterChange}
           >
-            <Zap className="w-3 h-3" />
-            Action
-          </button>
-          <button
-            type="button"
-            onClick={() => handleTypeChange('dialogue')}
-            disabled={!beat.character_id}
-            className={cn(
-              'px-2.5 py-1 text-[11px] font-medium rounded transition-all flex items-center gap-1',
-              beat.type === 'dialogue'
-                ? 'bg-indigo-600/80 text-white'
-                : !beat.character_id
-                  ? 'text-slate-600 cursor-not-allowed'
-                  : 'text-slate-400 hover:text-slate-200'
-            )}
-          >
-            <MessageSquare className="w-3 h-3" />
-            Dialogue
-          </button>
-        </div>
+            <SelectTrigger className="bg-slate-800/50 border-white/10 text-white h-7 text-xs w-[130px]">
+              <SelectValue placeholder="Character" />
+            </SelectTrigger>
+            <SelectContent className="bg-slate-800 border-white/10">
+              <SelectItem value="_none" className="text-slate-400 text-xs">
+                —
+              </SelectItem>
+              {characters.map((char) => (
+                <SelectItem key={char.id} value={char.id} className="text-white text-xs">
+                  @{char.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
         {/* Dialogue options: on/off toggle and tone */}
-        {beat.type === 'dialogue' && (
+        {element.type === 'dialogue' && (
           <>
             {/* On/Off toggle */}
             <div className="inline-flex rounded-md bg-slate-800/50 p-0.5 border border-white/10">
               <button
                 type="button"
-                onClick={() => onChange({ ...beat, presence: 'on' })}
+                onClick={() => onChange({ ...element, presence: 'on' })}
                 className={cn(
                   'px-2 py-1 text-[10px] font-medium rounded transition-all',
-                  (!beat.presence || beat.presence === 'on')
+                  (!element.presence || element.presence === 'on')
                     ? 'bg-green-600/80 text-white'
                     : 'text-slate-400 hover:text-slate-200'
                 )}
@@ -370,10 +417,10 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
               </button>
               <button
                 type="button"
-                onClick={() => onChange({ ...beat, presence: 'off' })}
+                onClick={() => onChange({ ...element, presence: 'off' })}
                 className={cn(
                   'px-2 py-1 text-[10px] font-medium rounded transition-all',
-                  beat.presence === 'off'
+                  element.presence === 'off'
                     ? 'bg-slate-600 text-white'
                     : 'text-slate-400 hover:text-slate-200'
                 )}
@@ -384,8 +431,8 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
 
             {/* Tone picker */}
             <TonePicker
-              value={beat.tone || 'neutral'}
-              onChange={(v) => onChange({ ...beat, tone: v })}
+              value={element.tone || 'neutral'}
+              onChange={(v) => onChange({ ...element, tone: v })}
               className="w-[140px]"
             />
           </>
@@ -405,43 +452,23 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
         )}
       </div>
 
-      {/* Content textarea with translate button for dialogue */}
+      {/* Content textarea */}
       <div className="relative">
         <Textarea
-          value={beat.content || ''}
-          onChange={(e) => onChange({ ...beat, content: e.target.value })}
-          placeholder={beat.type === 'dialogue'
-            ? "What did you find in my phone?"
-            : "approaches slowly, hands clenched..."
-          }
+          value={element.content || ''}
+          onChange={(e) => onChange({ ...element, content: e.target.value })}
+          placeholder={ELEMENT_PLACEHOLDERS[element.type] || 'Enter content...'}
           rows={2}
-          className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm pr-10 pb-6"
+          className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm pb-6"
         />
-        {/* Translate button - for dialogue beats */}
-        {beat.type === 'dialogue' && (
-          <button
-            type="button"
-            onClick={translateToEnglish}
-            disabled={isTranslating || !beat.content}
-            className={cn(
-              "absolute right-2 top-2 p-1.5 rounded transition-colors",
-              isTranslating
-                ? "text-blue-400 cursor-wait"
-                : !beat.content
-                  ? "text-slate-600 cursor-not-allowed"
-                  : "text-slate-400 hover:text-blue-400 hover:bg-blue-500/10"
-            )}
-            title="Traduire en anglais"
-          >
-            {isTranslating ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <Languages className="w-4 h-4" />
-            )}
-          </button>
+        {/* Translation indicator - shows if content_en exists and differs */}
+        {element.content_en && element.content_en !== element.content && (
+          <div className="absolute right-2 top-2 px-1.5 py-0.5 rounded bg-green-500/20 text-green-400 text-[10px]">
+            EN ✓
+          </div>
         )}
         {/* Duration estimate for dialogue */}
-        {beat.type === 'dialogue' && (
+        {element.type === 'dialogue' && (
           <div className="absolute right-2 bottom-1.5 text-[10px] text-slate-500 tabular-nums">
             {estimateDuration !== null ? `~${estimateDuration}s` : '—'}
           </div>
@@ -451,6 +478,9 @@ function BeatEditor({ beat, index, characters, onChange, onDelete, canDelete }: 
   );
 }
 
+// Legacy alias for backward compatibility
+const BeatEditor = ElementEditor;
+
 // ============================================================================
 // Main Component
 // ============================================================================
@@ -459,25 +489,27 @@ interface SegmentEditorProps {
   segment: Segment | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSave: (segment: Segment) => void;
+  onSave: (segment: Segment, suggestedDuration?: number) => void;
   characters?: Array<{ id: string; name: string }>;
   locations?: Array<{ id: string; name: string }>;
   planDuration: number;
   segmentIndex?: number;
   projectId: string;
+  shotId: string;
 }
 
-// Extract subject from description or first beat
+// Extract subject from description or first element
 function extractSubject(segment: Partial<Segment>): string | null {
   // First try description
   if (segment.description) {
     const match = segment.description.match(/[@#!][A-Za-z][A-Za-z0-9_]*/);
     if (match) return match[0];
   }
-  // Then try first beat with character
-  const firstBeatWithChar = segment.beats?.find(b => b.character_name);
-  if (firstBeatWithChar?.character_name) {
-    return generateReferenceName(firstBeatWithChar.character_name, '@');
+  // Then try first element with character (using elements or legacy beats)
+  const elements = segment.elements || segment.beats;
+  const firstElementWithChar = elements?.find(e => e.character_name);
+  if (firstElementWithChar?.character_name) {
+    return generateReferenceName(firstElementWithChar.character_name, '@');
   }
   return null;
 }
@@ -491,18 +523,20 @@ export function SegmentEditor({
   planDuration,
   segmentIndex = 0,
   projectId,
+  shotId,
 }: SegmentEditorProps) {
   const [formData, setFormData] = useState<Partial<Segment>>({});
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // Reset form when segment changes
   useEffect(() => {
     if (segment) {
-      // Migrate old dialogue to beats if needed
-      let beats = segment.beats || [];
-      if (beats.length === 0 && segment.dialogue) {
-        beats = [{
+      // Migrate old dialogue/beats to elements if needed
+      let elements = segment.elements || segment.beats || [];
+      if (elements.length === 0 && segment.dialogue) {
+        elements = [{
           id: crypto.randomUUID(),
           character_id: segment.dialogue.character_id,
           character_name: segment.dialogue.character_name,
@@ -511,7 +545,7 @@ export function SegmentEditor({
           tone: segment.dialogue.tone,
         }];
       }
-      setFormData({ ...segment, beats });
+      setFormData({ ...segment, elements, beats: undefined });
     } else {
       setFormData({});
     }
@@ -525,46 +559,165 @@ export function SegmentEditor({
     []
   );
 
-  // Beat handlers
-  const beats = formData.beats || [];
+  // Element handlers (use elements, fallback to beats for backward compatibility)
+  const elements = formData.elements || formData.beats || [];
 
-  const addBeat = useCallback(() => {
-    const newBeat = createDefaultBeat();
+  const addElement = useCallback((type: ElementType = 'action') => {
+    const newElement = createDefaultElement(type);
     setFormData((prev) => ({
       ...prev,
-      beats: [...(prev.beats || []), newBeat],
+      elements: [...(prev.elements || prev.beats || []), newElement],
+      beats: undefined, // Clear legacy beats field
     }));
   }, []);
 
-  const updateBeat = useCallback((index: number, beat: ShotBeat) => {
+  const updateElement = useCallback((index: number, element: SegmentElement) => {
     setFormData((prev) => ({
       ...prev,
-      beats: (prev.beats || []).map((b, i) => (i === index ? beat : b)),
+      elements: (prev.elements || prev.beats || []).map((e, i) => (i === index ? element : e)),
+      beats: undefined,
     }));
   }, []);
 
-  const deleteBeat = useCallback((index: number) => {
+  const deleteElement = useCallback((index: number) => {
     setFormData((prev) => ({
       ...prev,
-      beats: (prev.beats || []).filter((_, i) => i !== index),
+      elements: (prev.elements || prev.beats || []).filter((_, i) => i !== index),
+      beats: undefined,
     }));
   }, []);
 
-  // Handle save
-  const handleSave = useCallback(() => {
+  const insertElementAfter = useCallback((index: number, type: ElementType = 'action') => {
+    const newElement = createDefaultElement(type);
+    setFormData((prev) => {
+      const currentElements = prev.elements || prev.beats || [];
+      const newElements = [
+        ...currentElements.slice(0, index + 1),
+        newElement,
+        ...currentElements.slice(index + 1),
+      ];
+      return { ...prev, elements: newElements, beats: undefined };
+    });
+  }, []);
+
+  // Drag-and-drop state
+  const [draggedElementIndex, setDraggedElementIndex] = useState<number | null>(null);
+
+  const moveElement = useCallback((fromIndex: number, toIndex: number) => {
+    if (fromIndex === toIndex) return;
+    setFormData((prev) => {
+      const currentElements = [...(prev.elements || prev.beats || [])];
+      const [movedElement] = currentElements.splice(fromIndex, 1);
+      currentElements.splice(toIndex, 0, movedElement);
+      return { ...prev, elements: currentElements, beats: undefined };
+    });
+  }, []);
+
+  const handleDragStart = useCallback((index: number) => {
+    setDraggedElementIndex(index);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedElementIndex === null || draggedElementIndex === index) return;
+  }, [draggedElementIndex]);
+
+  const handleDrop = useCallback((index: number) => {
+    if (draggedElementIndex === null) return;
+    moveElement(draggedElementIndex, index);
+    setDraggedElementIndex(null);
+  }, [draggedElementIndex, moveElement]);
+
+  const handleDragEnd = useCallback(() => {
+    setDraggedElementIndex(null);
+  }, []);
+
+  // Handle save - calls Claude to translate and evaluate duration
+  const handleSave = useCallback(async () => {
     if (!segment) return;
 
-    const updated: Segment = {
-      ...segment,
-      ...formData,
-      id: segment.id,
-      // Clear legacy dialogue field
-      dialogue: undefined,
-    };
+    const currentElements = formData.elements || formData.beats || [];
 
-    onSave(updated);
-    onOpenChange(false);
-  }, [segment, formData, onSave, onOpenChange]);
+    // If we have elements with content, process them with Claude
+    if (currentElements.some(el => el.content)) {
+      setIsProcessing(true);
+      try {
+        const response = await fetch(`/api/projects/${projectId}/shots/${shotId}/process-segment`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            elements: currentElements,
+            description: formData.description,
+            camera_movement: formData.camera_movement,
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+
+          // Update elements with English translations
+          const updated: Segment = {
+            ...segment,
+            ...formData,
+            id: segment.id,
+            elements: data.elements,
+            // Clear legacy fields
+            dialogue: undefined,
+            beats: undefined,
+          };
+
+          // Show duration suggestion if significantly different
+          if (data.duration_reasoning) {
+            toast.success(`Durée suggérée: ${data.suggested_duration}s`, {
+              description: data.duration_reasoning,
+              duration: 5000,
+            });
+          }
+
+          onSave(updated, data.suggested_duration);
+          onOpenChange(false);
+        } else {
+          // API failed, save without processing
+          const errorData = await response.json().catch(() => ({}));
+          console.error('[SegmentEditor] Process API failed:', response.status, errorData);
+          const updated: Segment = {
+            ...segment,
+            ...formData,
+            id: segment.id,
+            dialogue: undefined,
+            beats: undefined,
+          };
+          onSave(updated);
+          onOpenChange(false);
+        }
+      } catch (error) {
+        console.error('[SegmentEditor] Process error:', error);
+        // Save without processing on error
+        const updated: Segment = {
+          ...segment,
+          ...formData,
+          id: segment.id,
+          dialogue: undefined,
+          beats: undefined,
+        };
+        onSave(updated);
+        onOpenChange(false);
+      } finally {
+        setIsProcessing(false);
+      }
+    } else {
+      // No elements with content, save directly
+      const updated: Segment = {
+        ...segment,
+        ...formData,
+        id: segment.id,
+        dialogue: undefined,
+        beats: undefined,
+      };
+      onSave(updated);
+      onOpenChange(false);
+    }
+  }, [segment, formData, onSave, onOpenChange, projectId, shotId]);
 
   // Format time as MM:SS
   const formatTime = (seconds: number): string => {
@@ -599,56 +752,74 @@ export function SegmentEditor({
       lines.push('');
     }
 
-    // Beats
-    const beatsToRender = formData.beats || [];
+    // Elements
+    const elementsToRender = formData.elements || formData.beats || [];
     // Track which characters have dialogue for voice assignment
     const dialogueCharacterIds: string[] = [];
-    for (const beat of beatsToRender) {
-      if (beat.type === 'dialogue' && beat.character_id && !dialogueCharacterIds.includes(beat.character_id)) {
-        dialogueCharacterIds.push(beat.character_id);
+    for (const el of elementsToRender) {
+      if (el.type === 'dialogue' && el.character_id && !dialogueCharacterIds.includes(el.character_id)) {
+        dialogueCharacterIds.push(el.character_id);
       }
     }
 
-    for (const beat of beatsToRender) {
-      if (!beat.content) continue;
+    for (const el of elementsToRender) {
+      if (!el.content) continue;
 
-      let beatLine = '';
+      // Use content_en for prompt preview (what will be sent to fal.ai)
+      const textContent = el.content_en || el.content;
+      let elementLine = '';
 
-      if (beat.type === 'dialogue') {
-        // Dialogue beat
-        const tone = beat.tone && beat.tone !== 'neutral' ? ` ${beat.tone}` : '';
-        const offScreen = beat.presence === 'off' ? ' (voix off)' : '';
+      switch (el.type) {
+        case 'dialogue': {
+          const tone = el.tone && el.tone !== 'neutral' ? ` ${el.tone}` : '';
+          const offScreen = el.presence === 'off' ? ' (off-screen)' : '';
 
-        if (beat.character_id && beat.character_name) {
-          // Has character_id - will use @Element and voice
-          const voiceIndex = dialogueCharacterIds.indexOf(beat.character_id) + 1;
-          const voiceTag = voiceIndex <= 2 ? ` <<<voice_${voiceIndex}>>>` : '';
-          const charRef = generateReferenceName(beat.character_name, '@');
-          beatLine = `${charRef}${offScreen} says${tone}${voiceTag}:\n"${beat.content}"`;
-        } else if (beat.character_name) {
-          // Only character_name - no element/voice mapping
-          const charRef = generateReferenceName(beat.character_name, '@');
-          beatLine = `${charRef}${offScreen} says${tone}:\n"${beat.content}"`;
-        } else {
-          beatLine = `Says${offScreen}${tone}: "${beat.content}"`;
+          if (el.character_id && el.character_name) {
+            const voiceIndex = dialogueCharacterIds.indexOf(el.character_id) + 1;
+            const voiceTag = voiceIndex <= 2 ? ` <<<voice_${voiceIndex}>>>` : '';
+            const charRef = generateReferenceName(el.character_name, '@');
+            elementLine = `[Dialogue lipsync: ${charRef}${offScreen} says${tone}${voiceTag}: "${textContent}"]`;
+          } else if (el.character_name) {
+            const charRef = generateReferenceName(el.character_name, '@');
+            elementLine = `[Dialogue lipsync: ${charRef}${offScreen} says${tone}: "${textContent}"]`;
+          } else {
+            elementLine = `[Dialogue lipsync: Says${offScreen}${tone}: "${textContent}"]`;
+          }
+          break;
         }
-      } else {
-        // Action beat
-        if (beat.character_name) {
-          const charRef = generateReferenceName(beat.character_name, '@');
-          beatLine = `${charRef} ${beat.content}`;
-        } else {
-          beatLine = beat.content;
+        case 'action': {
+          if (el.character_name) {
+            const charRef = generateReferenceName(el.character_name, '@');
+            elementLine = `[Action: ${charRef} ${textContent}]`;
+          } else {
+            elementLine = `[Action: ${textContent}]`;
+          }
+          break;
         }
-        // Add period if not already ending with punctuation
-        if (beatLine && !/[.!?]$/.test(beatLine)) {
-          beatLine += '.';
+        case 'focus': {
+          if (el.character_name) {
+            const charRef = generateReferenceName(el.character_name, '@');
+            elementLine = `[Focus on ${charRef}${textContent ? ': ' + textContent : ''}]`;
+          } else if (textContent) {
+            elementLine = `[Focus: ${textContent}]`;
+          }
+          break;
         }
+        case 'sfx':
+          elementLine = `[SFX: ${textContent}]`;
+          break;
+        case 'physics':
+          elementLine = `[Physics: ${textContent}]`;
+          break;
+        case 'lighting':
+          elementLine = `[Lighting: ${textContent}]`;
+          break;
+        default:
+          elementLine = textContent;
       }
 
-      if (beatLine) {
-        lines.push(beatLine);
-        lines.push('');
+      if (elementLine) {
+        lines.push(elementLine);
       }
     }
 
@@ -792,58 +963,66 @@ export function SegmentEditor({
                   </div>
                 </div>
 
-                {/* Right Panel - Description & Beats (uses absolute for reliable height) */}
+                {/* Right Panel - Elements (uses absolute for reliable height) */}
                 <div className="w-[60%] h-full flex flex-col">
-                  {/* Description - FIXED at top */}
-                  <div className="flex-shrink-0 p-5 pb-4 space-y-1.5">
-                    <Label className="text-slate-300 text-xs flex items-center gap-2">
-                      Description
-                      <span className="text-[10px] text-slate-500 font-normal">
-                        @character · #location · !look · &in · &out
-                      </span>
-                    </Label>
-                    <MentionInput
-                      value={formData.description || ''}
-                      onChange={(v) => updateField('description', v)}
-                      placeholder="Visual setup: @Morgana enters frame, #Kitchen in background..."
-                      projectId={projectId}
-                      minHeight="80px"
-                      className="bg-slate-800/50 border-white/10"
-                    />
+                  {/* Elements Header - FIXED at top */}
+                  <div className="flex-shrink-0 flex items-center justify-between px-5 py-4 border-b border-white/10">
+                    <Label className="text-slate-300 text-xs">Elements</Label>
+                    <Select onValueChange={(type) => addElement(type as ElementType)}>
+                      <SelectTrigger className="h-7 w-[140px] text-xs border-white/10 text-slate-400 hover:text-white bg-transparent">
+                        <Plus className="w-3 h-3 mr-1" />
+                        <span>Add Element</span>
+                      </SelectTrigger>
+                      <SelectContent className="bg-slate-800 border-white/10">
+                        {ELEMENT_TYPE_OPTIONS.map((opt) => (
+                          <SelectItem key={opt.value} value={opt.value} className="text-white text-xs">
+                            <div className="flex items-center gap-2">
+                              {ELEMENT_ICONS[opt.value]}
+                              {opt.label}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
                   </div>
 
-                  {/* Beats Header - FIXED */}
-                  <div className="flex-shrink-0 flex items-center justify-between px-5 py-3 border-t border-white/10">
-                    <Label className="text-slate-300 text-xs">Beats</Label>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={addBeat}
-                      className="h-7 text-xs border-white/10 text-slate-400 hover:text-white"
-                    >
-                      <Plus className="w-3 h-3 mr-1" />
-                      Add Beat
-                    </Button>
-                  </div>
-
-                  {/* Beats List - THIS IS THE ONLY SCROLLABLE PART */}
-                  <div className="flex-1 min-h-0 overflow-y-auto px-5 pb-5">
-                    {beats.length === 0 ? (
+                  {/* Elements List - THIS IS THE ONLY SCROLLABLE PART */}
+                  <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5">
+                    {elements.length === 0 ? (
                       <div className="text-center py-6 text-slate-500 text-sm border border-dashed border-white/10 rounded-lg">
-                        No beats yet. Add action or dialogue.
+                        No elements yet. Add action, dialogue, SFX, etc.
                       </div>
                     ) : (
-                      <div className="space-y-3">
-                        {beats.map((beat, index) => (
-                          <BeatEditor
-                            key={beat.id}
-                            beat={beat}
-                            index={index}
-                            characters={characters}
-                            onChange={(b) => updateBeat(index, b)}
-                            onDelete={() => deleteBeat(index)}
-                            canDelete={true}
-                          />
+                      <div className="space-y-1">
+                        {elements.map((element, index) => (
+                          <div key={element.id}>
+                            <ElementEditor
+                              element={element}
+                              index={index}
+                              characters={characters}
+                              onChange={(e) => updateElement(index, e)}
+                              onDelete={() => deleteElement(index)}
+                              canDelete={true}
+                              isDragging={draggedElementIndex === index}
+                              onDragStart={() => handleDragStart(index)}
+                              onDragOver={(e) => handleDragOver(e, index)}
+                              onDrop={() => handleDrop(index)}
+                              onDragEnd={handleDragEnd}
+                            />
+                            {/* Insert button between elements */}
+                            <div className="group relative h-2 -my-0.5">
+                              <button
+                                onClick={() => insertElementAfter(index)}
+                                className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <div className="flex items-center gap-2 px-3 py-0.5 rounded-full bg-blue-500/20 border border-blue-500/30 hover:bg-blue-500/30 transition-colors">
+                                  <Plus className="w-3 h-3 text-blue-400" />
+                                  <span className="text-[10px] text-blue-400 font-medium">Insert element</span>
+                                </div>
+                              </button>
+                              <div className="absolute inset-x-4 top-1/2 h-px bg-white/5 group-hover:bg-blue-500/20 transition-colors" />
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -888,6 +1067,7 @@ export function SegmentEditor({
             <Button
               variant="outline"
               onClick={() => onOpenChange(false)}
+              disabled={isProcessing}
               className="border-white/10 text-slate-400"
             >
               <X className="w-4 h-4 mr-2" />
@@ -895,10 +1075,20 @@ export function SegmentEditor({
             </Button>
             <Button
               onClick={handleSave}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white"
+              disabled={isProcessing}
+              className="bg-indigo-600 hover:bg-indigo-500 text-white min-w-[140px]"
             >
-              <Save className="w-4 h-4 mr-2" />
-              Save Shot
+              {isProcessing ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Shot
+                </>
+              )}
             </Button>
           </div>
         </div>

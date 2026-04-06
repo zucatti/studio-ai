@@ -560,6 +560,9 @@ function GenericCharacterCard({
     setTimeout(() => setCopied(false), 2000);
   };
 
+  // Get visual description for display
+  const visualDesc = character.local_overrides?.visual_description || character.description || '';
+
   if (compact) {
     return (
       <div className={cn(
@@ -574,6 +577,9 @@ function GenericCharacterCard({
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-white truncate">{displayName}</p>
+            {visualDesc && (
+              <p className="text-[10px] text-slate-400 truncate" title={visualDesc}>{visualDesc}</p>
+            )}
             <button onClick={handleCopy} className="flex items-center gap-1 text-[10px] text-purple-400 hover:text-purple-300">
               <AtSign className="w-2.5 h-2.5" />
               <span className="font-mono truncate">{reference.slice(1)}</span>
@@ -581,6 +587,24 @@ function GenericCharacterCard({
             </button>
           </div>
           <div className="flex items-center gap-0.5">
+            {/* Edit button */}
+            {onEdit && (
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); onEdit(); }}
+                      className="p-1 text-slate-400 hover:text-white"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom" className="bg-[#1a2433] border-white/10">
+                    <p className="text-xs">Modifier</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
+            )}
             {/* Generate images button (only for People) */}
             {!isStarring && onGenerateImages && (
               <TooltipProvider>
@@ -655,6 +679,9 @@ function GenericCharacterCard({
           <p className="text-sm font-medium text-white truncate">{displayName}</p>
           {character.name_override && (
             <p className="text-[10px] text-slate-500 truncate">base: {character.originalName || character.name}</p>
+          )}
+          {visualDesc && (
+            <p className="text-xs text-slate-400 truncate mt-0.5" title={visualDesc}>{visualDesc}</p>
           )}
           <button onClick={handleCopy} className="flex items-center gap-1 mt-0.5 text-xs text-purple-400 hover:text-purple-300">
             <AtSign className="w-3 h-3" />

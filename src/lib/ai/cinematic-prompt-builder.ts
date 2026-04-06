@@ -533,19 +533,133 @@ function calculateBeatTimecodes(
 // ============================================================================
 
 /**
+ * Format time as simple seconds (e.g., "0", "4", "15")
+ */
+function formatTimeShort(seconds: number): number {
+  return Math.round(seconds);
+}
+
+/**
+ * Clean content that may contain formatting tags from old data
+ * Strips patterns like [DIALOGUE], [ACTION], (character: Name), [off-screen], etc.
+ */
+function cleanContentTags(content: string): string {
+  if (!content) return content;
+
+  // Remove patterns like [DIALOGUE], [ACTION], [SFX], etc. at the start
+  let cleaned = content.replace(/^\s*\[(DIALOGUE|ACTION|FOCUS|SFX|PHYSICS|LIGHTING)\]\s*/i, '');
+
+  // Remove (character: Name) patterns
+  cleaned = cleaned.replace(/\(character:\s*[^)]+\)\s*:?\s*/gi, '');
+
+  // Remove [off-screen] or [on-screen] patterns
+  cleaned = cleaned.replace(/\[(off-screen|on-screen)\]\s*:?\s*/gi, '');
+
+  // Remove [tone: xxx] patterns
+  cleaned = cleaned.replace(/\[tone:\s*[^\]]+\]\s*/gi, '');
+
+  // If the content is wrapped in quotes, extract just the quoted part
+  const quotedMatch = cleaned.match(/^["'](.+)["']$/);
+  if (quotedMatch) {
+    cleaned = quotedMatch[1];
+  }
+
+  // Also handle case where entire content is: "Text here"
+  // after removing tags, we might have: : "Text here" - remove leading colon
+  cleaned = cleaned.replace(/^:\s*["']?/, '').replace(/["']?\s*$/, '');
+
+  return cleaned.trim();
+}
+
+/**
+ * Build a single element's prompt string
+ * Uses content_en (English translation) if available, otherwise falls back to content
+ */
+function buildElementPrompt(
+  element: { type: string; content: string; content_en?: string; character_id?: string; character_name?: string; tone?: string; presence?: string },
+  analysis: CharacterAnalysis
+): string | null {
+  // Prefer English translation for prompt generation
+  // Clean any formatting tags that might have been included from old data
+  const rawContent = element.content_en || element.content;
+  const textContent = cleanContentTags(rawContent);
+  if (!textContent) return null;
+
+  switch (element.type) {
+    case 'dialogue': {
+      if (element.character_id) {
+        const charRef = getCharacterReference(element.character_id, analysis);
+        const voiceRef = getVoiceReference(element.character_id, analysis);
+        const voiceDesc = getVoiceDescription(element.character_id, analysis);
+        const toneDesc = getToneDescription(element.tone);
+        const offScreen = element.presence === 'off' ? ' (off-screen)' : '';
+
+        if (voiceRef) {
+          return `[Dialogue lipsync: ${charRef}${offScreen} says ${voiceRef}${toneDesc ? ' ' + toneDesc : ''}: "${textContent}"]`;
+        } else if (voiceDesc) {
+          return `[Dialogue lipsync: ${charRef}${offScreen} says ${voiceDesc}${toneDesc ? ', ' + toneDesc : ''}: "${textContent}"]`;
+        } else {
+          return `[Dialogue lipsync: ${charRef}${offScreen} says${toneDesc ? ' ' + toneDesc : ''}: "${textContent}"]`;
+        }
+      } else if (element.character_name) {
+        const toneDesc = getToneDescription(element.tone);
+        const offScreen = element.presence === 'off' ? ' (off-screen)' : '';
+        return `[Dialogue lipsync: ${element.character_name}${offScreen} says${toneDesc ? ' ' + toneDesc : ''}: "${textContent}"]`;
+      }
+      return null;
+    }
+
+    case 'action': {
+      if (element.character_id) {
+        const charRef = getCharacterReference(element.character_id, analysis);
+        return `[Action: ${charRef} ${textContent}]`;
+      } else if (element.character_name) {
+        return `[Action: ${element.character_name} ${textContent}]`;
+      } else {
+        return `[Action: ${textContent}]`;
+      }
+    }
+
+    case 'focus': {
+      if (element.character_id) {
+        const charRef = getCharacterReference(element.character_id, analysis);
+        return `[Focus on ${charRef}${textContent ? ': ' + textContent : ''}]`;
+      } else if (element.character_name) {
+        return `[Focus on ${element.character_name}${textContent ? ': ' + textContent : ''}]`;
+      } else if (textContent) {
+        return `[Focus: ${textContent}]`;
+      }
+      return null;
+    }
+
+    case 'sfx':
+      return `[SFX: ${textContent}]`;
+
+    case 'physics':
+      return `[Physics: ${textContent}]`;
+
+    case 'lighting':
+      return `[Lighting: ${textContent}]`;
+
+    default:
+      return textContent;
+  }
+}
+
+/**
  * Build prompt from segments within a single plan
  *
- * Kling AI 3.0 Best Practice structure:
- * 1. Shot header with camera movement
- * 2. Visual description
- * 3. Sequential actions with timecodes
- * 4. Dialogue with speaker attribution
+ * Reference prompt format:
+ * 0-4s: [Medium Shot - Over the Shoulder] + [Focus on @Element1] + [Action: stirs coffee] + [SFX: tink-tink]
+ *
+ * All elements within a shot happen SIMULTANEOUSLY - joined with " + "
  */
 function buildSegmentsPrompt(
   segments: Segment[],
   analysis: CharacterAnalysis,
   dialogueLanguage: string = 'en',
-  planDescription?: string | null
+  planDescription?: string | null,
+  includeTimecodes: boolean = false // kept for API compatibility, always uses shot-level timecode
 ): string {
   const lines: string[] = [];
 
@@ -554,95 +668,57 @@ function buildSegmentsPrompt(
 
   for (let i = 0; i < sortedSegments.length; i++) {
     const segment = sortedSegments[i];
-    const shotNumber = i + 1;
 
-    // Build shot header from framing/composition fields
+    // Build shot type from framing/composition
     let shotType: string;
     if (segment.shot_framing) {
-      const framing = segment.shot_framing.replace(/_/g, ' ').toUpperCase();
+      const framing = segment.shot_framing.replace(/_/g, ' ');
+      // Capitalize first letter of each word
+      const formattedFraming = framing.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
       const composition = segment.shot_composition && segment.shot_composition !== 'single'
-        ? ` ${segment.shot_composition.replace(/_/g, '-').toUpperCase()}`
+        ? ` - ${segment.shot_composition.replace(/_/g, ' ').split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ')}`
         : '';
-      shotType = `${framing}${composition}`;
+      shotType = `${formattedFraming}${composition}`;
     } else {
       shotType = getShotTypeLabel(segment.shot_type);
     }
 
-    // Camera movement
-    const cameraLabel = getCameraMovementLabel(segment.camera_movement || null);
+    // Start building the shot parts (will be joined with " + ")
+    const shotParts: string[] = [];
 
-    // Build shot header line
-    // Format: "Shot 1 (0:00-0:05): CLOSE-UP. Slow dolly in."
-    lines.push(`Shot ${shotNumber} (${formatTime(segment.start_time)}-${formatTime(segment.end_time)}): ${shotType}. Camera: ${cameraLabel}.`);
+    // Shot type with camera movement if any
+    const cameraMovement = segment.camera_movement && segment.camera_movement !== 'static'
+      ? `, ${getCameraMovementLabel(segment.camera_movement)}`
+      : '';
+    shotParts.push(`[${shotType}${cameraMovement}]`);
 
-    // Visual description
-    const visualParts: string[] = [];
+    // Add description as a part if present
     if (segment.description) {
-      visualParts.push(segment.description);
+      shotParts.push(segment.description);
+    } else if (planDescription && i === 0) {
+      // Use plan description for first segment if no segment description
+      shotParts.push(planDescription);
     }
+
+    // Legacy fields
     if (segment.framing) {
-      visualParts.push(segment.framing);
+      shotParts.push(segment.framing);
     }
     if (segment.action) {
-      visualParts.push(segment.action);
+      shotParts.push(`[Action: ${segment.action}]`);
     }
 
-    // Fallback to plan description
-    if (visualParts.length === 0 && planDescription) {
-      visualParts.push(planDescription);
-    }
-
-    if (visualParts.length > 0) {
-      lines.push(visualParts.join('. ') + '.');
-    }
-
-    // Process beats with auto-calculated timecodes
-    if (segment.beats && segment.beats.length > 0) {
-      const timedBeats = calculateBeatTimecodes(segment.beats, segment.start_time, segment.end_time);
-
-      for (const beat of timedBeats) {
-        if (!beat.content) continue;
-
-        // Time range prefix for each beat
-        const timeRange = `${formatTime(beat.calcStart)}-${formatTime(beat.calcEnd)}`;
-
-        if (beat.type === 'dialogue' && beat.character_id) {
-          // Dialogue beat with character
-          const charRef = getCharacterReference(beat.character_id, analysis);
-          const voiceRef = getVoiceReference(beat.character_id, analysis);
-          const voiceDesc = getVoiceDescription(beat.character_id, analysis);
-          const toneDesc = getToneDescription(beat.tone);
-          const offScreen = beat.presence === 'off' ? ' (off-screen)' : '';
-
-          // Build dialogue line based on model
-          if (voiceRef) {
-            // Kling: use <<<voice_N>>> syntax
-            lines.push(`${timeRange}: ${charRef}${offScreen} says ${voiceRef}${toneDesc ? ' ' + toneDesc : ''}: "${beat.content}"`);
-          } else if (voiceDesc) {
-            // Seedance: use natural voice description
-            lines.push(`${timeRange}: ${charRef}${offScreen} says ${voiceDesc}${toneDesc ? ', ' + toneDesc : ''}: "${beat.content}"`);
-          } else {
-            lines.push(`${timeRange}: ${charRef}${offScreen} says${toneDesc ? ' ' + toneDesc : ''}: "${beat.content}"`);
-          }
-        } else if (beat.type === 'dialogue' && beat.character_name) {
-          // Dialogue with name only (figurant)
-          const toneDesc = getToneDescription(beat.tone);
-          const offScreen = beat.presence === 'off' ? ' (off-screen)' : '';
-          lines.push(`${timeRange}: ${beat.character_name}${offScreen} says${toneDesc ? ' ' + toneDesc : ''}: "${beat.content}"`);
-        } else {
-          // Action beat
-          if (beat.character_id) {
-            const charRef = getCharacterReference(beat.character_id, analysis);
-            lines.push(`${timeRange}: ${charRef} ${beat.content}`);
-          } else if (beat.character_name) {
-            lines.push(`${timeRange}: ${beat.character_name} ${beat.content}`);
-          } else {
-            lines.push(`${timeRange}: ${beat.content}`);
-          }
+    // Process elements (or legacy beats) - all joined with " + "
+    const elements = segment.elements || segment.beats;
+    if (elements && elements.length > 0) {
+      for (const element of elements) {
+        const elementPrompt = buildElementPrompt(element, analysis);
+        if (elementPrompt) {
+          shotParts.push(elementPrompt);
         }
       }
     }
-    // LEGACY: Dialogue field (fallback if no beats)
+    // LEGACY: Dialogue field (fallback if no elements)
     else if (segment.dialogue) {
       const charRef = segment.dialogue.character_id
         ? getCharacterReference(segment.dialogue.character_id, analysis)
@@ -654,32 +730,31 @@ function buildSegmentsPrompt(
       const dialogueText = segment.dialogue.text_en || segment.dialogue.text;
 
       if (charRef && voiceRef) {
-        lines.push(`${charRef} says ${voiceRef}${toneDesc ? ' ' + toneDesc : ''}: "${dialogueText}"`);
+        shotParts.push(`[Dialogue lipsync: ${charRef} says ${voiceRef}${toneDesc ? ' ' + toneDesc : ''}: "${dialogueText}"]`);
       } else if (charRef) {
-        lines.push(`${charRef} says${toneDesc ? ' ' + toneDesc : ''}: "${dialogueText}"`);
+        shotParts.push(`[Dialogue lipsync: ${charRef} says${toneDesc ? ' ' + toneDesc : ''}: "${dialogueText}"]`);
       } else {
-        lines.push(`Says${toneDesc ? ' ' + toneDesc : ''}: "${dialogueText}"`);
+        shotParts.push(`[Dialogue lipsync: Says${toneDesc ? ' ' + toneDesc : ''}: "${dialogueText}"]`);
       }
     }
 
     // Environment details
     if (segment.environment) {
-      lines.push(segment.environment);
+      shotParts.push(segment.environment);
     }
 
     // Custom prompt override
     if (segment.custom_prompt) {
-      lines.push(segment.custom_prompt);
+      shotParts.push(segment.custom_prompt);
     }
 
-    // Add empty line between shots for readability
-    if (i < sortedSegments.length - 1) {
-      lines.push('');
-    }
+    // Build the final line: "0-4s: [Shot Type] + [Element1] + [Element2]"
+    const timecode = `${formatTimeShort(segment.start_time)}-${formatTimeShort(segment.end_time)}s`;
+    lines.push(`${timecode}: ${shotParts.join(' + ')}`);
   }
 
-  // IMPORTANT: Join with space, not newline. Newlines cause audio glitches in video generation.
-  return lines.join(' ').replace(/\s+/g, ' ').trim();
+  // Join shots with space (single line prompt)
+  return lines.join(' ').trim();
 }
 
 // ============================================================================
@@ -704,13 +779,15 @@ function buildSegmentsPrompt(
  * @param characters - Map of character ID to GlobalAsset
  * @param hasStartFrame - Whether a starting frame is provided
  * @param targetModel - Target video model ('kling-omni', 'seedance-2', etc.)
+ * @param includeTimecodes - Whether to include beat timecodes (default: false, Kling ignores them)
  */
 export function buildCinematicPrompt(
   short: CinematicShort,
   plans: CinematicPlan[],
   characters: Map<string, GlobalAsset>,
   hasStartFrame: boolean = true,
-  targetModel: VideoModelType = 'kling-omni'
+  targetModel: VideoModelType = 'kling-omni',
+  includeTimecodes: boolean = false
 ): string {
   const lines: string[] = [];
   const dialogueLanguage = short.dialogue_language || 'en';
@@ -750,18 +827,19 @@ export function buildCinematicPrompt(
   // ========================================
   const characterLegend = buildCharacterLegend(analysis);
   if (characterLegend) {
+    lines.push('[CHARACTER LEGEND]');
     lines.push(characterLegend);
-    lines.push('');
   }
 
   // ========================================
   // Part 3: Shots with timecoded beats
   // ========================================
+  lines.push('[TIMELINE]');
 
   for (const plan of sortedPlans) {
     if (plan.segments && plan.segments.length > 0) {
       // New segment-based workflow
-      const segmentsPrompt = buildSegmentsPrompt(plan.segments, analysis, dialogueLanguage, plan.description);
+      const segmentsPrompt = buildSegmentsPrompt(plan.segments, analysis, dialogueLanguage, plan.description, includeTimecodes);
       lines.push(segmentsPrompt);
     } else {
       // Legacy: Use plan-level fields
@@ -814,6 +892,7 @@ export function buildCinematicPrompt(
   // Part 4: Style Bible Line (at the very end)
   // ========================================
   if (styleBible) {
+    lines.push('[STYLE]');
     lines.push(styleBible);
   }
 

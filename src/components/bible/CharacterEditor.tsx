@@ -87,8 +87,13 @@ export function CharacterEditor({
       const genericAsset = projectGenericAssets.find(g => g.project_generic_asset_id === projectAssetId);
       if (genericAsset) {
         const overrides = genericAsset.local_overrides || {};
+        // Get base generic character for fallback values
+        const genericBase = GENERIC_CHARACTERS.find(g => g.id === genericAsset.id);
+
         setNameOverride(genericAsset.name_override || '');
-        setDescription(overrides.description || '');
+        // Use local override, then base description from generic character
+        setDescription(overrides.description || genericAsset.originalDescription || genericBase?.description || '');
+        // Visual description: only load from local_overrides.visual_description (not the merged description)
         setVisualDescription(overrides.visual_description || '');
         setAge(overrides.age || '');
         setGender(overrides.gender || '');

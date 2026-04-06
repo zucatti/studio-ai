@@ -313,54 +313,59 @@ export function CinematicHeaderWizard({
           lines.push(segment.description);
         }
 
-        // Render beats with auto-calculated timecodes
-        if (segment.beats?.length) {
-          // Calculate beat timecodes (similar to cinematic-prompt-builder.ts)
-          const segmentDuration = segment.end_time - segment.start_time;
-          const beatDurations = segment.beats.map(b => {
-            if (b.type === 'dialogue' && b.content) {
-              const words = b.content.split(/\s+/).filter(w => w.length > 0).length;
-              return (words / 2.5); // ~150 words/min = 2.5 words/sec
-            }
-            return 1.5; // Action beats default
-          });
-          const totalEstimated = beatDurations.reduce((s, d) => s + d, 0);
-          const scale = totalEstimated > 0 ? segmentDuration / totalEstimated : 1;
+        // Get elements (new format) or beats (legacy format)
+        const elements = segment.elements || segment.beats || [];
 
-          let currentTime = segment.start_time;
-          for (let i = 0; i < segment.beats.length; i++) {
-            const beat = segment.beats[i];
-            if (!beat.content) continue;
+        if (elements.length > 0) {
+          // Build all elements for this segment as "+ " separated list (like the actual prompt)
+          const elementParts: string[] = [];
 
-            const duration = beatDurations[i] * scale;
-            const beatEnd = Math.min(currentTime + duration, segment.end_time);
-            const timeRange = `${formatTime(currentTime)}-${formatTime(beatEnd)}`;
+          for (const el of elements) {
+            if (!el.content) continue;
 
-            if (beat.type === 'dialogue' && beat.character_name) {
-              const charRef = getCharRef(beat.character_name);
-              const voiceRef = getVoiceRef(beat.character_name);
-              const toneDesc = getToneDesc(beat.tone);
-              const offScreen = beat.presence === 'off' ? ' (off-screen)' : '';
+            // Use content_en if available, otherwise content
+            const content = el.content_en || el.content;
 
-              if (voiceRef) {
-                lines.push(`${timeRange}: ${charRef}${offScreen} says ${voiceRef}${toneDesc ? ' ' + toneDesc : ''}: "${beat.content}"`);
+            if (el.type === 'dialogue') {
+              const charRef = el.character_name ? getCharRef(el.character_name) : '';
+              const voiceRef = el.character_name ? getVoiceRef(el.character_name) : '';
+              const toneDesc = getToneDesc(el.tone);
+              const offScreen = el.presence === 'off' ? ' (off-screen)' : '';
+
+              if (charRef && voiceRef) {
+                elementParts.push(`[Dialogue lipsync: ${charRef}${offScreen} says ${voiceRef}${toneDesc ? ' ' + toneDesc : ''}: "${content}"]`);
+              } else if (charRef) {
+                elementParts.push(`[Dialogue lipsync: ${charRef}${offScreen} says${toneDesc ? ' ' + toneDesc : ''}: "${content}"]`);
               } else {
-                lines.push(`${timeRange}: ${charRef}${offScreen} says${toneDesc ? ' ' + toneDesc : ''}: "${beat.content}"`);
+                elementParts.push(`[Dialogue lipsync: says${toneDesc ? ' ' + toneDesc : ''}: "${content}"]`);
               }
-            } else if (beat.type === 'dialogue') {
-              const toneDesc = getToneDesc(beat.tone);
-              lines.push(`${timeRange}: Says${toneDesc ? ' ' + toneDesc : ''}: "${beat.content}"`);
+            } else if (el.type === 'action') {
+              if (el.character_name) {
+                const charRef = getCharRef(el.character_name);
+                elementParts.push(`[Action: ${charRef} ${content}]`);
+              } else {
+                elementParts.push(`[Action: ${content}]`);
+              }
+            } else if (el.type === 'focus') {
+              if (el.character_name) {
+                const charRef = getCharRef(el.character_name);
+                elementParts.push(`[Focus on ${charRef}${content ? ': ' + content : ''}]`);
+              } else {
+                elementParts.push(`[Focus: ${content}]`);
+              }
+            } else if (el.type === 'sfx') {
+              elementParts.push(`[SFX: ${content}]`);
+            } else if (el.type === 'physics') {
+              elementParts.push(`[Physics: ${content}]`);
+            } else if (el.type === 'lighting') {
+              elementParts.push(`[Lighting: ${content}]`);
             } else {
-              // Action beat
-              if (beat.character_name) {
-                const charRef = getCharRef(beat.character_name);
-                lines.push(`${timeRange}: ${charRef} ${beat.content}`);
-              } else {
-                lines.push(`${timeRange}: ${beat.content}`);
-              }
+              elementParts.push(content);
             }
+          }
 
-            currentTime = beatEnd;
+          if (elementParts.length > 0) {
+            lines.push(elementParts.join(' + '));
           }
         }
       });

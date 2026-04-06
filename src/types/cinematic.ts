@@ -250,21 +250,32 @@ export interface SegmentDialogue {
 }
 
 // ============================================================================
-// Shot Beat (action/dialogue moment within a segment)
+// Segment Element (action/dialogue/sfx/physics/lighting within a segment)
 // ============================================================================
 
-export type BeatType = 'action' | 'dialogue';
+// Element types that can occur simultaneously within a timecode
+export type ElementType = 'focus' | 'action' | 'dialogue' | 'sfx' | 'physics' | 'lighting';
+
 export type DialoguePresence = 'on' | 'off';
 
-export interface ShotBeat {
+export interface SegmentElement {
   id: string;
+  type: ElementType;
+  content: string;        // Original language (for display)
+  content_en?: string;    // English translation (for prompt generation)
+
+  // Character reference (for focus, action, dialogue)
   character_id?: string;
   character_name?: string;
-  type: BeatType;
-  content: string;        // The action description or dialogue text
-  tone?: DialogueTone;    // Only for dialogue: coldly, flatly, whispers, etc.
-  presence?: DialoguePresence; // Only for dialogue: on (on-screen) or off (off-screen/voice-over)
+
+  // Dialogue-specific
+  tone?: DialogueTone;    // coldly, flatly, whispers, etc.
+  presence?: DialoguePresence; // on (on-screen) or off (off-screen/voice-over)
 }
+
+// Legacy type alias for backward compatibility
+export type BeatType = 'action' | 'dialogue';
+export type ShotBeat = SegmentElement;
 
 // ============================================================================
 // Segment (Shot within a Plan)
@@ -285,8 +296,12 @@ export interface Segment {
   // Visual description (framing, atmosphere, setup)
   description?: string;
 
-  // Sequence of action/dialogue moments
-  beats?: ShotBeat[];
+  // Elements that happen simultaneously during this timecode
+  // Multiple elements can occur at once: action + dialogue + sfx + physics + lighting
+  elements?: SegmentElement[];
+
+  // Legacy: beats (alias for elements, for backward compatibility)
+  beats?: SegmentElement[];
 
   // Camera
   camera_movement?: CameraMovement;
@@ -705,6 +720,28 @@ export const DIALOGUE_TONE_CATEGORIES: Record<DialogueToneOption['category'], st
   attitude: '😏 Attitude',
 };
 
+// ============================================================================
+// Element Type Options (for segment elements)
+// ============================================================================
+
+export interface ElementTypeOption {
+  value: ElementType;
+  label: string;
+  labelEn: string;
+  icon: string;        // Lucide icon name
+  color: string;       // Tailwind color class
+  needsCharacter: boolean;  // Whether this element type can have a character
+}
+
+export const ELEMENT_TYPE_OPTIONS: ElementTypeOption[] = [
+  { value: 'action', label: 'Action', labelEn: 'Action', icon: 'Zap', color: 'amber', needsCharacter: true },
+  { value: 'dialogue', label: 'Dialogue', labelEn: 'Dialogue', icon: 'MessageSquare', color: 'indigo', needsCharacter: true },
+  { value: 'focus', label: 'Focus', labelEn: 'Focus', icon: 'Target', color: 'cyan', needsCharacter: true },
+  { value: 'sfx', label: 'SFX', labelEn: 'SFX', icon: 'Volume2', color: 'green', needsCharacter: false },
+  { value: 'physics', label: 'Physics', labelEn: 'Physics', icon: 'Wind', color: 'blue', needsCharacter: false },
+  { value: 'lighting', label: 'Lighting', labelEn: 'Lighting', icon: 'Sun', color: 'yellow', needsCharacter: false },
+];
+
 export const CAMERA_MOVEMENT_OPTIONS: { value: CameraMovement; label: string; description: string }[] = [
   { value: 'static', label: 'Static', description: 'No movement' },
   { value: 'slow_dolly_in', label: 'Dolly In (slow)', description: 'Slowly move toward subject' },
@@ -833,16 +870,19 @@ export interface ShortMusicSettings {
 }
 
 // ============================================================================
-// Helper: Create default beat
+// Helper: Create default element
 // ============================================================================
 
-export function createDefaultBeat(type: BeatType = 'action'): ShotBeat {
+export function createDefaultElement(type: ElementType = 'action'): SegmentElement {
   return {
     id: crypto.randomUUID(),
     type,
     content: '',
   };
 }
+
+// Legacy alias for backward compatibility
+export const createDefaultBeat = createDefaultElement;
 
 // ============================================================================
 // Helper: Create default segment
