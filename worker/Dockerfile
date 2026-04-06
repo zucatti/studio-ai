@@ -66,4 +66,6 @@ COPY --from=builder /app/dist ./dist
 ENV NODE_ENV=production
 
 # Run the worker with Xvfb for headless OpenGL
-CMD ["xvfb-run", "-a", "node", "dist/index.js"]
+# Note: xvfb-run waits for USR1 signal that some Xvfb versions don't send
+# Using manual Xvfb start instead
+CMD ["sh", "-c", "Xvfb :99 -screen 0 1280x1024x24 -nolisten tcp & sleep 1 && DISPLAY=:99 exec node dist/index.js"]
