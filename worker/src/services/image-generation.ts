@@ -261,6 +261,7 @@ async function generateWithSeedream5(
     const input = {
       prompt: enhancedPrompt,
       image_urls: imageUrls,
+      aspect_ratio: aspectRatio,
       num_images: numImages,
     };
 
@@ -682,6 +683,7 @@ async function generateWithGrok(
     const input = {
       prompt: enhancedPrompt,
       image_urls: imageUrls,
+      aspect_ratio: grokAspectMap[aspectRatio] || '1:1',
       resolution: resolution === '4K' ? '2k' : '1k',
       num_images: numImages,
       output_format: 'webp',
