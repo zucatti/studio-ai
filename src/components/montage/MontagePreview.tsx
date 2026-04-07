@@ -28,6 +28,14 @@ function formatTime(seconds: number): string {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}:${frames.toString().padStart(2, '0')}`;
 }
 
+// Check if URL is a video file
+function isVideoFile(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const videoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
+  const lowerUrl = url.toLowerCase();
+  return videoExtensions.some(ext => lowerUrl.includes(ext)) || lowerUrl.includes('/videos/');
+}
+
 // Find clip at a given time
 function findClipAtTime(
   time: number,
@@ -88,10 +96,24 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
   }, [currentClip, tracks]);
 
   // Get signed URL for current clip video
-  const { signedUrl } = useSignedUrl(currentClip?.assetUrl || null);
+  const { signedUrl, isLoading: isLoadingVideo, error: videoError } = useSignedUrl(currentClip?.assetUrl || null);
 
   // Get signed URL for thumbnail (shown when not playing)
   const { signedUrl: thumbnailUrl } = useSignedUrl(currentClip?.thumbnailUrl || null);
+
+  // Debug logging
+  useEffect(() => {
+    const time = useMontageStore.getState().currentTime;
+    const allClips = useMontageStore.getState().clips;
+    console.log('[MontagePreview] State:',
+      'time:', time.toFixed(2),
+      'clipType:', currentClip?.type || 'n/a',
+      'currentClip:', currentClip ? currentClip.id : 'null',
+      'assetUrl:', currentClip?.assetUrl?.substring(0, 60) || 'null',
+      'signedUrl:', signedUrl?.substring(0, 60) || 'null',
+      'shouldRenderVideo:', !!(currentClip && signedUrl && currentClip.type === 'video')
+    );
+  }, [currentClip, signedUrl, isLoadingVideo, videoError, videoTrackIds]);
 
   // Update current clip when not playing (based on store currentTime)
   useEffect(() => {
@@ -225,26 +247,28 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
           currentClip.type === 'video' ? (
             <>
               {/* Thumbnail shown until video is ready and playing */}
-              {thumbnailUrl && !(isPlaying && isVideoReady) && (
+              {thumbnailUrl && !(isPlaying && isVideoReady) && !isVideoFile(thumbnailUrl) && (
                 <img
                   src={thumbnailUrl}
                   alt={currentClip.name}
                   className="absolute inset-0 w-full h-full object-contain z-10"
                 />
               )}
-              {/* Video (hidden behind thumbnail until ready) */}
+              {/* Video - always visible, no opacity hiding since thumbnail might be a video URL */}
               <video
                 ref={videoRef}
                 src={signedUrl}
-                className={cn(
-                  "w-full h-full object-contain",
-                  thumbnailUrl && !(isPlaying && isVideoReady) && "opacity-0"
-                )}
+                className="w-full h-full object-contain"
                 playsInline
                 preload="auto"
                 muted={isVideoTrackMuted}
                 onPlaying={() => setIsVideoReady(true)}
-                onCanPlay={() => setIsVideoReady(true)}
+                onCanPlay={() => {
+                  console.log('[MontagePreview] Video canPlay event fired');
+                  setIsVideoReady(true);
+                }}
+                onLoadedData={() => console.log('[MontagePreview] Video loadedData event fired')}
+                onError={(e) => console.error('[MontagePreview] Video error:', e.currentTarget.error?.message || 'unknown error')}
               />
             </>
           ) : (

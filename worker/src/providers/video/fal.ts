@@ -34,6 +34,9 @@ const MODEL_ENDPOINTS: Record<string, string> = {
   'kling-omni': 'fal-ai/kling-video/o3/pro/image-to-video',
   'kling-2.6': 'fal-ai/kling-video/v2.6/pro/image-to-video',
   'kling-v2-master': 'fal-ai/kling-video/v2/master/image-to-video',
+  // Grok Imagine (xAI) - cheap preview at 480p ($0.05/s)
+  'grok-480p': 'xai/grok-imagine-video/image-to-video',
+  'grok-720p': 'xai/grok-imagine-video/image-to-video',
   // Others
   'sora-2': 'fal-ai/sora/v2/image-to-video',
   'veo-3': 'fal-ai/veo3/image-to-video',
@@ -46,6 +49,11 @@ const MODEL_ENDPOINTS: Record<string, string> = {
 const REFERENCE_TO_VIDEO_ENDPOINTS: Record<string, string> = {
   'seedance-2': 'bytedance/seedance-2.0/reference-to-video',
   'seedance-2-fast': 'bytedance/seedance-2.0/fast/reference-to-video',
+  // Grok supports up to 7 reference images
+  'grok-480p': 'xai/grok-imagine-video/reference-to-video',
+  'grok-720p': 'xai/grok-imagine-video/reference-to-video',
+  // Kling O3 reference-to-video (requires start_image_url + elements)
+  'kling-omni': 'fal-ai/kling-video/o3/pro/reference-to-video',
 };
 
 // Text-to-video endpoints (no starting image required)
@@ -57,6 +65,8 @@ const TEXT_TO_VIDEO_ENDPOINTS: Record<string, string> = {
   'kling-2.6': 'fal-ai/kling-video/v2.6/pro/text-to-video',
   'sora-2': 'fal-ai/sora/v2/text-to-video',
   'veo-3': 'fal-ai/veo3/text-to-video',
+  'grok-480p': 'xai/grok-imagine-video/text-to-video',
+  'grok-720p': 'xai/grok-imagine-video/text-to-video',
 };
 
 const MODELS: VideoModel[] = [
@@ -137,6 +147,31 @@ const MODELS: VideoModel[] = [
     supportsDialogue: false,
     supportsAudio: false,
   },
+  {
+    id: 'grok-480p',
+    name: 'Grok 480p',
+    description: 'xAI Grok Imagine - cheap preview ($0.05/s) with refs',
+    maxDuration: 10,
+    minDuration: 2,
+    supportsEndFrame: false,
+    supportsDialogue: false,
+    supportsAudio: false,
+    supportsTextToVideo: true,
+    supportsReferences: true,
+    isPreview: true,
+  },
+  {
+    id: 'grok-720p',
+    name: 'Grok 720p',
+    description: 'xAI Grok Imagine - mid-tier ($0.07/s) with refs',
+    maxDuration: 10,
+    minDuration: 2,
+    supportsEndFrame: false,
+    supportsDialogue: false,
+    supportsAudio: false,
+    supportsTextToVideo: true,
+    supportsReferences: true,
+  },
 ];
 
 export class FalProvider implements VideoProvider {
@@ -163,6 +198,9 @@ export class FalProvider implements VideoProvider {
     request: VideoGenerationRequest,
     onProgress?: ProgressCallback
   ): Promise<VideoGenerationResult> {
+    // VERSION MARKER - Update this to confirm worker reload
+    console.log(`[Fal] === WORKER VERSION: 2026-04-07-v2 ===`);
+
     const modelInfo = MODELS.find(m => m.id === model);
 
     // Handle OmniHuman separately (different API)
@@ -177,13 +215,38 @@ export class FalProvider implements VideoProvider {
     let endpoint: string;
     let endpointType: 'text-to-video' | 'image-to-video' | 'reference-to-video';
 
-    if (isSeedance && hasCharacterRefs) {
-      // Seedance with character references -> reference-to-video
+    // DEBUG: Log all conditions for endpoint selection
+    console.log(`[Fal] ========== ENDPOINT SELECTION DEBUG ==========`);
+    console.log(`[Fal] Model: ${model}`);
+    console.log(`[Fal] hasStartingFrame: ${hasStartingFrame} (firstFrameUrl: ${request.firstFrameUrl ? 'present' : 'missing'})`);
+    console.log(`[Fal] isCinematicMode: ${request.isCinematicMode}`);
+    console.log(`[Fal] cinematicElements count: ${request.cinematicElements?.length || 0}`);
+    console.log(`[Fal] hasCharacterRefs: ${hasCharacterRefs}`);
+
+    const isGrok = model.startsWith('grok-');
+    const isKling = model.startsWith('kling');
+    console.log(`[Fal] isKling: ${isKling}, isGrok: ${isGrok}, isSeedance: ${isSeedance}`);
+    console.log(`[Fal] Condition check: (isSeedance || isGrok || isKling) && hasCharacterRefs && hasStartingFrame`);
+    console.log(`[Fal]   = (${isSeedance} || ${isGrok} || ${isKling}) && ${hasCharacterRefs} && ${hasStartingFrame}`);
+    console.log(`[Fal]   = ${(isSeedance || isGrok || isKling)} && ${hasCharacterRefs} && ${hasStartingFrame}`);
+    console.log(`[Fal]   = ${(isSeedance || isGrok || isKling) && hasCharacterRefs && hasStartingFrame}`);
+    console.log(`[Fal] =================================================`);
+
+    if ((isSeedance || isGrok || isKling) && hasCharacterRefs && hasStartingFrame) {
+      // Seedance, Grok, or Kling with character references -> reference-to-video
+      // Note: Kling reference-to-video REQUIRES a start_image_url
       endpoint = REFERENCE_TO_VIDEO_ENDPOINTS[model] || MODEL_ENDPOINTS[model];
       endpointType = 'reference-to-video';
+      console.log(`[Fal] >>> SELECTED: reference-to-video (has refs + start frame)`);
+    } else if ((isSeedance || isGrok) && hasCharacterRefs) {
+      // Seedance/Grok can do reference-to-video without start frame
+      endpoint = REFERENCE_TO_VIDEO_ENDPOINTS[model] || MODEL_ENDPOINTS[model];
+      endpointType = 'reference-to-video';
+      console.log(`[Fal] >>> SELECTED: reference-to-video (Seedance/Grok without start frame)`);
     } else if (hasStartingFrame) {
       endpoint = MODEL_ENDPOINTS[model] || model;
       endpointType = 'image-to-video';
+      console.log(`[Fal] >>> SELECTED: image-to-video (has start frame, no refs or not Kling/Seedance/Grok)`);
     } else {
       // No starting frame - use text-to-video endpoint
       endpoint = TEXT_TO_VIDEO_ENDPOINTS[model];
@@ -191,6 +254,7 @@ export class FalProvider implements VideoProvider {
         throw new Error(`Model ${model} does not support text-to-video (no starting frame provided)`);
       }
       endpointType = 'text-to-video';
+      console.log(`[Fal] >>> SELECTED: text-to-video (no start frame)`);
     }
 
     console.log(`[Fal] Generating with ${endpoint} (${endpointType})`);
@@ -201,8 +265,8 @@ export class FalProvider implements VideoProvider {
       prompt: request.prompt,
     };
 
-    // Add image_url only for image-to-video
-    if (hasStartingFrame) {
+    // Add image_url only for image-to-video (NOT reference-to-video)
+    if (hasStartingFrame && endpointType === 'image-to-video') {
       input.image_url = request.firstFrameUrl;
     }
 
@@ -254,13 +318,40 @@ export class FalProvider implements VideoProvider {
       // O3 supports duration 3-15 seconds
       input.duration = Math.min(Math.max(request.duration, 3), 15);
 
-      // Character elements for consistency (only for image-to-video with refs)
-      if (hasStartingFrame && request.isCinematicMode && request.cinematicElements?.length) {
+      // Reference-to-video: use start_image_url instead of image_url
+      if (endpointType === 'reference-to-video' && hasStartingFrame) {
+        // Kling reference-to-video uses start_image_url (NOT image_url!)
+        input.start_image_url = request.firstFrameUrl;
+        console.log(`[Fal] Kling O3 using start_image_url for reference-to-video`);
+
+        // Add elements for character consistency - THIS IS CRITICAL
+        // Kling API requires BOTH frontal_image_url AND reference_image_urls with at least 1 URL
+        // If no additional refs, duplicate frontal image into reference_image_urls
+        if (request.cinematicElements?.length) {
+          input.elements = request.cinematicElements.map(el => ({
+            frontal_image_url: el.frontalImageUrl,
+            // IMPORTANT: reference_image_urls needs at least 1 URL - use frontal as fallback
+            reference_image_urls: el.referenceImageUrls?.length
+              ? el.referenceImageUrls
+              : [el.frontalImageUrl],
+          }));
+          console.log(`[Fal] Kling O3 reference-to-video with ${request.cinematicElements.length} elements`);
+          console.log(`[Fal] Elements:`, JSON.stringify(input.elements, null, 2));
+        } else {
+          console.log(`[Fal] WARNING: Kling reference-to-video but NO cinematicElements!`);
+        }
+
+        // Add end frame if provided
+        if (request.lastFrameUrl) {
+          input.end_image_url = request.lastFrameUrl;
+        }
+      } else if (hasStartingFrame && request.isCinematicMode && request.cinematicElements?.length) {
+        // Fallback: image-to-video with elements (less reliable)
         input.elements = request.cinematicElements.map(el => ({
           frontal_image_url: el.frontalImageUrl,
           reference_image_urls: el.referenceImageUrls,
         }));
-        console.log(`[Fal] Kling O3 elements:`, input.elements);
+        console.log(`[Fal] Kling O3 image-to-video elements:`, input.elements);
       }
 
       // Enable audio generation (ambient sounds, music, speech based on prompt)
@@ -273,7 +364,36 @@ export class FalProvider implements VideoProvider {
         input.voice_ids = request.cinematicVoices.map(v => v.voiceId);
         console.log(`[Fal] Kling O3 voice_ids:`, input.voice_ids);
       }
-      console.log(`[Fal] Kling O3 generate_audio: true`);
+      console.log(`[Fal] Kling O3 generate_audio: true, endpointType: ${endpointType}`);
+    }
+
+    // Grok Imagine (xAI) configuration
+    if (isGrok) {
+      // Grok supports 2-10 seconds
+      input.duration = Math.min(Math.max(request.duration, 2), 10);
+
+      // Set resolution based on model variant
+      input.resolution = model === 'grok-480p' ? '480p' : '720p';
+
+      // Reference-to-video: pass character images via reference_image_urls
+      // Grok supports up to 7 reference images
+      if (endpointType === 'reference-to-video' && request.cinematicElements?.length) {
+        const imagesList: string[] = [];
+        for (const el of request.cinematicElements) {
+          if (el.frontalImageUrl) {
+            imagesList.push(el.frontalImageUrl);
+          }
+          if (el.referenceImageUrls?.length) {
+            imagesList.push(...el.referenceImageUrls);
+          }
+        }
+        // Max 7 images for Grok reference-to-video
+        const limitedImages = imagesList.slice(0, 7);
+        input.reference_image_urls = limitedImages;
+        console.log(`[Fal] Grok reference-to-video with ${limitedImages.length} images`);
+      }
+
+      console.log(`[Fal] Grok (${model}), duration: ${input.duration}s, resolution: ${input.resolution}`);
     }
 
     // Add end frame if supported (image-to-video only)

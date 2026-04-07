@@ -100,6 +100,7 @@ export interface VideoModel {
   supportsReferences?: boolean; // Supports reference-to-video (Seedance images_list)
   defaultForDialogue?: boolean;
   defaultForVideo?: boolean;
+  isPreview?: boolean; // Cheap/fast preview mode (e.g., grok-480p)
 }
 
 /**

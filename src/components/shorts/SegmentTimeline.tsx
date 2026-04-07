@@ -58,13 +58,12 @@ export function scaleSegmentsToDuration(
   for (let i = 0; i < sorted.length; i++) {
     const seg = sorted[i];
     const oldSegDuration = seg.end_time - seg.start_time;
-    let newSegDuration = Math.max(MIN_SEGMENT_DURATION, Math.round(oldSegDuration * ratio));
-    const isLast = i === sorted.length - 1;
+    const newSegDuration = Math.max(MIN_SEGMENT_DURATION, Math.round(oldSegDuration * ratio));
 
     scaled.push({
       ...seg,
       start_time: currentTime,
-      end_time: isLast ? newDuration : currentTime + newSegDuration,
+      end_time: currentTime + newSegDuration,
     });
 
     currentTime = scaled[i].end_time;
@@ -357,18 +356,17 @@ export function SegmentTimeline({
         newEnd = duration;
       }
 
-      // Don't exceed timeline display
-      if (newEnd > TIMELINE_DISPLAY_WIDTH) {
-        newEnd = TIMELINE_DISPLAY_WIDTH;
+      // Don't exceed max duration
+      if (newEnd > MAX_TOTAL_DURATION) {
+        newEnd = MAX_TOTAL_DURATION;
         newStart = newEnd - duration;
       }
 
-      // Get snap targets and apply snapping to both edges
+      // Get snap targets and apply snapping
       const snapTargets = getSnapTargets(moving.segmentId);
       const snappedStart = applySnap(newStart, snapTargets);
       const snappedEnd = applySnap(newEnd, snapTargets);
 
-      // If start snapped, adjust end; if end snapped, adjust start
       if (snappedStart !== newStart) {
         newStart = snappedStart;
         newEnd = newStart + duration;
@@ -377,9 +375,36 @@ export function SegmentTimeline({
         newStart = newEnd - duration;
       }
 
-      // Check for overlap
-      if (wouldOverlap(moving.segmentId, newStart, newEnd)) {
-        return; // Don't update if it would cause overlap
+      // Instead of blocking on overlap, clamp to adjacent segments
+      const otherSegments = sortedSegments.filter(s => s.id !== moving.segmentId);
+
+      for (const other of otherSegments) {
+        // If we would overlap, clamp to edge
+        if (newStart < other.end_time && newEnd > other.start_time) {
+          // Determine which side to clamp to based on original position
+          const originalCenter = (moving.initialStart + moving.initialEnd) / 2;
+          const otherCenter = (other.start_time + other.end_time) / 2;
+
+          if (originalCenter < otherCenter) {
+            // We're coming from the left, clamp our end to their start
+            newEnd = other.start_time;
+            newStart = newEnd - duration;
+          } else {
+            // We're coming from the right, clamp our start to their end
+            newStart = other.end_time;
+            newEnd = newStart + duration;
+          }
+        }
+      }
+
+      // Final bounds check
+      if (newStart < 0) {
+        newStart = 0;
+        newEnd = duration;
+      }
+      if (newEnd > MAX_TOTAL_DURATION) {
+        newEnd = MAX_TOTAL_DURATION;
+        newStart = newEnd - duration;
       }
 
       // Update segment
@@ -392,7 +417,7 @@ export function SegmentTimeline({
 
       onSegmentsChange(updated);
     },
-    [moving, sortedSegments, getSnapTargets, applySnap, wouldOverlap, onSegmentsChange]
+    [moving, sortedSegments, getSnapTargets, applySnap, onSegmentsChange]
   );
 
   const handleMoveEnd = useCallback(() => {
@@ -595,7 +620,8 @@ export function SegmentTimeline({
                 isSelected
                   ? 'ring-2 ring-white ring-offset-1 ring-offset-slate-900 z-20'
                   : 'hover:brightness-110',
-                (isMoving || isResizing) && 'ring-2 ring-blue-400 z-30'
+                (isMoving || isResizing) && 'ring-2 ring-blue-400 z-30',
+                isMoving && 'opacity-80 scale-[1.02]'
               )}
               style={{
                 left: `${left}%`,
@@ -606,7 +632,10 @@ export function SegmentTimeline({
             >
               {/* Move handle - center of segment (must be BEFORE resize handles for z-order) */}
               <div
-                className="absolute left-3 right-3 top-0 bottom-0 cursor-move"
+                className={cn(
+                  "absolute left-3 right-3 top-0 bottom-0",
+                  moving?.segmentId === segment.id ? "cursor-grabbing" : "cursor-grab"
+                )}
                 onMouseDown={(e) => handleMoveStart(e, segment.id)}
               />
 

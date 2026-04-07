@@ -11,6 +11,7 @@
 import { validateConfig, redisConfig } from './config.js';
 import { setupGracefulShutdown } from './utils/graceful-shutdown.js';
 import { createWorkers } from './queues/index.js';
+import { startSnapshotScheduler } from './scheduled/snapshot-scheduler.js';
 import { Redis } from 'ioredis';
 
 async function main() {
@@ -59,8 +60,12 @@ async function main() {
   console.log('[Worker] Starting workers...');
   const workers = createWorkers();
 
+  // Start scheduled tasks
+  startSnapshotScheduler();
+
   console.log('========================================');
   console.log(`  ${workers.length} workers running`);
+  console.log('  Snapshot scheduler active');
   console.log('  Waiting for jobs...');
   console.log('========================================');
 

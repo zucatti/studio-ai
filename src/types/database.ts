@@ -914,3 +914,34 @@ export interface User {
 
 export type UserInsert = Omit<User, 'id' | 'created_at' | 'updated_at'>;
 export type UserUpdate = Partial<Omit<User, 'id' | 'auth0_id' | 'created_at' | 'updated_at'>>;
+
+// ============================================================================
+// Rush Media (unified images + videos)
+// ============================================================================
+
+export type RushMediaType = 'image' | 'video';
+export type RushMediaStatus = 'pending' | 'selected' | 'rejected';
+
+export interface RushMedia {
+  id: string;
+  project_id: string;
+  user_id: string;
+  url: string;
+  media_type: RushMediaType;
+  prompt: string | null;
+  aspect_ratio: string;
+  model: string | null;
+  provider: string | null;
+  duration: number | null;        // For videos (in seconds)
+  thumbnail_url: string | null;   // For videos
+  status: RushMediaStatus;
+  metadata: Json;
+  created_at: string;
+}
+
+export type RushMediaInsert = Omit<RushMedia, 'id' | 'created_at'> & {
+  id?: string;
+  created_at?: string;
+};
+
+export type RushMediaUpdate = Partial<Omit<RushMedia, 'id' | 'project_id' | 'user_id' | 'created_at'>>;

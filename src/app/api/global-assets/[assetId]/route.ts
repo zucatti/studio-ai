@@ -65,6 +65,12 @@ export async function PATCH(request: Request, { params }: RouteParams) {
     if (body.reference_images !== undefined) updateData.reference_images = body.reference_images;
     if (body.tags !== undefined) updateData.tags = body.tags;
 
+    console.log('[PATCH global-assets] assetId:', assetId);
+    console.log('[PATCH global-assets] updateData.data has character_matrix_url:', !!(body.data?.character_matrix_url));
+    if (body.data?.character_matrix_url) {
+      console.log('[PATCH global-assets] matrix URL:', body.data.character_matrix_url.substring(0, 50) + '...');
+    }
+
     const { data: asset, error } = await supabase
       .from('global_assets')
       .update(updateData)
@@ -76,6 +82,8 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       console.error('Error updating global asset:', error);
       return NextResponse.json({ error: 'Failed to update asset' }, { status: 500 });
     }
+
+    console.log('[PATCH global-assets] Updated asset has character_matrix_url:', !!(asset?.data as Record<string, unknown>)?.character_matrix_url);
 
     return NextResponse.json({ asset });
   } catch (error) {

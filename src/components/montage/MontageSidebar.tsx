@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useMontageStore, MontageAsset, ClipType } from '@/store/montage-store';
 import { useShortsStore } from '@/store/shorts-store';
 import { cn } from '@/lib/utils';
@@ -197,6 +197,11 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
         const currentAssets = useMontageStore.getState().assets;
         const filtered = currentAssets.filter(a => a.type !== 'rush' && a.type !== 'video');
         setAssets([...filtered, ...videoAssets]);
+        console.log('[MontageSidebar] Loaded video assets:', videoAssets.length, 'sample:', videoAssets[0] ? {
+          id: videoAssets[0].id,
+          url: videoAssets[0].url?.substring(0, 50),
+          thumbnailUrl: videoAssets[0].thumbnailUrl?.substring(0, 50),
+        } : null);
       } catch (error) {
         console.error('[MontageSidebar] Failed to fetch videos:', error);
       } finally {
@@ -449,6 +454,42 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
   );
 }
 
+// Check if URL is a video file
+function isVideoFile(url: string | null | undefined): boolean {
+  if (!url) return false;
+  const videoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
+  const lowerUrl = url.toLowerCase();
+  return videoExtensions.some(ext => lowerUrl.includes(ext)) || lowerUrl.includes('/videos/');
+}
+
+// Video thumbnail component - uses video element to show first frame
+function VideoThumbnail({ src }: { src: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleLoadedData = () => {
+      video.currentTime = 0.1; // Seek to show first frame
+    };
+
+    video.addEventListener('loadeddata', handleLoadedData);
+    return () => video.removeEventListener('loadeddata', handleLoadedData);
+  }, [src]);
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      className="w-full h-full object-cover"
+      muted
+      playsInline
+      preload="metadata"
+    />
+  );
+}
+
 // Individual asset item
 function AssetItem({ asset }: { asset: MontageAsset }) {
   const { addClip, tracks, addTrack } = useMontageStore();
@@ -541,11 +582,15 @@ function AssetItem({ asset }: { asset: MontageAsset }) {
             <Music className="w-5 h-5 text-green-400" />
           </div>
         ) : signedUrl ? (
-          <img
-            src={signedUrl}
-            alt={asset.name}
-            className="w-full h-full object-cover"
-          />
+          isVideoFile(signedUrl) ? (
+            <VideoThumbnail src={signedUrl} />
+          ) : (
+            <img
+              src={signedUrl}
+              alt={asset.name}
+              className="w-full h-full object-cover"
+            />
+          )
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <Icon className="w-5 h-5 text-slate-600" />

@@ -18,6 +18,7 @@ import { BibleToggleButton } from '@/components/bible/BibleSidebar';
 import { ProjectBibleToggleButton } from '@/components/bible/ProjectBibleSidebar';
 import { GalleryToggleButton } from '@/components/gallery/GlobalGallery';
 import { QueueBadge } from '@/components/queue/QueuePanel';
+import { RushCreatorToggleButton } from '@/components/rush-creator';
 
 interface Project {
   id: string;
@@ -111,6 +112,9 @@ export function Topbar() {
       <div className="flex items-center gap-2 ml-auto">
         {/* Queue badge */}
         <QueueBadge />
+
+        {/* Rush Creator - only when project is open */}
+        {projectId && <RushCreatorToggleButton projectId={projectId} />}
 
         {/* Project Bible toggle - only when project is open */}
         {projectId && <ProjectBibleToggleButton projectId={projectId} />}

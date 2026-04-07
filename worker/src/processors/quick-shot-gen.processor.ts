@@ -122,28 +122,50 @@ export async function processQuickShotGenJob(job: Job<QuickShotGenJobData>): Pro
         console.log(`[QuickShotGen] Storyboard frame ${storyboardFrameId} updated`);
       }
     } else {
-      // Save to rush_images table (project rush) with pending status
+      // Save to rush_media table (unified images + videos) with pending status
       // Only for regular quick-shots, not storyboard frames
       await updateJobProgress(jobId, 80, 'Enregistrement dans les rushes...');
-      const { data: rushImage, error: rushError } = await supabase
-        .from('rush_images')
+      const { data: rushMedia, error: rushError } = await supabase
+        .from('rush_media')
         .insert({
           project_id: projectId,
           user_id: userId,
           url: b2Url,
+          media_type: 'image',
           prompt: prompt,
           aspect_ratio: aspectRatio,
           model: result.model,
-          status: 'pending', // Awaiting selection in Rush page
+          status: 'pending', // Awaiting selection in Rush Creator
         })
         .select('id')
         .single();
 
       if (rushError) {
-        console.error(`[QuickShotGen] Failed to save rush image:`, rushError);
+        console.error(`[QuickShotGen] Failed to save rush media:`, rushError);
+        // Fallback: try legacy rush_images table
+        const { data: rushImage, error: legacyError } = await supabase
+          .from('rush_images')
+          .insert({
+            project_id: projectId,
+            user_id: userId,
+            url: b2Url,
+            prompt: prompt,
+            aspect_ratio: aspectRatio,
+            model: result.model,
+            status: 'pending',
+          })
+          .select('id')
+          .single();
+
+        if (legacyError) {
+          console.error(`[QuickShotGen] Failed to save to legacy table:`, legacyError);
+        } else {
+          console.log(`[QuickShotGen] Rush image saved (legacy): ${rushImage?.id}`);
+          rushImageId = rushImage?.id;
+        }
       } else {
-        console.log(`[QuickShotGen] Rush image saved: ${rushImage?.id}`);
-        rushImageId = rushImage?.id;
+        console.log(`[QuickShotGen] Rush media saved: ${rushMedia?.id}`);
+        rushImageId = rushMedia?.id;
       }
     }
 

@@ -56,10 +56,34 @@ export function TimelineEditor({
 
         if (res.ok) {
           const data = await res.json();
+          console.log('[TimelineEditor] Loaded montage data:', {
+            hasMontageData: !!data.montageData,
+            clipCount: data.montageData?.clips?.length || 0,
+            trackCount: data.montageData?.tracks?.length || 0,
+          });
 
           if (data.montageData) {
             // Import saved montage data
             importFromJSON(data.montageData);
+            const storeState = useMontageStore.getState();
+            console.log('[TimelineEditor] Imported to store:', {
+              clips: Object.keys(storeState.clips).length,
+              tracks: storeState.tracks.length,
+              clipDetails: Object.values(storeState.clips).map(c => ({
+                id: c.id,
+                trackId: c.trackId,
+                type: c.type,
+                start: c.start,
+                duration: c.duration,
+                assetUrl: c.assetUrl?.substring(0, 80),
+                thumbnailUrl: c.thumbnailUrl?.substring(0, 80),
+              })),
+              trackDetails: storeState.tracks.map(t => ({
+                id: t.id,
+                type: t.type,
+                name: t.name,
+              })),
+            });
           } else {
             // No saved data - create default tracks
             setProject(projectId, shortId, aspectRatio);

@@ -53,6 +53,8 @@ export interface VideoGenJobData extends BaseJobData {
   }>;
   // Dry run mode - generate prompt but don't execute
   dryRun?: boolean;
+  // Preview mode - don't update shot with generated video, just return URL
+  isPreview?: boolean;
 }
 
 // Image generation job data (character refs, etc.)

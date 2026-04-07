@@ -347,34 +347,10 @@ export function PlanEditor({
   }, [onUpdate]);
 
   const handleDurationChange = useCallback((newDuration: number) => {
-    const segments = plan.segments || [];
-    const oldDuration = plan.duration;
-
-    if (newDuration === oldDuration) return;
-
-    if (segments.length === 0) {
-      onUpdate({ duration: newDuration });
-      return;
-    }
-
-    // Try to scale segments to new duration
-    const scaledSegments = scaleSegmentsToDuration(segments, oldDuration, newDuration);
-
-    if (scaledSegments === null) {
-      // Can't reduce further - all segments at minimum
-      // Clamp to absolute minimum
-      const minDuration = calculateMinPlanDuration(segments.length);
-      if (minDuration !== oldDuration) {
-        const clampedSegments = scaleSegmentsToDuration(segments, oldDuration, minDuration);
-        if (clampedSegments) {
-          onUpdate({ duration: minDuration, segments: clampedSegments });
-        }
-      }
-      return;
-    }
-
-    onUpdate({ duration: newDuration, segments: scaledSegments });
-  }, [plan.segments, plan.duration, onUpdate]);
+    if (newDuration === plan.duration) return;
+    // Just update duration, don't touch segments
+    onUpdate({ duration: newDuration });
+  }, [plan.duration, onUpdate]);
 
   // Gallery/Bible selection
   const openGalleryPicker = useCallback((frameType: 'in' | 'out') => {

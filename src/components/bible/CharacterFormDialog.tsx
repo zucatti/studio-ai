@@ -56,6 +56,7 @@ import {
   Circle,
   CheckCircle2,
   AlertCircle,
+  LayoutGrid,
 } from 'lucide-react';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { MultiImageGenerator } from '@/components/ui/multi-image-generator';
@@ -262,6 +263,10 @@ export function CharacterFormDialog({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [generatingView, setGeneratingView] = useState<CharacterImageType | null>(null);
   const [savedCharacterId, setSavedCharacterId] = useState<string | null>(null);
+  const [isGeneratingMatrix, setIsGeneratingMatrix] = useState(false);
+  const [characterMatrixUrl, setCharacterMatrixUrl] = useState<string | null>(
+    (character?.data as CharacterData)?.character_matrix_url || null
+  );
 
   // Rushes state - previous generations for comparison/selection
   const [rushes, setRushes] = useState<RushImage[]>(
@@ -402,6 +407,7 @@ export function CharacterFormDialog({
       setReferenceImages(data?.reference_images_metadata || []);
       setRushes(data?.rushes || []);
       setLooks(data?.looks || []);
+      setCharacterMatrixUrl(data?.character_matrix_url || null);
       setVoiceId(data?.voice_id || '');
       setVoiceName(data?.voice_name || '');
       setFalVoiceId(data?.fal_voice_id || '');
@@ -416,6 +422,7 @@ export function CharacterFormDialog({
       setReferenceImages([]);
       setRushes([]);
       setLooks([]);
+      setCharacterMatrixUrl(null);
       setVoiceId('');
       setVoiceName('');
       setFalVoiceId('');
@@ -949,6 +956,66 @@ export function CharacterFormDialog({
     }
   };
 
+  // Generate character matrix (2048x2048 composite with front/profile/3-4/back)
+  const handleGenerateMatrix = async () => {
+    if (!character?.id) {
+      toast.error('Le personnage doit être enregistré avant de générer le matrix');
+      return;
+    }
+
+    // Check we have all 4 required views
+    const requiredTypes = ['front', 'profile', 'three_quarter', 'back'];
+    const missingTypes = requiredTypes.filter(type => !referenceImages.find(img => img.type === type));
+    if (missingTypes.length > 0) {
+      toast.error(`Images manquantes: ${missingTypes.join(', ')}`);
+      return;
+    }
+
+    setIsGeneratingMatrix(true);
+    console.log('[CharacterFormDialog] Generating matrix for character:', character.id, character.name);
+    try {
+      const response = await fetch(`/api/global-assets/${character.id}/generate-matrix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isGenericAsset: false,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.characterMatrixUrl) {
+        toast.success('Character Matrix généré !');
+        // Update local state immediately
+        setCharacterMatrixUrl(data.characterMatrixUrl);
+        // Also update the store so it persists when dialog closes
+        const existingData = (character.data as CharacterData) || {};
+        console.log('[CharacterFormDialog] Saving matrix to store:', {
+          characterId: character.id,
+          matrixUrl: data.characterMatrixUrl,
+          existingDataKeys: Object.keys(existingData),
+        });
+        const updatedAsset = await updateCharacter(character.id, {
+          data: {
+            ...existingData,
+            character_matrix_url: data.characterMatrixUrl,
+          },
+        });
+        console.log('[CharacterFormDialog] updateCharacter result:', {
+          success: !!updatedAsset,
+          newMatrixUrl: (updatedAsset?.data as CharacterData)?.character_matrix_url,
+        });
+      } else {
+        toast.error(data.error || 'Erreur lors de la génération');
+      }
+    } catch (error) {
+      console.error('Error generating matrix:', error);
+      toast.error('Erreur lors de la génération du matrix');
+    } finally {
+      setIsGeneratingMatrix(false);
+    }
+  };
+
   // Play voice preview
   const playVoicePreview = async (voice: ElevenLabsVoice) => {
     if (playingPreview === voice.id) {
@@ -1145,6 +1212,7 @@ export function CharacterFormDialog({
       voice_name: voiceName || undefined,
       fal_voice_id: falVoiceId || undefined,
       fal_voice_sample_url: falVoiceSampleUrl || undefined,
+      character_matrix_url: characterMatrixUrl || undefined,
     };
 
     const tagArray = tags
@@ -1794,6 +1862,68 @@ export function CharacterFormDialog({
                       );
                     })}
                   </div>
+
+                  {/* Character Matrix Section */}
+                  {isEditing && referenceImages.filter(img => ['front', 'profile', 'three_quarter', 'back'].includes(img.type)).length >= 4 && (
+                    <div className="mt-6 pt-6 border-t border-white/10">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                            <LayoutGrid className="w-4 h-4 text-purple-400" />
+                            Character Matrix
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Image composite 2048x2048 avec les 4 vues
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleGenerateMatrix}
+                          disabled={isGeneratingMatrix}
+                          className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                        >
+                          {isGeneratingMatrix ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Génération...
+                            </>
+                          ) : characterMatrixUrl ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 mr-2" />
+                              Régénérer
+                            </>
+                          ) : (
+                            <>
+                              <LayoutGrid className="w-4 h-4 mr-2" />
+                              Générer Matrix
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      {characterMatrixUrl ? (
+                        <div className="relative rounded-xl overflow-hidden border border-purple-500/30">
+                          <StorageImg
+                            src={characterMatrixUrl}
+                            alt={`${name} - Character Matrix`}
+                            className="w-full aspect-square object-cover"
+                          />
+                          <div className="absolute top-2 left-2 px-2 py-1 bg-purple-500/80 rounded text-xs text-white font-medium">
+                            2048×2048
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-full aspect-square rounded-xl bg-white/5 border border-dashed border-white/20 flex items-center justify-center">
+                          <div className="text-center text-slate-500">
+                            <LayoutGrid className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                            <p className="text-xs">Pas de matrix généré</p>
+                            <p className="text-xs mt-1 text-slate-600">Cliquez sur &quot;Générer Matrix&quot;</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Help text for new characters */}
                   {!isEditing && (

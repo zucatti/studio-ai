@@ -16,6 +16,7 @@ import { buildCinematicPrompt, analyzeCharacters, type VideoModelType } from '@/
 import { GENERIC_CHARACTERS } from '@/lib/generic-characters';
 import { createElevenLabsWrapper, ELEVENLABS_MODELS } from '@/lib/ai/elevenlabs-wrapper';
 import { uploadFile, STORAGE_BUCKET } from '@/lib/storage';
+import { extractCharacterViews, getBestView, getImageForView, type CharacterView } from '@/lib/character-view-detection';
 import type { GlobalAsset } from '@/types/database';
 import type { Segment, CinematicHeaderConfig, SegmentElement } from '@/types/cinematic';
 
@@ -290,12 +291,13 @@ export async function POST(request: Request, { params }: RouteParams) {
           const genericChar = GENERIC_CHARACTERS.find(g => g.id === pga.generic_asset_id);
           if (!genericChar) return null;
 
-          // Get local overrides (may have reference images)
+          // Get local overrides (may have reference images and character matrix)
           const localOverrides = (pga.local_overrides || {}) as {
             reference_images_metadata?: Array<{ url: string }>;
             visual_description?: string;
             description?: string;  // User's description fallback
             fal_voice_id?: string;
+            character_matrix_url?: string;  // 2048x2048 composite with all views
           };
           const referenceImages = (localOverrides.reference_images_metadata || []).map(img => img.url);
 
@@ -312,6 +314,8 @@ export async function POST(request: Request, { params }: RouteParams) {
                 || localOverrides.description
                 || genericChar.description,
               fal_voice_id: localOverrides.fal_voice_id,
+              // Character matrix: single image with front/profile/3-4/back views
+              character_matrix_url: localOverrides.character_matrix_url,
             },
           } as unknown as GlobalAsset;
         })
@@ -455,6 +459,20 @@ export async function POST(request: Request, { params }: RouteParams) {
       // Cinematic mode: use analyzeCharacters for smart image distribution
       console.log('[QueueVideo] Building cinematic elements for', characterMap.size, 'characters');
 
+      // Extract character view hints from segment descriptions
+      // Supports @Character:vue syntax (e.g., @Morgana:profil)
+      const allSegmentText = segments
+        .map(seg => [
+          seg.description || '',
+          ...(seg.elements || seg.beats || []).map((el: SegmentElement) => el.content || ''),
+        ].join(' '))
+        .join(' ');
+      const manualViews = extractCharacterViews(allSegmentText);
+      console.log('[QueueVideo] Manual view hints:', Object.fromEntries(manualViews));
+
+      // Get shot framing from cinematic header
+      const shotFraming = segments[0]?.shot_framing || cinematicHeader?.shot_type;
+
       // Analyze characters to determine Stars vs Figurants and image budget
       // Pass videoModel so it uses the correct config (Seedance vs Kling)
       const analysis = analyzeCharacters(characterMap, hasFrameIn, videoModel as VideoModelType);
@@ -478,13 +496,75 @@ export async function POST(request: Request, { params }: RouteParams) {
         const charData = char.data as Record<string, unknown> | null;
         const refImages = char.reference_images || [];
 
+        // Check for character matrix (single 2048x2048 composite image with all views)
+        const characterMatrixUrl = charData?.character_matrix_url as string | undefined;
+
+        // Get typed reference images for Kling (needs individual views, not matrix)
+        const refImagesMetadata = (charData?.reference_images_metadata || []) as Array<{ url: string; type: string }>;
+
         console.log(`[QueueVideo] Processing star: ${star.name} (${star.id})`);
+        console.log(`[QueueVideo] - character_matrix_url: ${characterMatrixUrl || 'none'}`);
         console.log(`[QueueVideo] - reference_images available: ${refImages.length}`);
         console.log(`[QueueVideo] - images to use: ${analysis.imagesPerStar}`);
+        console.log(`[QueueVideo] - video model: ${videoModel}`);
 
-        // Use smart image distribution: front image always, then profile/back based on budget
-        const frontalImage = refImages[0];
-        const additionalImages = refImages.slice(1, analysis.imagesPerStar);
+        let frontalImage: string;
+        let additionalImages: string[] = [];
+
+        const isKling = videoModel.startsWith('kling');
+        const isGrokOrSeedance = videoModel.startsWith('grok') || videoModel.startsWith('seedance');
+
+        if (isKling && refImagesMetadata.length > 0) {
+          // Kling: use smart view selection based on context
+          // Determines optimal view from: manual @Char:vue hint > action keywords > shot framing > default
+
+          // Get all action text for this character
+          const characterActions = segments
+            .flatMap(seg => (seg.elements || seg.beats || []) as SegmentElement[])
+            .filter(el => el.character_name?.toLowerCase() === char.name.toLowerCase())
+            .map(el => el.content || '')
+            .join(' ');
+
+          // Determine best view for this character
+          const bestView = getBestView(char.name, {
+            manualViews,
+            action: characterActions || allSegmentText,
+            shotFraming,
+            numCharacters: characterMap.size,
+          });
+
+          // Get the image for this view
+          const viewImage = getImageForView(refImagesMetadata, bestView);
+          frontalImage = viewImage?.url || refImages[0];
+
+          // Kling reference-to-video REQUIRES reference_image_urls with at least 1 image
+          // Include other views as additional references for better character consistency
+          additionalImages = refImagesMetadata
+            .filter(img => img.url !== frontalImage)
+            .map(img => img.url)
+            .slice(0, 3); // Max 3 additional refs per character
+
+          // If no other views, use the frontal image as reference too
+          if (additionalImages.length === 0) {
+            additionalImages = [frontalImage];
+          }
+
+          console.log(`[QueueVideo] - Kling smart view: ${bestView} for ${char.name}, +${additionalImages.length} refs`);
+        } else if (isGrokOrSeedance && characterMatrixUrl) {
+          // Grok/Seedance: use character matrix (single image with all views)
+          // This counts as 1 reference instead of 3-4, freeing slots for other characters
+          frontalImage = characterMatrixUrl;
+          console.log(`[QueueVideo] - Using character matrix (1 slot instead of ${refImages.length})`);
+        } else if (characterMatrixUrl && !isKling) {
+          // Other models with matrix support
+          frontalImage = characterMatrixUrl;
+          console.log(`[QueueVideo] - Using character matrix`);
+        } else {
+          // Fallback: use smart image distribution (front image + additional based on budget)
+          frontalImage = refImages[0];
+          additionalImages = refImages.slice(1, analysis.imagesPerStar);
+          console.log(`[QueueVideo] - Fallback: using ${1 + additionalImages.length} individual images`);
+        }
 
         cinematicElements.push({
           characterId: char.id,

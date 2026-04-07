@@ -17,6 +17,7 @@ export interface GenericAssetLocalOverrides {
   looks?: LookVariation[];
   voice_id?: string;
   voice_name?: string;
+  character_matrix_url?: string;  // 2048x2048 composite with front/profile/3-4/back views
 }
 
 // Imported generic character (with project link ID and customization)
@@ -69,6 +70,7 @@ export interface CharacterData {
   voice_name?: string;
   fal_voice_id?: string; // fal.ai voice_id for Kling Omni video generation
   fal_voice_sample_url?: string; // B2 URL of the voice sample
+  character_matrix_url?: string; // 2048x2048 composite with front/profile/3-4/back views
 }
 
 // Audio types

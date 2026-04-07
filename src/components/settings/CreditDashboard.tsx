@@ -8,10 +8,8 @@ import {
   RefreshCw,
   TrendingUp,
   Calendar,
-  ArrowUpRight,
-  ArrowDownRight,
+  Clock,
 } from 'lucide-react';
-import { ProviderSpending } from '@/types/database';
 import { PROVIDERS, type DashboardProvider } from '@/lib/credits';
 
 // SVG Icons for each provider
@@ -38,28 +36,33 @@ const ProviderIcons: Record<DashboardProvider, React.FC<{ className?: string; st
   ),
 };
 
+interface ProviderSpendingData {
+  current: number;
+  today: number;
+  thisWeek: number;
+  thisMonth: number;
+  unit: string;
+  balance?: number;
+  characterCount?: number;
+  characterLimit?: number;
+  status: 'connected' | 'not_configured';
+}
+
 interface MonthlyData {
   month: string;
   providers: Record<string, number>;
   total: number;
 }
 
+interface SpendingResponse {
+  spending: Record<string, ProviderSpendingData>;
+  monthlyHistory: MonthlyData[];
+  lastSnapshotAt: string | null;
+  currentTime: string;
+}
+
 // Provider order for display
 const PROVIDER_ORDER: DashboardProvider[] = ['claude', 'fal', 'runway', 'elevenlabs'];
-
-// Per-provider state
-interface ProviderState {
-  loading: boolean;
-  spent: number; // Spending from app logs (for donut chart & histogram)
-  apiSpent?: number; // Spending from provider API (for provider cards)
-  budget: number; // Manual budget set by user
-  balance?: number; // Credit balance from API
-  characterCount?: number; // For ElevenLabs
-  characterLimit?: number; // For ElevenLabs
-  status: 'connected' | 'error' | 'not_configured' | 'loading';
-  message?: string;
-  hasBalanceApi: boolean; // Whether this provider exposes balance via API
-}
 
 function formatCurrency(amount: number): string {
   return '$' + amount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
@@ -83,36 +86,32 @@ function formatMonthFull(monthStr: string): string {
   return date.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
 }
 
-// Generate calendar year data (Jan to Dec) including empty months
-function generateYearData(data: MonthlyData[], currentMonthTotal: number): MonthlyData[] {
-  const result: MonthlyData[] = [];
-  const dataMap = new Map(data.map(d => [d.month, d]));
+function formatRelativeTime(dateStr: string): string {
+  const date = new Date(dateStr);
   const now = new Date();
-  const currentYear = now.getFullYear();
-  const currentMonthIndex = now.getMonth(); // 0-indexed (0=Jan, 2=Mar)
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMins / 60);
 
-  // January to December of current year
-  for (let month = 0; month < 12; month++) {
-    const monthKey = `${currentYear}-${String(month + 1).padStart(2, '0')}`;
-
-    // For current month (by index), use live spending total
-    if (month === currentMonthIndex) {
-      result.push({ month: monthKey, providers: {}, total: currentMonthTotal });
-    } else if (dataMap.has(monthKey)) {
-      result.push(dataMap.get(monthKey)!);
-    } else {
-      result.push({ month: monthKey, providers: {}, total: 0 });
-    }
-  }
-
-  return result;
+  if (diffMins < 1) return 'maintenant';
+  if (diffMins < 60) return `il y a ${diffMins}min`;
+  if (diffHours < 24) return `il y a ${diffHours}h`;
+  return date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
 }
 
 // Yearly bar chart component
 function YearlyBarChart({ data, currentMonthTotal }: { data: MonthlyData[]; currentMonthTotal: number }) {
-  const yearData = generateYearData(data, currentMonthTotal);
-  const maxValue = Math.max(...yearData.map(d => d.total), 1);
   const currentMonth = new Date().toISOString().slice(0, 7);
+
+  // Ensure we have 12 months for the current year
+  const yearData = data.map(d => {
+    if (d.month === currentMonth) {
+      return { ...d, total: currentMonthTotal };
+    }
+    return d;
+  });
+
+  const maxValue = Math.max(...yearData.map(d => d.total), 1);
 
   return (
     <div className="space-y-1">
@@ -132,7 +131,6 @@ function YearlyBarChart({ data, currentMonthTotal }: { data: MonthlyData[]; curr
         {yearData.map((item) => {
           const isCurrentMonth = item.month === currentMonth;
           const hasData = item.total > 0;
-          // Calculate pixel height based on container height (64px = h-16)
           const barHeight = hasData ? Math.max(6, (item.total / maxValue) * 64) : 4;
 
           return (
@@ -178,53 +176,43 @@ function YearlyBarChart({ data, currentMonthTotal }: { data: MonthlyData[]; curr
   );
 }
 
-// Compact provider card - small and elegant
+// Compact provider card
 function CompactCard({
   provider,
-  state,
-  type,
+  data,
+  loading,
   onOpenDashboard,
 }: {
   provider: DashboardProvider;
-  state: ProviderState;
-  type: 'balance' | 'spent';
+  data: ProviderSpendingData | null;
+  loading: boolean;
   onOpenDashboard: () => void;
 }) {
   const config = PROVIDERS[provider];
   const IconComponent = ProviderIcons[provider];
-  const { loading, spent, apiSpent, balance, characterCount, characterLimit, status } = state;
 
   const isElevenLabs = provider === 'elevenlabs';
-  const displaySpent = apiSpent !== undefined ? apiSpent : spent;
+  const isBalanceBased = provider === 'fal' || provider === 'runway';
 
-  // Calculate ElevenLabs remaining characters
-  let remaining = 0;
-  if (isElevenLabs && characterLimit && characterLimit > 0) {
-    remaining = characterLimit - (characterCount || 0);
-  }
-
-  // Determine what to display
   let displayValue: string;
   let subtitle: string = '';
 
-  if (loading) {
+  if (loading || !data) {
     displayValue = '...';
-  } else if (type === 'balance') {
-    if (isElevenLabs && characterLimit) {
-      displayValue = formatNumber(remaining);
-      subtitle = 'chars';
-    } else if (balance !== undefined) {
-      displayValue = formatCurrency(balance);
-    } else {
-      displayValue = '—';
-    }
+  } else if (isElevenLabs) {
+    const remaining = (data.characterLimit || 0) - (data.characterCount || 0);
+    displayValue = formatNumber(remaining);
+    subtitle = 'chars';
+  } else if (isBalanceBased) {
+    displayValue = data.balance !== undefined ? formatCurrency(data.balance) : '—';
   } else {
-    displayValue = formatCurrency(displaySpent);
+    // Claude - show 30-day cumulative cost
+    displayValue = formatCurrency(data.current);
+    subtitle = '30j';
   }
 
   const statusColor = loading ? 'bg-blue-500 animate-pulse' :
-                      status === 'connected' ? 'bg-emerald-500' :
-                      status === 'error' ? 'bg-red-500' : 'bg-slate-500';
+                      data?.status === 'connected' ? 'bg-emerald-500' : 'bg-slate-500';
 
   return (
     <button
@@ -360,171 +348,45 @@ interface CreditDashboardProps {
 }
 
 export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
-  const [providerStates, setProviderStates] = useState<Record<DashboardProvider, ProviderState>>(() => {
-    const initial: Record<string, ProviderState> = {};
-    PROVIDER_ORDER.forEach(p => {
-      initial[p] = {
-        loading: true,
-        spent: 0,
-        budget: 0,
-        status: 'loading',
-        hasBalanceApi: false,
-      };
-    });
-    return initial as Record<DashboardProvider, ProviderState>;
-  });
-
-  const [monthlyHistory, setMonthlyHistory] = useState<MonthlyData[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(true);
+  const [data, setData] = useState<SpendingResponse | null>(null);
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Fetch budget allocations
-  const fetchBudgets = useCallback(async () => {
+  const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
-      const res = await fetch('/api/settings/credits');
-      if (res.ok) {
-        const data = await res.json();
-        const spending: ProviderSpending[] = data.spending || [];
-
-        setProviderStates(prev => {
-          const next = { ...prev };
-          PROVIDER_ORDER.forEach(p => {
-            const allocation = spending.find(s => s.provider === p);
-            next[p] = {
-              ...next[p],
-              budget: allocation?.budget || 0,
-            };
-          });
-          return next;
-        });
-      }
-    } catch (e) {
-      console.error('Error fetching budgets:', e);
-    }
-  }, []);
-
-  // Fetch current month spending from usage logs
-  const fetchCurrentSpending = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch('/api/settings/usage-logs?summary=current', { signal });
-      if (!res.ok) return;
-      const data = await res.json();
-      const spending: Record<string, number> = data.spending || {};
-
-      setProviderStates(prev => {
-        const next = { ...prev };
-        PROVIDER_ORDER.forEach(p => {
-          next[p] = {
-            ...next[p],
-            spent: spending[p] || 0,
-          };
-        });
-        return next;
-      });
+      const res = await fetch('/api/settings/spending-snapshots', { signal });
+      if (!res.ok) throw new Error('Failed to fetch');
+      const json = await res.json();
+      setData(json);
     } catch (e) {
       if ((e as Error).name === 'AbortError') return;
-      console.error('Error fetching current spending:', e);
-    }
-  }, []);
-
-  // Fetch provider status (connected, not_configured, error) and API spending
-  const fetchProviderStatus = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const res = await fetch('/api/settings/usage', { signal });
-      if (!res.ok) return;
-      const data = await res.json();
-
-      setProviderStates(prev => {
-        const next = { ...prev };
-
-        // Claude - has usage API with totalCost
-        if (data.claude) {
-          next.claude = {
-            ...next.claude,
-            loading: false,
-            apiSpent: data.claude.usage?.totalCost,
-            status: data.claude.status as ProviderState['status'],
-            message: data.claude.error,
-            hasBalanceApi: !!data.claude.usage?.totalCost,
-          };
-        }
-
-        // fal.ai - has usage API with totalCost and balance
-        if (data.fal) {
-          next.fal = {
-            ...next.fal,
-            loading: false,
-            apiSpent: data.fal.usage?.totalCost,
-            balance: data.fal.usage?.currentBalance,
-            status: data.fal.status as ProviderState['status'],
-            message: data.fal.error,
-            hasBalanceApi: data.fal.usage?.currentBalance !== undefined,
-          };
-        }
-
-        // Runway - has balance API via organization endpoint
-        if (data.runway) {
-          next.runway = {
-            ...next.runway,
-            loading: false,
-            balance: data.runway.usage?.currentBalance,
-            status: data.runway.status as ProviderState['status'],
-            message: data.runway.error,
-            hasBalanceApi: data.runway.usage?.currentBalance !== undefined,
-          };
-        }
-
-        // ElevenLabs - special handling for characters
-        if (data.elevenlabs) {
-          next.elevenlabs = {
-            ...next.elevenlabs,
-            loading: false,
-            apiSpent: data.elevenlabs.usage?.estimatedCost,
-            characterCount: data.elevenlabs.usage?.characterCount,
-            characterLimit: data.elevenlabs.usage?.characterLimit,
-            status: data.elevenlabs.status as ProviderState['status'],
-            message: data.elevenlabs.error,
-            hasBalanceApi: true,
-          };
-        }
-
-        return next;
-      });
-    } catch (e) {
-      if ((e as Error).name === 'AbortError') return;
-
-      console.error('Error fetching provider status:', e);
-      setProviderStates(prev => {
-        const next = { ...prev };
-        PROVIDER_ORDER.forEach(p => {
-          next[p] = { ...next[p], loading: false, status: 'error', message: 'Erreur de chargement' };
-        });
-        return next;
-      });
-    }
-  }, []);
-
-  // Fetch monthly history (12 months)
-  const fetchHistory = useCallback(async () => {
-    try {
-      const res = await fetch('/api/settings/usage-logs?summary=monthly&months=12');
-      if (res.ok) {
-        const data = await res.json();
-        setMonthlyHistory(data.monthly || []);
-      }
-    } catch (e) {
-      console.error('Error fetching history:', e);
+      console.error('Error fetching spending data:', e);
     } finally {
-      setHistoryLoading(false);
+      setLoading(false);
     }
   }, []);
 
-  // Initial load - only when active and not yet fetched
+  const takeSnapshot = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetch('/api/settings/spending-snapshots', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'manual' }),
+      });
+      await fetchData();
+    } catch (e) {
+      console.error('Error taking snapshot:', e);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchData]);
+
+  // Initial load
   useEffect(() => {
     if (!isActive) {
-      // Cancel any in-flight requests when becoming inactive
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
         abortControllerRef.current = null;
@@ -534,94 +396,39 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
 
     if (hasFetched) return;
 
-    // Create new abort controller
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
 
-    // Fetch all data
-    const loadData = async () => {
-      try {
-        await Promise.all([
-          fetchBudgets(),
-          fetchCurrentSpending(signal),
-          fetchProviderStatus(signal),
-          fetchHistory(),
-        ]);
-        if (!signal.aborted) {
-          setHasFetched(true);
-        }
-      } catch (e) {
-        if ((e as Error).name !== 'AbortError') {
-          console.error('Error loading data:', e);
-        }
+    fetchData(signal).then(() => {
+      if (!signal.aborted) {
+        setHasFetched(true);
       }
-    };
-
-    loadData();
+    });
 
     return () => {
       if (abortControllerRef.current) {
         abortControllerRef.current.abort();
       }
     };
-  }, [isActive, hasFetched, fetchBudgets, fetchCurrentSpending, fetchProviderStatus, fetchHistory]);
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    setProviderStates(prev => {
-      const next = { ...prev };
-      PROVIDER_ORDER.forEach(p => {
-        next[p] = { ...next[p], loading: true };
-      });
-      return next;
-    });
-
-    // Create new abort controller for refresh
-    abortControllerRef.current = new AbortController();
-    const signal = abortControllerRef.current.signal;
-    await Promise.all([
-      fetchBudgets(),
-      fetchCurrentSpending(signal),
-      fetchProviderStatus(signal),
-      fetchHistory(),
-    ]);
-    setRefreshing(false);
-  };
+  }, [isActive, hasFetched, fetchData]);
 
   const handleOpenDashboard = (provider: DashboardProvider) => {
     const config = PROVIDERS[provider];
     window.open(config.dashboardUrl, '_blank');
   };
 
-  // Calculate totals
+  // Calculate totals for donut chart (only $ providers)
   const spendingByProvider: Record<string, number> = {};
-  let totalSpent = 0;
-  const allLoading = PROVIDER_ORDER.every(p => providerStates[p].loading);
+  let totalSpentThisMonth = 0;
 
-  PROVIDER_ORDER.forEach(p => {
-    spendingByProvider[p] = providerStates[p].spent;
-    totalSpent += providerStates[p].spent;
-  });
-
-  // Month comparison
-  let change = 0;
-  let isUp = false;
-  if (monthlyHistory.length >= 2) {
-    const currentMonth = new Date().toISOString().slice(0, 7);
-    const currentData = monthlyHistory.find(m => m.month === currentMonth);
-    const prevMonth = new Date();
-    prevMonth.setMonth(prevMonth.getMonth() - 1);
-    const prevMonthStr = prevMonth.toISOString().slice(0, 7);
-    const prevData = monthlyHistory.find(m => m.month === prevMonthStr);
-
-    const current = currentData?.total || 0;
-    const prev = prevData?.total || 0;
-
-    if (prev > 0) {
-      const changePercent = ((current - prev) / prev) * 100;
-      change = Math.abs(changePercent);
-      isUp = changePercent > 0;
-    }
+  if (data?.spending) {
+    PROVIDER_ORDER.forEach(p => {
+      const providerData = data.spending[p];
+      if (providerData && providerData.unit === '$') {
+        spendingByProvider[p] = providerData.thisMonth;
+        totalSpentThisMonth += providerData.thisMonth;
+      }
+    });
   }
 
   return (
@@ -630,18 +437,26 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-semibold text-white">Consommation API</h2>
-          <p className="text-sm text-slate-400">Suivi en temps réel de vos dépenses et soldes</p>
+          <p className="text-sm text-slate-400">Suivi basé sur les snapshots provider</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleRefresh}
-          disabled={refreshing}
-          className="bg-transparent border-white/10"
-        >
-          <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
-          Actualiser
-        </Button>
+        <div className="flex items-center gap-3">
+          {data?.lastSnapshotAt && (
+            <span className="text-xs text-slate-500 flex items-center gap-1">
+              <Clock className="w-3 h-3" />
+              {formatRelativeTime(data.lastSnapshotAt)}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={takeSnapshot}
+            disabled={refreshing}
+            className="bg-transparent border-white/10"
+          >
+            <RefreshCw className={`w-4 h-4 mr-2 ${refreshing ? 'animate-spin' : ''}`} />
+            Snapshot
+          </Button>
+        </div>
       </div>
 
       {/* Total Spending Card */}
@@ -650,30 +465,24 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
           <div className="grid md:grid-cols-3 gap-8 items-center">
             {/* Donut Chart */}
             <div className="flex flex-col items-center justify-center py-4">
-              <DonutChart data={spendingByProvider} total={totalSpent} loading={allLoading} />
+              <DonutChart data={spendingByProvider} total={totalSpentThisMonth} loading={loading} />
             </div>
 
             {/* Stats */}
             <div className="space-y-4">
               <div className="mb-6">
                 <div className="text-3xl font-bold text-white">
-                  {allLoading ? (
+                  {loading ? (
                     <span className="flex items-center gap-2">
                       <Loader2 className="w-6 h-6 animate-spin" />
                     </span>
                   ) : (
-                    formatCurrency(totalSpent)
+                    formatCurrency(totalSpentThisMonth)
                   )}
                 </div>
                 <div className="text-sm text-slate-400 flex items-center gap-2 mt-1">
                   <Calendar className="w-4 h-4" />
                   Dépensé ce mois
-                  {change > 0 && (
-                    <span className={`flex items-center text-xs ${isUp ? 'text-red-400' : 'text-green-400'}`}>
-                      {isUp ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
-                      {change.toFixed(0)}%
-                    </span>
-                  )}
                 </div>
               </div>
 
@@ -681,8 +490,10 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
               <div className="space-y-2">
                 {PROVIDER_ORDER.map(provider => {
                   const config = PROVIDERS[provider];
-                  const state = providerStates[provider];
-                  const percent = totalSpent > 0 ? (state.spent / totalSpent) * 100 : 0;
+                  const providerData = data?.spending[provider];
+                  const isElevenLabs = provider === 'elevenlabs';
+                  const spent = providerData?.thisMonth || 0;
+                  const percent = totalSpentThisMonth > 0 && !isElevenLabs ? (spent / totalSpentThisMonth) * 100 : 0;
 
                   return (
                     <div key={provider} className="flex items-center gap-2">
@@ -691,12 +502,16 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
                         style={{ backgroundColor: config.color }}
                       />
                       <span className="text-xs text-slate-400 flex-1">{config.displayName}</span>
-                      {state.loading ? (
+                      {loading ? (
                         <Loader2 className="w-3 h-3 animate-spin text-slate-500" />
+                      ) : isElevenLabs ? (
+                        <span className="text-xs font-medium text-white">
+                          {formatNumber(spent)} <span className="text-slate-500">chars</span>
+                        </span>
                       ) : (
                         <>
                           <span className="text-xs font-medium text-white">
-                            {formatCurrency(state.spent)}
+                            {formatCurrency(spent)}
                           </span>
                           <span className="text-xs text-slate-500 w-10 text-right">
                             {percent.toFixed(0)}%
@@ -707,6 +522,46 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
                   );
                 })}
               </div>
+
+              {/* Period breakdown */}
+              {data?.spending && !loading && (
+                <div className="mt-4 pt-4 border-t border-white/10">
+                  <div className="grid grid-cols-2 gap-3 text-xs">
+                    <div>
+                      <div className="text-slate-500">Aujourd'hui</div>
+                      <div className="text-white font-medium">
+                        {formatCurrency(
+                          PROVIDER_ORDER.reduce((sum, p) => {
+                            const d = data.spending[p];
+                            return sum + (d && d.unit === '$' ? d.today : 0);
+                          }, 0)
+                        )}
+                      </div>
+                      {data.spending.elevenlabs && data.spending.elevenlabs.today > 0 && (
+                        <div className="text-slate-500 text-[10px]">
+                          +{formatNumber(data.spending.elevenlabs.today)} chars
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <div className="text-slate-500">Cette semaine</div>
+                      <div className="text-white font-medium">
+                        {formatCurrency(
+                          PROVIDER_ORDER.reduce((sum, p) => {
+                            const d = data.spending[p];
+                            return sum + (d && d.unit === '$' ? d.thisWeek : 0);
+                          }, 0)
+                        )}
+                      </div>
+                      {data.spending.elevenlabs && data.spending.elevenlabs.thisWeek > 0 && (
+                        <div className="text-slate-500 text-[10px]">
+                          +{formatNumber(data.spending.elevenlabs.thisWeek)} chars
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Yearly History */}
@@ -715,12 +570,15 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
                 <TrendingUp className="w-4 h-4" />
                 Historique {new Date().getFullYear()}
               </div>
-              {(historyLoading || allLoading) ? (
+              {loading ? (
                 <div className="flex items-center justify-center py-8">
                   <Loader2 className="w-5 h-5 animate-spin text-slate-400" />
                 </div>
               ) : (
-                <YearlyBarChart data={monthlyHistory} currentMonthTotal={totalSpent} />
+                <YearlyBarChart
+                  data={data?.monthlyHistory || []}
+                  currentMonthTotal={totalSpentThisMonth}
+                />
               )}
             </div>
           </div>
@@ -739,8 +597,8 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
               <CompactCard
                 key={provider}
                 provider={provider}
-                state={providerStates[provider]}
-                type="balance"
+                data={data?.spending[provider] || null}
+                loading={loading}
                 onOpenDashboard={() => handleOpenDashboard(provider)}
               />
             ))}
@@ -750,18 +608,23 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
         {/* Crédits dépensés - Claude */}
         <div className="flex-1 space-y-3">
           <h3 className="text-sm font-medium text-slate-400 uppercase tracking-wide">
-            Crédits dépensés
+            Coût 30 jours
           </h3>
           <div className="flex gap-3">
             <CompactCard
               provider="claude"
-              state={providerStates.claude}
-              type="spent"
+              data={data?.spending.claude || null}
+              loading={loading}
               onOpenDashboard={() => handleOpenDashboard('claude')}
             />
           </div>
         </div>
       </div>
+
+      {/* Hint */}
+      <p className="text-xs text-slate-600">
+        Les dépenses sont calculées par diff entre snapshots. Le worker prend automatiquement des snapshots toutes les 30 minutes et un snapshot daily_start à minuit.
+      </p>
     </div>
   );
 }

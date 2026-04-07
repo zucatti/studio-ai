@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, Users, Image as ImageIcon, Mic, Save, Loader2, RefreshCw, Trash2, Baby, Radio, BookOpen } from 'lucide-react';
+import { User, Users, Image as ImageIcon, Mic, Save, Loader2, RefreshCw, Trash2, Baby, Radio, BookOpen, LayoutGrid } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -71,6 +71,7 @@ export function CharacterEditor({
   const [activeTab, setActiveTab] = useState<'info' | 'images' | 'audio'>('info');
   const [isSaving, setIsSaving] = useState(false);
   const [generatingView, setGeneratingView] = useState<string | null>(null);
+  const [isGeneratingMatrix, setIsGeneratingMatrix] = useState(false);
 
   // Form state for generic characters
   const [nameOverride, setNameOverride] = useState('');
@@ -176,6 +177,38 @@ export function CharacterEditor({
       }
     } finally {
       setGeneratingView(null);
+    }
+  };
+
+  const handleGenerateMatrix = async () => {
+    if (characterType !== 'generic') return;
+
+    setIsGeneratingMatrix(true);
+    try {
+      // For generic assets, projectAssetId is the project_generic_assets.id
+      const response = await fetch(`/api/global-assets/${projectAssetId}/generate-matrix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isGenericAsset: true,
+          projectId,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.characterMatrixUrl) {
+        toast.success('Character Matrix genere !');
+        // Refresh to get the updated matrix URL
+        fetchProjectGenericAssets(projectId);
+      } else {
+        toast.error(data.error || 'Erreur lors de la generation');
+      }
+    } catch (error) {
+      console.error('Error generating matrix:', error);
+      toast.error('Erreur lors de la generation du matrix');
+    } finally {
+      setIsGeneratingMatrix(false);
     }
   };
 
@@ -376,6 +409,69 @@ export function CharacterEditor({
                     <p className="text-xs text-amber-400 text-center">
                       Ajoutez une description visuelle dans l onglet Infos pour pouvoir generer des images
                     </p>
+                  )}
+
+                  {/* Character Matrix Section */}
+                  {referenceImages.length >= 4 && (
+                    <div className="mt-6 pt-6 border-t border-white/10">
+                      <div className="flex items-center justify-between mb-4">
+                        <div>
+                          <h4 className="text-sm font-medium text-white flex items-center gap-2">
+                            <LayoutGrid className="w-4 h-4 text-purple-400" />
+                            Character Matrix
+                          </h4>
+                          <p className="text-xs text-slate-500 mt-1">
+                            Image composite 2048x2048 avec les 4 vues (1 reference au lieu de 4)
+                          </p>
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleGenerateMatrix}
+                          disabled={isGeneratingMatrix}
+                          className="border-purple-500/30 text-purple-400 hover:bg-purple-500/10"
+                        >
+                          {isGeneratingMatrix ? (
+                            <>
+                              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                              Generation...
+                            </>
+                          ) : genericAsset?.local_overrides?.character_matrix_url ? (
+                            <>
+                              <RefreshCw className="w-4 h-4 mr-2" />
+                              Regenerer
+                            </>
+                          ) : (
+                            <>
+                              <LayoutGrid className="w-4 h-4 mr-2" />
+                              Generer Matrix
+                            </>
+                          )}
+                        </Button>
+                      </div>
+
+                      {genericAsset?.local_overrides?.character_matrix_url ? (
+                        <div className="relative">
+                          <StorageThumbnail
+                            src={genericAsset.local_overrides.character_matrix_url}
+                            alt={`${displayName} - Character Matrix`}
+                            size={400}
+                            className="w-full aspect-square rounded-lg object-cover border border-purple-500/30"
+                          />
+                          <div className="absolute top-2 left-2 px-2 py-1 bg-purple-500/80 rounded text-xs text-white font-medium">
+                            2048x2048
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-full aspect-square rounded-lg bg-white/5 border border-dashed border-white/20 flex items-center justify-center">
+                          <div className="text-center text-slate-500">
+                            <LayoutGrid className="w-10 h-10 mx-auto mb-2 opacity-50" />
+                            <p className="text-xs">Pas de matrix genere</p>
+                            <p className="text-xs mt-1 text-slate-600">Cliquez sur Generer Matrix</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
               ) : (

@@ -388,10 +388,12 @@ function TrackRow({
 
   // Memoize clips for this track to avoid re-renders
   const clips = useMemo(() => {
-    return Object.values(allClips)
+    const filtered = Object.values(allClips)
       .filter((clip) => clip.trackId === track.id)
       .sort((a, b) => a.start - b.start);
-  }, [allClips, track.id]);
+    console.log(`[TrackRow] Track ${track.id} (${track.name}): ${filtered.length} clips from ${Object.keys(allClips).length} total`);
+    return filtered;
+  }, [allClips, track.id, track.name]);
 
   const Icon = track.type === 'audio' ? Music : track.type === 'text' ? Type : Film;
 
@@ -483,6 +485,43 @@ function TrackRow({
   );
 }
 
+// Check if URL is a video file
+function isVideoFile(url: string): boolean {
+  const videoExtensions = ['.mp4', '.webm', '.mov', '.avi', '.mkv', '.m4v'];
+  const lowerUrl = url.toLowerCase();
+  // Check extension or path pattern
+  return videoExtensions.some(ext => lowerUrl.includes(ext)) || lowerUrl.includes('/videos/');
+}
+
+// Video thumbnail component - shows first frame of video
+function VideoThumbnail({ src }: { src: string }) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleLoadedData = () => {
+      // Seek to 0.1s to show first frame (some videos have black first frame at 0)
+      video.currentTime = 0.1;
+    };
+
+    video.addEventListener('loadeddata', handleLoadedData);
+    return () => video.removeEventListener('loadeddata', handleLoadedData);
+  }, [src]);
+
+  return (
+    <video
+      ref={videoRef}
+      src={src}
+      className="absolute inset-0 w-full h-full object-cover opacity-60 pointer-events-none"
+      muted
+      playsInline
+      preload="metadata"
+    />
+  );
+}
+
 // Clip item component - optimized with local state for immediate visual feedback
 function ClipItem({
   clip,
@@ -499,7 +538,12 @@ function ClipItem({
 }) {
   const clipRef = useRef<HTMLDivElement>(null);
   const { selectClip, moveClip, resizeClip, updateClip } = useMontageStore();
-  const { signedUrl } = useSignedUrl(clip.thumbnailUrl || null);
+  const { signedUrl, isLoading, error } = useSignedUrl(clip.thumbnailUrl || null);
+
+  // Debug logging
+  useEffect(() => {
+    console.log(`[ClipItem] ${clip.id}: thumbnailUrl=${clip.thumbnailUrl?.substring(0, 50)}, signedUrl=${signedUrl?.substring(0, 50)}, isLoading=${isLoading}, error=${error?.message}`);
+  }, [clip.id, clip.thumbnailUrl, signedUrl, isLoading, error]);
 
   // Local state for immediate visual feedback during drag/resize
   const [localPosition, setLocalPosition] = useState<{
@@ -676,14 +720,18 @@ function ClipItem({
       onClick={handleClick}
       onMouseDown={handleMouseDown}
     >
-      {/* Thumbnail background */}
+      {/* Thumbnail background - use video element if URL is a video file */}
       {signedUrl && clip.type !== 'audio' && (
-        <img
-          src={signedUrl}
-          alt=""
-          className="absolute inset-0 w-full h-full object-cover opacity-60"
-          draggable={false}
-        />
+        isVideoFile(signedUrl) ? (
+          <VideoThumbnail src={signedUrl} />
+        ) : (
+          <img
+            src={signedUrl}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover opacity-60"
+            draggable={false}
+          />
+        )
       )}
 
       {/* Clip content */}

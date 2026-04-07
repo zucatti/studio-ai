@@ -54,6 +54,8 @@ export interface VideoGenJobData {
   }>;
   // Dry run mode - generate prompt but don't execute
   dryRun?: boolean;
+  // Preview mode - don't update shot with generated video
+  isPreview?: boolean;
 }
 
 /**
@@ -325,6 +327,65 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
     const b2Url = await uploadFile(storageKey, Buffer.from(videoBuffer), contentType);
 
     console.log(`[VideoGen] Uploaded to B2: ${b2Url}`);
+
+    // Preview mode: don't update shot, just complete the job with video URL
+    if (data.isPreview) {
+      console.log(`[VideoGen] Preview mode - skipping shot update`);
+      await completeJob(jobId, {
+        videoUrl: b2Url,
+        duration: result.duration,
+        model,
+        isPreview: true,
+      });
+      console.log(`[VideoGen] Preview job ${jobId} completed`);
+      return;
+    }
+
+    // Rush Creator mode: save to rush_media table instead of updating a shot
+    // Detected by shotId starting with 'rush-video-'
+    const isRushCreatorVideo = shotId.startsWith('rush-video-');
+    if (isRushCreatorVideo) {
+      console.log(`[VideoGen] Rush Creator mode - saving to rush_media table`);
+
+      // Save to rush_media table
+      const { data: rushMedia, error: rushError } = await supabase
+        .from('rush_media')
+        .insert({
+          project_id: projectId,
+          user_id: userId,
+          url: b2Url,
+          media_type: 'video',
+          prompt: prompt.substring(0, 1000),
+          aspect_ratio: aspectRatio,
+          model,
+          provider: providerName,
+          duration: result.duration,
+          status: 'pending',
+          metadata: {
+            generatedAt: new Date().toISOString(),
+            cost: result.cost,
+          },
+        })
+        .select('id')
+        .single();
+
+      if (rushError) {
+        console.error(`[VideoGen] Failed to save rush media:`, rushError);
+      } else {
+        console.log(`[VideoGen] Rush media saved: ${rushMedia?.id}`);
+      }
+
+      await completeJob(jobId, {
+        videoUrl: b2Url,
+        duration: result.duration,
+        model,
+        rushMediaId: rushMedia?.id,
+        cost: result.cost,
+      });
+
+      console.log(`[VideoGen] Rush Creator job ${jobId} completed`);
+      return;
+    }
 
     // Update shot in database with video rushes
     await updateJobProgress(jobId, 92, 'Mise à jour de la base de données...');
