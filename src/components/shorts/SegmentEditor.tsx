@@ -34,6 +34,7 @@ import {
   GripVertical,
   Zap,
   Video,
+  Camera,
   RotateCcw,
   Loader2,
   Target,
@@ -41,7 +42,9 @@ import {
   Wind,
   Sun,
   ChevronDown,
+  Eye,
 } from 'lucide-react';
+import { VideoCard } from '@/components/shorts/VideoCard';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { TonePicker } from './TonePicker';
@@ -529,6 +532,10 @@ export function SegmentEditor({
   const [copied, setCopied] = useState(false);
   const [viewMode, setViewMode] = useState<'edit' | 'preview'>('edit');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isPreviewing, setIsPreviewing] = useState(false);
+  const [previewJobId, setPreviewJobId] = useState<string | null>(null);
+  const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
+  const [showVideoPreview, setShowVideoPreview] = useState(true); // Toggle between camera and video preview
 
   // Reset form when segment changes
   useEffect(() => {
@@ -546,6 +553,11 @@ export function SegmentEditor({
         }];
       }
       setFormData({ ...segment, elements, beats: undefined });
+      // Load preview URL from segment (persist across segment switches)
+      setPreviewVideoUrl(segment.preview_video_url || null);
+      setShowVideoPreview(true);
+      setIsPreviewing(false);
+      setPreviewJobId(null);
     } else {
       setFormData({});
     }
@@ -631,6 +643,46 @@ export function SegmentEditor({
   const handleDragEnd = useCallback(() => {
     setDraggedElementIndex(null);
   }, []);
+
+  // Persist preview URL to database without triggering full save
+  const persistPreviewUrl = useCallback(async (videoUrl: string) => {
+    if (!segment) return;
+
+    try {
+      // First, fetch the current shot to get all segments
+      const getResponse = await fetch(`/api/projects/${projectId}/shots/${shotId}`);
+      if (!getResponse.ok) {
+        console.error('[SegmentEditor] Failed to fetch shot for preview URL update');
+        return;
+      }
+      const shot = await getResponse.json();
+      const segments = shot.segments || [];
+
+      // Update the segment at the current index
+      const updatedSegments = segments.map((seg: Segment, idx: number) =>
+        idx === segmentIndex
+          ? { ...seg, preview_video_url: videoUrl }
+          : seg
+      );
+
+      // Call the shot PATCH endpoint to update segments
+      const response = await fetch(`/api/projects/${projectId}/shots/${shotId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          segments: updatedSegments,
+        }),
+      });
+
+      if (!response.ok) {
+        console.error('[SegmentEditor] Failed to persist preview URL');
+      } else {
+        console.log('[SegmentEditor] Preview URL persisted to database');
+      }
+    } catch (error) {
+      console.error('[SegmentEditor] Error persisting preview URL:', error);
+    }
+  }, [segment, projectId, shotId, segmentIndex]);
 
   // Handle save - calls Claude to translate and evaluate duration
   const handleSave = useCallback(async () => {
@@ -840,6 +892,83 @@ export function SegmentEditor({
     setTimeout(() => setCopied(false), 2000);
   }, [promptPreview]);
 
+  // Handle preview generation
+  const handlePreview = useCallback(async () => {
+    if (!segment) return;
+
+    // Build current segment state
+    const currentSegment = {
+      ...segment,
+      ...formData,
+      id: segment.id,
+    };
+
+    setIsPreviewing(true);
+    setPreviewVideoUrl(null);
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/shots/${shotId}/preview-segment`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ segment: currentSegment }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to queue preview');
+      }
+
+      const data = await response.json();
+      setPreviewJobId(data.jobId);
+      toast.success(`Preview lancé (${data.duration}s, Grok 480p)`);
+
+      // Poll for completion
+      const pollInterval = setInterval(async () => {
+        try {
+          const statusRes = await fetch(`/api/jobs/${data.jobId}`);
+          if (!statusRes.ok) return;
+
+          const statusData = await statusRes.json();
+          const job = statusData.job;
+
+          if (job?.status === 'completed') {
+            // Result is in result_data.videoUrl
+            const videoUrl = job.result_data?.videoUrl;
+            if (videoUrl) {
+              clearInterval(pollInterval);
+              setPreviewVideoUrl(videoUrl);
+              setShowVideoPreview(true); // Auto-switch to video preview
+              setIsPreviewing(false);
+              // Persist to database so URL survives segment switches
+              persistPreviewUrl(videoUrl);
+              toast.success('Preview prêt !');
+            }
+          } else if (job?.status === 'failed') {
+            clearInterval(pollInterval);
+            setIsPreviewing(false);
+            toast.error(`Preview échoué: ${job.error_message || 'Unknown error'}`);
+          }
+        } catch {
+          // Ignore polling errors
+        }
+      }, 2000);
+
+      // Stop polling after 2 minutes
+      setTimeout(() => {
+        clearInterval(pollInterval);
+        if (isPreviewing) {
+          setIsPreviewing(false);
+          toast.error('Preview timeout');
+        }
+      }, 120000);
+
+    } catch (error) {
+      console.error('[SegmentEditor] Preview error:', error);
+      toast.error(error instanceof Error ? error.message : 'Preview failed');
+      setIsPreviewing(false);
+    }
+  }, [segment, formData, projectId, shotId, isPreviewing, persistPreviewUrl]);
+
   if (!segment) return null;
 
   return (
@@ -893,13 +1022,66 @@ export function SegmentEditor({
               <div className="absolute inset-0 flex">
                 {/* Left Panel - Camera Preview (scrolls independently) */}
                 <div className="w-[40%] h-full flex-shrink-0 p-6 border-r border-white/10 overflow-y-auto">
-                  {/* Camera Preview */}
+                  {/* Toggle Camera/Video Preview */}
+                  {previewVideoUrl && (
+                    <div className="flex gap-1 mb-2 p-0.5 bg-slate-800/50 rounded-lg w-fit">
+                      <button
+                        onClick={() => setShowVideoPreview(false)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                          !showVideoPreview
+                            ? "bg-slate-700 text-white"
+                            : "text-slate-400 hover:text-white"
+                        )}
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        Caméra
+                      </button>
+                      <button
+                        onClick={() => setShowVideoPreview(true)}
+                        className={cn(
+                          "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
+                          showVideoPreview
+                            ? "bg-amber-500 text-black"
+                            : "text-slate-400 hover:text-white"
+                        )}
+                      >
+                        <Video className="w-3.5 h-3.5" />
+                        Preview
+                      </button>
+                    </div>
+                  )}
+
+                  {/* Camera Preview or Video Preview */}
                   <div className="aspect-video mb-5">
-                    <CameraPreview
-                      movement={formData.camera_movement || 'static'}
-                      framing={formData.shot_framing || 'medium'}
-                      composition={formData.shot_composition}
-                    />
+                    {previewVideoUrl && showVideoPreview ? (
+                      <div className="relative w-full h-full">
+                        {/* Badge PREVIEW */}
+                        <div className="absolute top-2 left-2 z-10 px-2 py-1 bg-amber-500 text-black text-[10px] font-bold rounded">
+                          PREVIEW 480p
+                        </div>
+                        <VideoCard
+                          videoUrl={previewVideoUrl}
+                          aspectRatio="16:9"
+                          autoPlay
+                          className="w-full h-full border-amber-500/50"
+                        />
+                      </div>
+                    ) : isPreviewing ? (
+                      <div className="relative w-full h-full bg-slate-900 rounded-lg overflow-hidden border border-amber-500/30 flex items-center justify-center">
+                        <div className="text-center">
+                          <Loader2 className="w-8 h-8 animate-spin text-amber-400 mx-auto mb-2" />
+                          <div className="text-sm text-slate-400">Génération preview...</div>
+                          <div className="text-xs text-slate-500 mt-1">Grok 480p (~30s)</div>
+                        </div>
+                      </div>
+                    ) : (
+                      <CameraPreview
+                        movement={formData.camera_movement || 'static'}
+                        framing={formData.shot_framing || 'medium'}
+                        composition={formData.shot_composition}
+                      />
+                    )}
                   </div>
 
                   {/* Shot Settings */}
@@ -1063,33 +1245,64 @@ export function SegmentEditor({
           </div>
 
           {/* Footer */}
-          <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-white/10 flex-shrink-0">
-            <Button
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={isProcessing}
-              className="border-white/10 text-slate-400"
-            >
-              <X className="w-4 h-4 mr-2" />
-              Cancel
-            </Button>
-            <Button
-              onClick={handleSave}
-              disabled={isProcessing}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white min-w-[140px]"
-            >
-              {isProcessing ? (
-                <>
-                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Processing...
-                </>
-              ) : (
-                <>
-                  <Save className="w-4 h-4 mr-2" />
-                  Save Shot
-                </>
+          <div className="flex items-center justify-between px-6 py-4 border-t border-white/10 flex-shrink-0">
+            {/* Left side - Preview button */}
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                onClick={handlePreview}
+                disabled={isProcessing || isPreviewing}
+                className="border-amber-500/30 text-amber-400 hover:text-amber-300 hover:border-amber-500/50"
+              >
+                {isPreviewing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Génération...
+                  </>
+                ) : (
+                  <>
+                    <Eye className="w-4 h-4 mr-2" />
+                    Prévisualiser
+                  </>
+                )}
+              </Button>
+              {previewVideoUrl && (
+                <span className="text-xs text-green-400 flex items-center gap-1">
+                  <Check className="w-3 h-3" />
+                  Preview prêt
+                </span>
               )}
-            </Button>
+            </div>
+
+            {/* Right side - Cancel/Save */}
+            <div className="flex items-center gap-3">
+              <Button
+                variant="outline"
+                onClick={() => onOpenChange(false)}
+                disabled={isProcessing}
+                className="border-white/10 text-slate-400"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={isProcessing}
+                className="bg-indigo-600 hover:bg-indigo-500 text-white min-w-[140px]"
+              >
+                {isProcessing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Processing...
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 mr-2" />
+                    Save Shot
+                  </>
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>

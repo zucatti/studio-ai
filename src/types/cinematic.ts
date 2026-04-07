@@ -316,6 +316,9 @@ export interface Segment {
 
   // Override (for advanced users)
   custom_prompt?: string;
+
+  // Preview video (Grok 480p quick preview)
+  preview_video_url?: string;
 }
 
 // ============================================================================
