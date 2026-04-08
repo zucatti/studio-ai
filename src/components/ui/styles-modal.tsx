@@ -119,10 +119,15 @@ export function StylesModal({ isOpen, onClose, onSelect, mediaType }: StylesModa
     [onSelect, onClose]
   );
 
-  if (!isOpen) return null;
-
+  // Always render portal to preserve state, but hide when closed
   return createPortal(
-    <div className="fixed inset-0 z-[99999] flex items-center justify-center">
+    <div
+      className={cn(
+        "fixed inset-0 z-[99999] flex items-center justify-center transition-opacity duration-150",
+        isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
+      )}
+      aria-hidden={!isOpen}
+    >
       {/* Backdrop */}
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
 
