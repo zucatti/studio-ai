@@ -71,6 +71,7 @@ export function RushGeneratorPanel() {
     }
   }, [mode, model, duration, clampedDuration, setDuration]);
 
+
   const modelOptions = mode === 'photo' ? IMAGE_MODEL_OPTIONS : VIDEO_MODEL_OPTIONS;
   const maxQuantity = mode === 'photo' ? 8 : 4;
 

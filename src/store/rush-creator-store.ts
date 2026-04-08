@@ -151,10 +151,14 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
 
       // Actions - UI
       open: (projectId, context) => {
-        set({ isOpen: true, validationContext: context || null });
+        // Set all state in a single call to avoid race conditions
+        set({
+          isOpen: true,
+          validationContext: context || null,
+          ...(projectId ? { currentProjectId: projectId } : {}),
+        });
         if (projectId) {
-          set({ currentProjectId: projectId });
-          // Only fetch pending media (awaiting review)
+          // Fetch pending media (awaiting review)
           get().fetchMedia(projectId, { status: 'pending' });
         }
       },
