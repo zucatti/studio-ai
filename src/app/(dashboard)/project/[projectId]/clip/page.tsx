@@ -748,6 +748,7 @@ export default function ClipPage() {
           locations={locations}
           onUpdate={(updates) => handleUpdatePlan(selectedPlan.id, updates as Partial<Plan>)}
           onGenerateVideo={handleGenerateVideo}
+          isGeneratingVideo={generationProgress.has(selectedPlan.id) && generationProgress.get(selectedPlan.id)?.status === 'generating'}
           videoGenerationProgress={generationProgress.get(selectedPlan.id) || null}
         />
       )}
