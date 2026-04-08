@@ -369,22 +369,31 @@ export class FalProvider implements VideoProvider {
       // Set resolution based on model variant
       input.resolution = model === 'grok-480p' ? '480p' : '720p';
 
-      // Reference-to-video: pass character images via reference_image_urls
-      // Grok supports up to 7 reference images
-      if (endpointType === 'reference-to-video' && request.cinematicElements?.length) {
-        const imagesList: string[] = [];
-        for (const el of request.cinematicElements) {
-          if (el.frontalImageUrl) {
-            imagesList.push(el.frontalImageUrl);
-          }
-          if (el.referenceImageUrls?.length) {
-            imagesList.push(...el.referenceImageUrls);
-          }
+      // Reference-to-video: pass starting frame + character images
+      // Grok uses start_image_url for the first frame (like Kling)
+      if (endpointType === 'reference-to-video') {
+        // Add start_image_url (the first frame / frame in)
+        if (hasStartingFrame) {
+          input.start_image_url = request.firstFrameUrl;
+          console.log(`[Fal] Grok reference-to-video with start_image_url`);
         }
-        // Max 7 images for Grok reference-to-video
-        const limitedImages = imagesList.slice(0, 7);
-        input.reference_image_urls = limitedImages;
-        console.log(`[Fal] Grok reference-to-video with ${limitedImages.length} images`);
+
+        // Add reference_image_urls for character consistency (up to 7 images)
+        if (request.cinematicElements?.length) {
+          const imagesList: string[] = [];
+          for (const el of request.cinematicElements) {
+            if (el.frontalImageUrl) {
+              imagesList.push(el.frontalImageUrl);
+            }
+            if (el.referenceImageUrls?.length) {
+              imagesList.push(...el.referenceImageUrls);
+            }
+          }
+          // Max 7 images for Grok reference-to-video
+          const limitedImages = imagesList.slice(0, 7);
+          input.reference_image_urls = limitedImages;
+          console.log(`[Fal] Grok reference-to-video with ${limitedImages.length} character reference images`);
+        }
       }
 
       console.log(`[Fal] Grok (${model}), duration: ${input.duration}s, resolution: ${input.resolution}`);
