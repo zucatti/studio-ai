@@ -29,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_rush_media_user_id ON rush_media(user_id);
 ALTER TABLE rush_media ENABLE ROW LEVEL SECURITY;
 
 -- RLS policies (via project ownership check)
+DROP POLICY IF EXISTS "Users can view their project rush media" ON rush_media;
 CREATE POLICY "Users can view their project rush media"
   ON rush_media
   FOR SELECT
@@ -40,6 +41,7 @@ CREATE POLICY "Users can view their project rush media"
     )
   );
 
+DROP POLICY IF EXISTS "Users can insert their own rush media" ON rush_media;
 CREATE POLICY "Users can insert their own rush media"
   ON rush_media
   FOR INSERT
@@ -51,6 +53,7 @@ CREATE POLICY "Users can insert their own rush media"
     )
   );
 
+DROP POLICY IF EXISTS "Users can update their own rush media" ON rush_media;
 CREATE POLICY "Users can update their own rush media"
   ON rush_media
   FOR UPDATE
@@ -62,6 +65,7 @@ CREATE POLICY "Users can update their own rush media"
     )
   );
 
+DROP POLICY IF EXISTS "Users can delete their own rush media" ON rush_media;
 CREATE POLICY "Users can delete their own rush media"
   ON rush_media
   FOR DELETE
