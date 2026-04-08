@@ -39,9 +39,9 @@ export function StylesModal({ isOpen, onClose, onSelect, mediaType }: StylesModa
   const [searchQuery, setSearchQuery] = useState('');
   const [hoveredTechnique, setHoveredTechnique] = useState<StyleTechnique | null>(null);
 
-  // Load styles on mount
+  // Load styles on mount (only when modal opens, not on category change)
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && categories.length === 0) {
       setIsLoading(true);
       loadAllStyles()
         .then((allCategories) => {
@@ -54,22 +54,20 @@ export function StylesModal({ isOpen, onClose, onSelect, mediaType }: StylesModa
           setCategories(filtered);
 
           // Set initial active category
-          if (filtered.length > 0 && !activeCategory) {
-            setActiveCategory(filtered[0].id);
-          } else if (filtered.length > 0 && !filtered.find((c) => c.id === activeCategory)) {
+          if (filtered.length > 0) {
             setActiveCategory(filtered[0].id);
           }
         })
         .catch(console.error)
         .finally(() => setIsLoading(false));
     }
-  }, [isOpen, mediaType, activeCategory]);
+  }, [isOpen, mediaType, categories.length]);
 
-  // Reset search when modal opens
+  // Reset search when modal opens (but keep hoveredTechnique for persistence)
   useEffect(() => {
     if (isOpen) {
       setSearchQuery('');
-      setHoveredTechnique(null);
+      // Don't reset hoveredTechnique - keep last viewed technique visible
     }
   }, [isOpen]);
 
