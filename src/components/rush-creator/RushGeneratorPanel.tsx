@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { Sparkles, Loader2, ChevronDown, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MentionInput } from '@/components/ui/mention-input';
@@ -27,9 +27,18 @@ const IMAGE_MODEL_OPTIONS = [
 
 const VIDEO_MODEL_OPTIONS = [
   { value: 'kling-omni', label: 'Kling Omni' },
-  { value: 'sora-2', label: 'Sora 2' },
-  { value: 'veo-3', label: 'Veo 3' },
+  { value: 'veo-3', label: 'Veo 3.1' },
+  { value: 'seedance-2', label: 'Seedance 2' },
+  { value: 'grok-720p', label: 'Grok' },
 ] as const;
+
+// Duration limits per video model
+const VIDEO_DURATION_LIMITS: Record<string, { min: number; max: number }> = {
+  'kling-omni': { min: 3, max: 15 },
+  'veo-3': { min: 4, max: 8 },
+  'seedance-2': { min: 3, max: 15 },
+  'grok-720p': { min: 3, max: 10 },
+};
 
 export function RushGeneratorPanel() {
   const {
@@ -43,11 +52,24 @@ export function RushGeneratorPanel() {
     setModel,
     resolution,
     setResolution,
+    duration,
+    setDuration,
     generate,
   } = useRushCreatorStore();
 
+  // Get duration limits for current model
+  const durationLimits = VIDEO_DURATION_LIMITS[model] || { min: 3, max: 15 };
+  const clampedDuration = Math.min(Math.max(duration, durationLimits.min), durationLimits.max);
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quantity, setQuantity] = useState(1);
+
+  // Clamp duration when model changes
+  useEffect(() => {
+    if (mode === 'video' && duration !== clampedDuration) {
+      setDuration(clampedDuration);
+    }
+  }, [mode, model, duration, clampedDuration, setDuration]);
 
   const modelOptions = mode === 'photo' ? IMAGE_MODEL_OPTIONS : VIDEO_MODEL_OPTIONS;
   const maxQuantity = mode === 'photo' ? 8 : 4;
@@ -172,6 +194,22 @@ export function RushGeneratorPanel() {
                 {res}
               </button>
             ))}
+          </div>
+        )}
+
+        {/* Duration slider (video only) */}
+        {mode === 'video' && (
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 rounded-lg px-3 h-9">
+            <span className="text-xs text-slate-400">Durée</span>
+            <input
+              type="range"
+              min={durationLimits.min}
+              max={durationLimits.max}
+              value={clampedDuration}
+              onChange={(e) => setDuration(Number(e.target.value))}
+              className="w-20 h-1.5 bg-white/10 rounded-full appearance-none cursor-pointer [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-purple-500 focus:outline-none focus:ring-0"
+            />
+            <span className="text-sm text-white font-medium w-6">{clampedDuration}s</span>
           </div>
         )}
 

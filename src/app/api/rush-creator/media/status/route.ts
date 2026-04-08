@@ -29,13 +29,48 @@ export async function PATCH(request: Request) {
 
     const supabase = createServerSupabaseClient();
 
-    // Update status for all provided IDs
-    // RLS will ensure user can only update their own media
+    // First, verify the user owns all the media via project ownership
+    const { data: mediaItems, error: verifyError } = await supabase
+      .from('rush_media')
+      .select('id, project_id')
+      .in('id', ids);
+
+    if (verifyError) {
+      console.error('[RushCreator/Media/Status] Error verifying media:', verifyError);
+      return NextResponse.json({ error: verifyError.message }, { status: 500 });
+    }
+
+    if (!mediaItems || mediaItems.length === 0) {
+      return NextResponse.json({ error: 'No media found with provided IDs' }, { status: 404 });
+    }
+
+    // Get unique project IDs and verify ownership
+    const projectIds = [...new Set(mediaItems.map(m => m.project_id))];
+    const { data: ownedProjects, error: projectError } = await supabase
+      .from('projects')
+      .select('id')
+      .in('id', projectIds)
+      .eq('user_id', session.user.sub);
+
+    if (projectError) {
+      console.error('[RushCreator/Media/Status] Error verifying projects:', projectError);
+      return NextResponse.json({ error: projectError.message }, { status: 500 });
+    }
+
+    const ownedProjectIds = new Set(ownedProjects?.map(p => p.id) || []);
+    const authorizedIds = mediaItems
+      .filter(m => ownedProjectIds.has(m.project_id))
+      .map(m => m.id);
+
+    if (authorizedIds.length === 0) {
+      return NextResponse.json({ error: 'Not authorized to update these media' }, { status: 403 });
+    }
+
+    // Update status for authorized IDs only
     const { data, error } = await supabase
       .from('rush_media')
       .update({ status })
-      .in('id', ids)
-      .eq('user_id', session.user.sub)
+      .in('id', authorizedIds)
       .select('id');
 
     if (error) {

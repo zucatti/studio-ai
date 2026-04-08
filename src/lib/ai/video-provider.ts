@@ -2,7 +2,7 @@
  * Unified Video Provider Abstraction
  *
  * Routes video generation requests to different providers:
- * - fal.ai (Kling, Sora, Veo, OmniHuman)
+ * - fal.ai (Kling, Veo 3.1, Seedance 2, Grok, OmniHuman)
  * - Runway ML (Gen-4, Gen-4.5)
  */
 
@@ -16,9 +16,10 @@ export type VideoProvider = 'fal' | 'runway';
 export const VIDEO_PROVIDER_MODELS: Record<VideoProvider, { value: string; label: string; duration: number[] }[]> = {
   fal: [
     { value: 'kling-omni', label: 'Kling 3.0 Omni', duration: [5, 10, 15] },
+    { value: 'veo-3', label: 'Veo 3.1', duration: [4, 6, 8] },
     { value: 'seedance-2', label: 'Seedance 2.0', duration: [5, 10, 12] },
     { value: 'seedance-2-fast', label: 'Seedance 2.0 Fast', duration: [5, 10, 12] },
-    { value: 'veo-3', label: 'Veo 3.1', duration: [4, 6, 8] },
+    { value: 'grok-720p', label: 'Grok 720p', duration: [5, 10] },
     { value: 'omnihuman', label: 'OmniHuman 1.5', duration: [5, 10] },
   ],
   runway: [
@@ -105,7 +106,7 @@ export async function generateVideo(
 }
 
 /**
- * Generate video with fal.ai (Kling, Sora, Veo)
+ * Generate video with fal.ai (Kling, Veo, Seedance, Grok)
  */
 async function generateWithFal(
   input: VideoGenerationInput,
@@ -124,7 +125,7 @@ async function generateWithFal(
   onProgress?.('fal_submit', `Envoi à fal.ai (${model})...`, 10);
 
   // For now, we use Kling via fal.ai (most common case)
-  // Other models (sora-2, veo-3) have different APIs
+  // Other models (veo-3, seedance-2) are handled by the worker
   if (model === 'kling-omni' || model.startsWith('kling')) {
     const result = await generateKlingVideoFal(falWrapper, {
       prompt: input.prompt,

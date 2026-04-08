@@ -39,6 +39,7 @@ export interface RushCreatorStore {
   aspectRatio: AspectRatio;
   model: string;
   resolution: '1K' | '2K' | '4K';
+  duration: number;
 
   // Actions - UI
   open: (projectId?: string) => void;
@@ -75,6 +76,7 @@ export interface RushCreatorStore {
   setAspectRatio: (aspectRatio: AspectRatio) => void;
   setModel: (model: string) => void;
   setResolution: (resolution: '1K' | '2K' | '4K') => void;
+  setDuration: (duration: number) => void;
   loadPromptFromMedia: (mediaId: string) => void;
   generate: () => Promise<string | null>;
   addPendingJob: (job: PendingJob) => void;
@@ -114,6 +116,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       aspectRatio: '9:16',
       model: 'fal-ai/nano-banana-2',
       resolution: '2K',
+      duration: 5,
 
       // Hydration
       _hasHydrated: false,
@@ -135,7 +138,8 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
         set({ isOpen: true });
         if (projectId) {
           set({ currentProjectId: projectId });
-          get().fetchMedia(projectId);
+          // Only fetch pending media (awaiting review)
+          get().fetchMedia(projectId, { status: 'pending' });
         }
       },
 
@@ -150,7 +154,8 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       setCurrentProjectId: (projectId) => {
         set({ currentProjectId: projectId, media: [], currentIndex: 0, pendingJobs: [] });
         if (projectId) {
-          get().fetchMedia(projectId);
+          // Only fetch pending media (awaiting review)
+          get().fetchMedia(projectId, { status: 'pending' });
         }
       },
 
@@ -261,17 +266,38 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
 
       // Actions - Status changes
       moveToGallery: async () => {
-        const { selectedIds } = get();
+        const { selectedIds, media, pendingJobs, currentIndex } = get();
         if (selectedIds.size === 0) return;
-        await get().updateMediaStatus(Array.from(selectedIds), 'selected');
-        set({ selectedIds: new Set() });
+
+        const idsToMove = Array.from(selectedIds);
+        await get().updateMediaStatus(idsToMove, 'selected');
+
+        // Remove moved items from local state (they're now in Gallery, not Rush)
+        const newMedia = media.filter(m => !idsToMove.includes(m.id));
+        const newTotal = pendingJobs.length + newMedia.length;
+        set({
+          selectedIds: new Set(),
+          media: newMedia,
+          currentIndex: Math.min(currentIndex, Math.max(0, newTotal - 1)),
+        });
       },
 
       moveToRush: async () => {
-        const { selectedIds } = get();
+        const { selectedIds, media, pendingJobs, currentIndex } = get();
         if (selectedIds.size === 0) return;
-        await get().updateMediaStatus(Array.from(selectedIds), 'pending');
-        set({ selectedIds: new Set() });
+
+        const idsToMove = Array.from(selectedIds);
+        // Use 'rejected' status as "stored in Rush" (available in /rush page)
+        await get().updateMediaStatus(idsToMove, 'rejected');
+
+        // Remove moved items from Rush Creator view
+        const newMedia = media.filter(m => !idsToMove.includes(m.id));
+        const newTotal = pendingJobs.length + newMedia.length;
+        set({
+          selectedIds: new Set(),
+          media: newMedia,
+          currentIndex: Math.min(currentIndex, Math.max(0, newTotal - 1)),
+        });
       },
 
       deleteSelected: async () => {
@@ -328,6 +354,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       setAspectRatio: (aspectRatio) => set({ aspectRatio }),
       setModel: (model) => set({ model }),
       setResolution: (resolution) => set({ resolution }),
+      setDuration: (duration) => set({ duration }),
 
       loadPromptFromMedia: (mediaId) => {
         const { media } = get();
@@ -343,7 +370,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       },
 
       generate: async () => {
-        const { currentProjectId, mode, prompt, aspectRatio, model, resolution } = get();
+        const { currentProjectId, mode, prompt, aspectRatio, model, resolution, duration } = get();
         if (!currentProjectId || !prompt.trim()) return null;
 
         try {
@@ -360,6 +387,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
               aspectRatio,
               model,
               resolution,
+              ...(mode === 'video' && { duration }),
             }),
           });
 
@@ -433,6 +461,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
         aspectRatio: state.aspectRatio,
         model: state.model,
         resolution: state.resolution,
+        duration: state.duration,
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);

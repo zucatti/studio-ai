@@ -1,0 +1,445 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { X, BookOpen, Grid3X3, Archive, User, MapPin, Package, Loader2, Check, Users, Book } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { useRushCreatorStore } from '@/store/rush-creator-store';
+import { useBibleStore } from '@/store/bible-store';
+import { StorageImg, StorageThumbnail } from '@/components/ui/storage-image';
+import { generateReferenceName } from '@/lib/reference-name';
+import { getGenericCharacter } from '@/lib/generic-characters';
+import type { GlobalAsset, ProjectAssetFlat } from '@/types/database';
+
+export type SidePanelType = 'bible' | 'gallery' | 'rush' | null;
+
+interface RushSidePanelProps {
+  panelType: SidePanelType;
+  onClose: () => void;
+}
+
+interface GalleryImage {
+  id: string;
+  url: string;
+  prompt?: string;
+  media_type?: string;
+}
+
+export function RushSidePanel({ panelType, onClose }: RushSidePanelProps) {
+  const { currentProjectId } = useRushCreatorStore();
+
+  if (!panelType) return null;
+
+  const titles: Record<SidePanelType & string, { icon: typeof BookOpen; label: string }> = {
+    bible: { icon: BookOpen, label: 'Bible' },
+    gallery: { icon: Grid3X3, label: 'Gallery' },
+    rush: { icon: Archive, label: 'Rush' },
+  };
+
+  const { icon: Icon, label } = titles[panelType];
+
+  return (
+    <>
+      {/* Backdrop */}
+      <div
+        className="absolute inset-0 bg-black/60 z-10"
+        onClick={onClose}
+      />
+
+      {/* Panel */}
+      <div className="absolute top-0 right-0 bottom-0 w-full max-w-2xl bg-[#0d1520] border-l border-white/10 z-20 flex flex-col shadow-2xl">
+        {/* Header */}
+        <div className="flex items-center justify-between h-12 px-4 border-b border-white/10 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Icon className="w-5 h-5 text-blue-400" />
+            <h2 className="text-base font-semibold text-white">{label}</h2>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg hover:bg-white/10 flex items-center justify-center transition-colors"
+          >
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto">
+          {panelType === 'bible' && currentProjectId && (
+            <BibleContent projectId={currentProjectId} />
+          )}
+          {panelType === 'gallery' && currentProjectId && (
+            <GalleryContent projectId={currentProjectId} />
+          )}
+          {panelType === 'rush' && currentProjectId && (
+            <RushContent projectId={currentProjectId} />
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+// Bible Content - uses bible-store
+function BibleContent({ projectId }: { projectId: string }) {
+  const {
+    globalAssets,
+    projectAssets,
+    projectGenericAssets,
+    isLoading,
+    fetchGlobalAssets,
+    fetchProjectAssets,
+    fetchProjectGenericAssets,
+  } = useBibleStore();
+
+  const { prompt, setPrompt } = useRushCreatorStore();
+  const [activeTab, setActiveTab] = useState<'project' | 'global'>('project');
+  const [activeType, setActiveType] = useState<'characters' | 'locations' | 'props'>('characters');
+
+  useEffect(() => {
+    fetchProjectAssets(projectId);
+    fetchProjectGenericAssets(projectId);
+    fetchGlobalAssets(''); // userId not needed, API uses session
+  }, [projectId, fetchProjectAssets, fetchProjectGenericAssets, fetchGlobalAssets]);
+
+  // Filter assets by type
+  const projectCharacters = projectAssets.filter(a => a.asset_type === 'character');
+  const projectLocations = projectAssets.filter(a => a.asset_type === 'location');
+  const projectProps = projectAssets.filter(a => a.asset_type === 'prop');
+  const figurants = projectGenericAssets.filter(g => g.name_override);
+
+  const globalCharacters = globalAssets.filter(a => a.asset_type === 'character');
+  const globalLocations = globalAssets.filter(a => a.asset_type === 'location');
+  const globalProps = globalAssets.filter(a => a.asset_type === 'prop');
+
+  const insertMention = (name: string, prefix: '@' | '#' = '@') => {
+    const refName = generateReferenceName(name, prefix);
+    setPrompt(prompt + refName + ' ');
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  const currentAssets = activeTab === 'project'
+    ? (activeType === 'characters' ? [...projectCharacters] : activeType === 'locations' ? projectLocations : projectProps)
+    : (activeType === 'characters' ? globalCharacters : activeType === 'locations' ? globalLocations : globalProps);
+
+  const currentFigurants = activeTab === 'project' && activeType === 'characters' ? figurants : [];
+
+  return (
+    <div className="p-4">
+      {/* Bible Type Tabs */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setActiveTab('project')}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+            activeTab === 'project'
+              ? 'bg-green-500/20 text-green-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <Book className="w-4 h-4" />
+          Bible Projet
+        </button>
+        <button
+          onClick={() => setActiveTab('global')}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+            activeTab === 'global'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <BookOpen className="w-4 h-4" />
+          Bible Générale
+        </button>
+      </div>
+
+      {/* Asset Type Tabs */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setActiveType('characters')}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+            activeType === 'characters'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <User className="w-4 h-4" />
+          Personnages
+        </button>
+        <button
+          onClick={() => setActiveType('locations')}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+            activeType === 'locations'
+              ? 'bg-green-500/20 text-green-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <MapPin className="w-4 h-4" />
+          Lieux
+        </button>
+        <button
+          onClick={() => setActiveType('props')}
+          className={cn(
+            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+            activeType === 'props'
+              ? 'bg-orange-500/20 text-orange-400'
+              : 'text-slate-400 hover:text-white hover:bg-white/5'
+          )}
+        >
+          <Package className="w-4 h-4" />
+          Props
+        </button>
+      </div>
+
+      {/* Content Grid */}
+      <div className="grid grid-cols-2 gap-3">
+        {currentAssets.length === 0 && currentFigurants.length === 0 ? (
+          <p className="text-slate-500 text-sm col-span-2 text-center py-8">
+            {activeTab === 'project' ? 'Aucun élément dans la Bible du projet' : 'Aucun élément dans la Bible générale'}
+          </p>
+        ) : (
+          <>
+            {/* Regular assets */}
+            {currentAssets.map((asset) => (
+              <AssetButton
+                key={asset.id}
+                name={asset.name}
+                image={asset.reference_images?.[0]}
+                type={activeType}
+                onClick={() => insertMention(asset.name, activeType === 'characters' ? '@' : '#')}
+              />
+            ))}
+
+            {/* Figurants (generic characters) - only for project characters */}
+            {currentFigurants.map((figurant) => {
+              const generic = getGenericCharacter(figurant.id);
+              const images = figurant.local_overrides?.reference_images_metadata;
+              const image = images?.[0]?.url;
+              return (
+                <AssetButton
+                  key={figurant.project_generic_asset_id}
+                  name={figurant.name_override || figurant.name}
+                  image={image}
+                  type="characters"
+                  isGeneric
+                  onClick={() => insertMention(figurant.name_override || figurant.name, '@')}
+                />
+              );
+            })}
+          </>
+        )}
+      </div>
+
+      <p className="text-slate-500 text-xs mt-4 text-center">
+        Cliquez pour ajouter au prompt
+      </p>
+    </div>
+  );
+}
+
+// Asset button component
+function AssetButton({
+  name,
+  image,
+  type,
+  isGeneric,
+  onClick,
+}: {
+  name: string;
+  image?: string;
+  type: 'characters' | 'locations' | 'props';
+  isGeneric?: boolean;
+  onClick: () => void;
+}) {
+  const prefix = type === 'characters' ? '@' : '#';
+  const colorClasses = {
+    characters: isGeneric ? 'border-purple-500/30 hover:bg-purple-500/10' : 'border-blue-500/30 hover:bg-blue-500/10',
+    locations: 'border-green-500/30 hover:bg-green-500/10',
+    props: 'border-orange-500/30 hover:bg-orange-500/10',
+  };
+  const iconColors = {
+    characters: isGeneric ? 'text-purple-400 bg-purple-500/20' : 'text-blue-400 bg-blue-500/20',
+    locations: 'text-green-400 bg-green-500/20',
+    props: 'text-orange-400 bg-orange-500/20',
+  };
+  const IconComponent = type === 'characters' ? (isGeneric ? Users : User) : type === 'locations' ? MapPin : Package;
+
+  return (
+    <button
+      onClick={onClick}
+      className={cn(
+        'flex items-start gap-3 p-3 rounded-xl bg-white/5 border text-left transition-colors',
+        colorClasses[type]
+      )}
+    >
+      {image ? (
+        <StorageThumbnail
+          src={image}
+          alt={name}
+          size={48}
+          className="rounded-lg flex-shrink-0"
+        />
+      ) : (
+        <div className={cn('w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0', iconColors[type])}>
+          <IconComponent className="w-6 h-6" />
+        </div>
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="text-white font-medium text-sm truncate">{name}</p>
+        <p className={cn(
+          'text-xs mt-0.5 font-mono',
+          type === 'characters' ? (isGeneric ? 'text-purple-400' : 'text-blue-400') : type === 'locations' ? 'text-green-400' : 'text-orange-400'
+        )}>
+          {prefix}{generateReferenceName(name, prefix).slice(1)}
+        </p>
+      </div>
+    </button>
+  );
+}
+
+// Gallery Content
+function GalleryContent({ projectId }: { projectId: string }) {
+  const [images, setImages] = useState<GalleryImage[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchGallery = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(`/api/rush-creator/media?projectId=${projectId}&status=selected`);
+        if (res.ok) {
+          const data = await res.json();
+          setImages(data.media || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch gallery:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchGallery();
+  }, [projectId]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4">
+      {images.length === 0 ? (
+        <div className="text-center py-12">
+          <Grid3X3 className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+          <p className="text-slate-400">Aucune image dans la Gallery</p>
+          <p className="text-slate-500 text-sm mt-1">
+            Les images sélectionnées apparaîtront ici
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="text-slate-400 text-sm mb-3">{images.length} élément{images.length > 1 ? 's' : ''} dans la Gallery</p>
+          <div className="grid grid-cols-3 gap-2">
+            {images.map((img) => (
+              <div key={img.id} className="relative group">
+                <StorageImg
+                  src={img.url}
+                  alt={img.prompt || 'Gallery image'}
+                  className="w-full aspect-square object-cover rounded-lg"
+                />
+                <div className="absolute top-1 right-1">
+                  <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                    <Check className="w-3 h-3 text-white" />
+                  </div>
+                </div>
+                {img.prompt && (
+                  <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-end p-2">
+                    <p className="text-white text-xs line-clamp-3">{img.prompt}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Rush Content
+function RushContent({ projectId }: { projectId: string }) {
+  const [images, setImages] = useState<GalleryImage[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchRush = async () => {
+      setIsLoading(true);
+      try {
+        const res = await fetch(`/api/rush-creator/media?projectId=${projectId}&status=rejected`);
+        if (res.ok) {
+          const data = await res.json();
+          setImages(data.media || []);
+        }
+      } catch (error) {
+        console.error('Failed to fetch rush:', error);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchRush();
+  }, [projectId]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4">
+      {images.length === 0 ? (
+        <div className="text-center py-12">
+          <Archive className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+          <p className="text-slate-400">Aucune image dans les Rush</p>
+          <p className="text-slate-500 text-sm mt-1">
+            Les images stockées apparaîtront ici
+          </p>
+        </div>
+      ) : (
+        <>
+          <p className="text-slate-400 text-sm mb-3">{images.length} élément{images.length > 1 ? 's' : ''} dans les Rush</p>
+          <div className="grid grid-cols-3 gap-2">
+            {images.map((img) => (
+              <div key={img.id} className="relative group">
+                <StorageImg
+                  src={img.url}
+                  alt={img.prompt || 'Rush image'}
+                  className="w-full aspect-square object-cover rounded-lg"
+                />
+                {img.prompt && (
+                  <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-end p-2">
+                    <p className="text-white text-xs line-clamp-3">{img.prompt}</p>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

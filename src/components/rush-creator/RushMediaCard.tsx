@@ -188,10 +188,10 @@ export function RushMediaCard({ media, isCurrent }: RushMediaCardProps) {
             <span className={cn(
               'px-2 py-0.5 rounded text-xs font-medium',
               media.status === 'selected' && 'bg-green-500/20 text-green-400',
-              media.status === 'pending' && 'bg-yellow-500/20 text-yellow-400',
-              media.status === 'rejected' && 'bg-red-500/20 text-red-400'
+              media.status === 'pending' && 'bg-blue-500/20 text-blue-400',
+              media.status === 'rejected' && 'bg-orange-500/20 text-orange-400'
             )}>
-              {media.status === 'selected' ? 'Gallery' : media.status === 'pending' ? 'Rush' : 'Rejected'}
+              {media.status === 'selected' ? 'Gallery' : media.status === 'pending' ? 'Nouveau' : 'Rush'}
             </span>
             {isCurrent && media.prompt && (
               <button

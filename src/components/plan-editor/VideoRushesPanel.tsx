@@ -123,7 +123,9 @@ const MODEL_LABELS: Record<string, string> = {
   'kling-omni': 'Kling 3.0',
   'seedance-2': 'Seedance 2.0',
   'seedance-2-fast': 'Seedance Fast',
-  'veo-3': 'Veo 3',
+  'veo-3': 'Veo 3.1',
+  'grok-480p': 'Grok 480p',
+  'grok-720p': 'Grok 720p',
   'omnihuman': 'OmniHuman',
 };
 
@@ -132,6 +134,8 @@ const MODEL_COLORS: Record<string, string> = {
   'seedance-2': 'bg-blue-500',
   'seedance-2-fast': 'bg-cyan-500',
   'veo-3': 'bg-green-500',
+  'grok-480p': 'bg-red-500',
+  'grok-720p': 'bg-red-600',
   'omnihuman': 'bg-orange-500',
 };
 

@@ -190,7 +190,7 @@ export default function RushPage() {
         <div>
           <h1 className="text-2xl font-bold text-white">Rush</h1>
           <p className="text-slate-500 text-sm">
-            Images non retenues - Recuperez-les pour Gallery si besoin
+            Images stockées - Envoyez-les en Gallery si besoin
           </p>
         </div>
       </div>
@@ -203,7 +203,7 @@ export default function RushPage() {
           </div>
           <p className="text-slate-400 text-lg">Aucune image dans les rush</p>
           <p className="text-slate-600 text-sm mt-1">
-            Les images non selectionnees dans Quick Shot apparaitront ici
+            Cliquez &quot;Rush&quot; dans le Rush Creator pour stocker des images ici
           </p>
         </div>
       ) : (

@@ -97,13 +97,16 @@ const VISUAL_STYLES = [
   { value: 'noir', label: 'Film Noir', description: 'Noir et blanc dramatique' },
 ] as const;
 
-// Map legacy providers to new ones
+// Map legacy providers to new model names
 const mapProvider = (provider: string | null | undefined): string => {
   const legacyMap: Record<string, string> = {
-    'runway': 'kling',
-    'runwayml': 'kling',
+    'runway': 'kling-omni',
+    'runwayml': 'kling-omni',
+    'kling': 'kling-omni',
+    'veo': 'veo-3',
+    'sora': 'kling-omni', // Sora deprecated, fallback to Kling
   };
-  const p = provider || 'kling';
+  const p = provider || 'kling-omni';
   return legacyMap[p] || p;
 };
 
@@ -911,9 +914,9 @@ function ShotCard({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="kling">Kling Pro</SelectItem>
-                    <SelectItem value="veo">Kling Master</SelectItem>
-                    <SelectItem value="sora">Kling Standard</SelectItem>
+                    <SelectItem value="kling-omni">Kling Omni</SelectItem>
+                    <SelectItem value="veo-3">Veo 3.1</SelectItem>
+                    <SelectItem value="seedance-2">Seedance 2</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

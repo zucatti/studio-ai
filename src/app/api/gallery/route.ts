@@ -189,12 +189,13 @@ export async function GET() {
       }
     }
 
-    // Fetch rush images - only selected ones (approved for gallery)
+    // Fetch rush media - only selected images (approved for gallery)
     const { data: rushImages, error: rushError } = await supabase
-      .from('rush_images')
+      .from('rush_media')
       .select('id, url, prompt, aspect_ratio, project_id, created_at')
       .in('project_id', projectIds)
       .eq('status', 'selected')
+      .eq('media_type', 'image')
       .order('created_at', { ascending: false });
 
     if (!rushError && rushImages) {

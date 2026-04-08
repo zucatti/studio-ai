@@ -1,6 +1,6 @@
 /**
  * fal.ai Video Provider
- * Supports: OmniHuman 1.5, Seedance 2.0, Kling, Sora 2, Veo 3, Wan
+ * Supports: OmniHuman 1.5, Seedance 2.0, Kling, Veo 3.1, Grok, Wan
  *
  * Seedance 2.0 Endpoints:
  * - reference-to-video: Character references via images_list + @image1/@image2 syntax
@@ -37,9 +37,9 @@ const MODEL_ENDPOINTS: Record<string, string> = {
   // Grok Imagine (xAI) - cheap preview at 480p ($0.05/s)
   'grok-480p': 'xai/grok-imagine-video/image-to-video',
   'grok-720p': 'xai/grok-imagine-video/image-to-video',
-  // Others
-  'sora-2': 'fal-ai/sora/v2/image-to-video',
+  // Veo 3.1 (Google)
   'veo-3': 'fal-ai/veo3/image-to-video',
+  // Wan (Alibaba)
   'wan-2.1': 'fal-ai/wan/v2.1/image-to-video',
   'wan-2.6': 'fal-ai/wan/v2.1/image-to-video',
 };
@@ -54,6 +54,8 @@ const REFERENCE_TO_VIDEO_ENDPOINTS: Record<string, string> = {
   'grok-720p': 'xai/grok-imagine-video/reference-to-video',
   // Kling O3 reference-to-video (requires start_image_url + elements)
   'kling-omni': 'fal-ai/kling-video/o3/pro/reference-to-video',
+  // Veo 3.1 supports up to 3 reference images for character/object consistency
+  'veo-3': 'fal-ai/veo3/reference-to-video',
 };
 
 // Text-to-video endpoints (no starting image required)
@@ -63,7 +65,6 @@ const TEXT_TO_VIDEO_ENDPOINTS: Record<string, string> = {
   'seedance-2-fast': 'bytedance/seedance-2.0/fast/text-to-video',
   'kling-omni': 'fal-ai/kling-video/o3/pro/text-to-video',
   'kling-2.6': 'fal-ai/kling-video/v2.6/pro/text-to-video',
-  'sora-2': 'fal-ai/sora/v2/text-to-video',
   'veo-3': 'fal-ai/veo3/text-to-video',
   'grok-480p': 'xai/grok-imagine-video/text-to-video',
   'grok-720p': 'xai/grok-imagine-video/text-to-video',
@@ -118,24 +119,16 @@ const MODELS: VideoModel[] = [
     defaultForVideo: true,
   },
   {
-    id: 'sora-2',
-    name: 'Sora 2',
-    description: 'OpenAI Sora video generation',
-    maxDuration: 10,
-    minDuration: 5,
-    supportsEndFrame: false,
-    supportsDialogue: false,
-    supportsAudio: false,
-  },
-  {
     id: 'veo-3',
-    name: 'Veo 3',
-    description: 'Google Veo video generation',
-    maxDuration: 10,
-    minDuration: 5,
+    name: 'Veo 3.1',
+    description: 'Google Veo 3.1 - up to 3 reference images for character consistency',
+    maxDuration: 8,
+    minDuration: 4,
     supportsEndFrame: false,
     supportsDialogue: false,
-    supportsAudio: false,
+    supportsAudio: true, // Veo 3.1 generates audio from prompt
+    supportsTextToVideo: true,
+    supportsReferences: true, // Up to 3 reference images
   },
   {
     id: 'wan-2.1',
@@ -225,24 +218,25 @@ export class FalProvider implements VideoProvider {
 
     const isGrok = model.startsWith('grok-');
     const isKling = model.startsWith('kling');
-    console.log(`[Fal] isKling: ${isKling}, isGrok: ${isGrok}, isSeedance: ${isSeedance}`);
-    console.log(`[Fal] Condition check: (isSeedance || isGrok || isKling) && hasCharacterRefs && hasStartingFrame`);
-    console.log(`[Fal]   = (${isSeedance} || ${isGrok} || ${isKling}) && ${hasCharacterRefs} && ${hasStartingFrame}`);
-    console.log(`[Fal]   = ${(isSeedance || isGrok || isKling)} && ${hasCharacterRefs} && ${hasStartingFrame}`);
-    console.log(`[Fal]   = ${(isSeedance || isGrok || isKling) && hasCharacterRefs && hasStartingFrame}`);
+    const isVeo = model.startsWith('veo-');
+    console.log(`[Fal] isKling: ${isKling}, isGrok: ${isGrok}, isSeedance: ${isSeedance}, isVeo: ${isVeo}`);
+    console.log(`[Fal] Condition check: (isSeedance || isGrok || isKling || isVeo) && hasCharacterRefs && hasStartingFrame`);
+    console.log(`[Fal]   = (${isSeedance} || ${isGrok} || ${isKling} || ${isVeo}) && ${hasCharacterRefs} && ${hasStartingFrame}`);
+    console.log(`[Fal]   = ${(isSeedance || isGrok || isKling || isVeo)} && ${hasCharacterRefs} && ${hasStartingFrame}`);
+    console.log(`[Fal]   = ${(isSeedance || isGrok || isKling || isVeo) && hasCharacterRefs && hasStartingFrame}`);
     console.log(`[Fal] =================================================`);
 
-    if ((isSeedance || isGrok || isKling) && hasCharacterRefs && hasStartingFrame) {
-      // Seedance, Grok, or Kling with character references -> reference-to-video
+    if ((isSeedance || isGrok || isKling || isVeo) && hasCharacterRefs && hasStartingFrame) {
+      // Seedance, Grok, Kling, or Veo with character references -> reference-to-video
       // Note: Kling reference-to-video REQUIRES a start_image_url
       endpoint = REFERENCE_TO_VIDEO_ENDPOINTS[model] || MODEL_ENDPOINTS[model];
       endpointType = 'reference-to-video';
       console.log(`[Fal] >>> SELECTED: reference-to-video (has refs + start frame)`);
-    } else if ((isSeedance || isGrok) && hasCharacterRefs) {
-      // Seedance/Grok can do reference-to-video without start frame
+    } else if ((isSeedance || isGrok || isVeo) && hasCharacterRefs) {
+      // Seedance/Grok/Veo can do reference-to-video without start frame
       endpoint = REFERENCE_TO_VIDEO_ENDPOINTS[model] || MODEL_ENDPOINTS[model];
       endpointType = 'reference-to-video';
-      console.log(`[Fal] >>> SELECTED: reference-to-video (Seedance/Grok without start frame)`);
+      console.log(`[Fal] >>> SELECTED: reference-to-video (Seedance/Grok/Veo without start frame)`);
     } else if (hasStartingFrame) {
       endpoint = MODEL_ENDPOINTS[model] || model;
       endpointType = 'image-to-video';
@@ -394,6 +388,31 @@ export class FalProvider implements VideoProvider {
       }
 
       console.log(`[Fal] Grok (${model}), duration: ${input.duration}s, resolution: ${input.resolution}`);
+    }
+
+    // Veo 3.1 (Google) configuration
+    if (isVeo) {
+      // Veo 3.1 supports 4-8 seconds
+      input.duration = Math.min(Math.max(request.duration, 4), 8);
+
+      // Reference-to-video: pass character images (max 3 for Veo)
+      if (endpointType === 'reference-to-video' && request.cinematicElements?.length) {
+        const imagesList: string[] = [];
+        for (const el of request.cinematicElements) {
+          if (el.frontalImageUrl) {
+            imagesList.push(el.frontalImageUrl);
+          }
+          if (el.referenceImageUrls?.length) {
+            imagesList.push(...el.referenceImageUrls);
+          }
+        }
+        // Max 3 images for Veo 3.1 reference-to-video
+        const limitedImages = imagesList.slice(0, 3);
+        input.reference_image_urls = limitedImages;
+        console.log(`[Fal] Veo 3.1 reference-to-video with ${limitedImages.length} images`);
+      }
+
+      console.log(`[Fal] Veo 3.1 (${model}), duration: ${input.duration}s`);
     }
 
     // Add end frame if supported (image-to-video only)

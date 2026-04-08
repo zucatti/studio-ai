@@ -70,7 +70,6 @@ const fullPipelineNavigation: NavSection = {
 const simplifiedNavigation: NavSection = {
   title: 'PROJET',
   items: [
-    { name: 'Quick Shot', href: '/quick-shot', icon: Zap },
     { name: 'Gallery', href: '/gallery', icon: Grid3X3 },
     { name: 'Rushes', href: '/rushes', icon: Archive },
   ],
@@ -81,7 +80,6 @@ const shortsNavigation: NavSection = {
   title: 'PROJET',
   items: [
     { name: 'Mes Shorts', href: '/shorts', icon: Play },
-    { name: 'Quick Shot', href: '/quick-shot', icon: Zap },
     { name: 'Gallery', href: '/gallery', icon: Grid3X3 },
     { name: 'Rush', href: '/rush', icon: Archive },
     { name: 'Bible', href: '/bible', icon: BookOpen },

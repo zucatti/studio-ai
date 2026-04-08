@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRushCreatorStore } from '@/store/rush-creator-store';
 import { RushCarousel } from './RushCarousel';
 import { RushGeneratorPanel } from './RushGeneratorPanel';
 import { RushActionBar } from './RushActionBar';
-import { RushProjectSelector } from './RushProjectSelector';
+import { RushTopBar } from './RushTopBar';
+import { RushSidePanel, type SidePanelType } from './RushSidePanel';
 
 interface RushCreatorProps {
   projectId?: string;
@@ -30,6 +30,14 @@ export function RushCreator({ projectId }: RushCreatorProps) {
   } = useRushCreatorStore();
 
   const totalItems = getTotalItems();
+  const [activePanel, setActivePanel] = useState<SidePanelType>(null);
+
+  // Close panel when Rush Creator closes
+  useEffect(() => {
+    if (!isOpen) {
+      setActivePanel(null);
+    }
+  }, [isOpen]);
 
   // Set project ID when provided
   useEffect(() => {
@@ -97,28 +105,16 @@ export function RushCreator({ projectId }: RushCreatorProps) {
       className="fixed inset-0 z-[9999] bg-[#0a0f1a] flex flex-col"
       style={{ isolation: 'isolate' }}
     >
-      {/* Header */}
-      <header className="flex items-center justify-between h-14 px-4 border-b border-white/5">
-        {/* Close button */}
-        <button
-          onClick={close}
-          className="w-10 h-10 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center transition-colors"
-          title="Fermer (Escape)"
-        >
-          <X className="w-5 h-5 text-white" />
-        </button>
-
-        {/* Title */}
-        <div className="flex items-center gap-3">
-          <h1 className="text-lg font-semibold text-white">Rush Creator</h1>
-        </div>
-
-        {/* Project selector */}
-        <RushProjectSelector />
-      </header>
+      {/* Header with navigation */}
+      <RushTopBar
+        activePanel={activePanel}
+        onPanelChange={setActivePanel}
+      />
 
       {/* Main content - Carousel */}
       <main className="flex-1 relative overflow-hidden">
+        {/* Side Panel (inside main for proper positioning) */}
+        <RushSidePanel panelType={activePanel} onClose={() => setActivePanel(null)} />
         {isLoading ? (
           <div className="flex items-center justify-center h-full">
             <div className="flex flex-col items-center gap-3">

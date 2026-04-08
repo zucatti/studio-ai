@@ -190,8 +190,11 @@ export type JobData =
 export type VideoModel =
   // fal.ai models
   | 'kling-omni'
-  | 'sora-2'
   | 'veo-3'
+  | 'seedance-2'
+  | 'seedance-2-fast'
+  | 'grok-480p'
+  | 'grok-720p'
   | 'omnihuman'
   // Runway models
   | 'gen4'

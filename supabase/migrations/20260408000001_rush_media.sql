@@ -73,12 +73,8 @@ CREATE POLICY "Users can delete their own rush media"
     )
   );
 
--- Allow service role to bypass RLS
-CREATE POLICY "Service role has full access to rush_media"
-  ON rush_media
-  FOR ALL
-  USING (auth.role() = 'service_role')
-  WITH CHECK (auth.role() = 'service_role');
+-- Note: Service role bypasses RLS by default in Supabase
+-- No explicit policy needed for worker/service role access
 
 -- Migrate existing data from rush_images
 INSERT INTO rush_media (id, project_id, user_id, url, media_type, prompt, aspect_ratio, model, status, created_at)

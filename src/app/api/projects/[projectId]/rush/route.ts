@@ -382,11 +382,12 @@ export async function POST(request: Request, { params }: RouteParams) {
       const b2Url = `b2://${STORAGE_BUCKET}/${storageKey}`;
 
       const { data: rushImage } = await supabase
-        .from('rush_images')
+        .from('rush_media')
         .insert({
           project_id: projectId,
           user_id: session.user.sub,
           url: b2Url,
+          media_type: 'image',
           prompt: prompt,
           aspect_ratio: ratio,
           model: 'nano-banana-2',
@@ -454,9 +455,10 @@ export async function GET(request: Request, { params }: RouteParams) {
     // Fetch rush images filtered by status
     // Note: NULL status is treated as 'pending' for backwards compatibility
     let query = supabase
-      .from('rush_images')
+      .from('rush_media')
       .select('*')
-      .eq('project_id', projectId);
+      .eq('project_id', projectId)
+      .eq('media_type', 'image');
 
     if (statusParam === 'pending') {
       // Include both 'pending' and NULL (old records)
@@ -526,7 +528,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
 
     // Update status for all specified images
     const { error } = await supabase
-      .from('rush_images')
+      .from('rush_media')
       .update({ status })
       .eq('project_id', projectId)
       .in('id', imageIds);
@@ -563,7 +565,7 @@ export async function DELETE(request: Request, { params }: RouteParams) {
 
     // Delete the rush image (RLS will ensure ownership)
     const { error } = await supabase
-      .from('rush_images')
+      .from('rush_media')
       .delete()
       .eq('id', imageId)
       .eq('project_id', projectId);
