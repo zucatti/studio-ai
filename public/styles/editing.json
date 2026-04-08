@@ -1,0 +1,101 @@
+{
+  "category": "Editing",
+  "techniques": [
+    {
+      "name": "Cross-Cutting (Parallel Editing)",
+      "utility": "Alternance entre deux actions se déroulant simultanément dans des lieux différents. Augmente la tension et le suspense.",
+      "prompt": "Cross-cutting, parallel action, two scenes intercut, cinematic suspense, simultaneous events --v 6.0",
+      "preview": "editing/cross-cutting.webp"
+    },
+    {
+      "name": "Cut In",
+      "utility": "Plan rapproché inséré pour montrer un détail de l'action principale. Attire l'attention sur un élément spécifique.",
+      "prompt": "Cut in, detail shot, emphasis insert, cinematic focus --v 6.0",
+      "preview": "editing/cut-in.webp"
+    },
+    {
+      "name": "Cutaway",
+      "utility": "Plan de coupe montrant quelque chose hors de l'action principale. Permet de cacher une coupe ou ajouter du contexte.",
+      "prompt": "Cutaway shot, reaction insert, narrative detail, cinematic pacing --v 6.0",
+      "preview": "editing/cutaway.webp"
+    },
+    {
+      "name": "Dissolve",
+      "utility": "Superposition graduelle de deux plans. Suggère le passage du temps, un lien onirique ou une transition douce entre les pensées d'un personnage.",
+      "prompt": "Dissolve transition, overlapping frames, dreamlike cinematic blend, passage of time --v 6.0",
+      "preview": "editing/dissolve.webp"
+    },
+    {
+      "name": "Fade In Out",
+      "utility": "Apparition ou disparition progressive de l'image depuis/vers le noir. Marque le début ou la fin d'un acte.",
+      "prompt": "Fade to black, gradual image reveal, cinematic opening, soft transition --v 6.0",
+      "preview": "editing/fade-in-out.webp"
+    },
+    {
+      "name": "Fast Motion",
+      "utility": "Accélération de l'image par rapport au temps réel. Compresse le temps ou ajoute une énergie comique/dynamique.",
+      "prompt": "Fast motion, time acceleration, energetic pacing, cinematic speed --v 6.0",
+      "preview": "editing/fast-motion.webp"
+    },
+    {
+      "name": "Freeze Frame",
+      "utility": "L'image s'arrête brusquement sur une image fixe. Sert à souligner un moment d'émotion intense, un dénouement ou à introduire un titre.",
+      "prompt": "Freeze frame, still action, dramatic cinematic pause, captured moment in time --v 6.0",
+      "preview": "editing/freeze-frame.webp"
+    },
+    {
+      "name": "Iris Transition",
+      "utility": "Transition circulaire s'ouvrant ou se fermant comme l'iris d'un œil. Style classique du cinéma muet.",
+      "prompt": "Iris transition, circular wipe, vintage cinematic effect, classic film style --v 6.0",
+      "preview": "editing/iris-transition.webp"
+    },
+    {
+      "name": "Jump Cut",
+      "utility": "Sauts brusques dans le temps au sein d'un même plan. Crée une sensation de nervosité, d'urgence ou montre l'écoulement rapide du temps.",
+      "prompt": "Jump cut sequence, stuttering motion, temporal displacement, cinematic urgency --v 6.0",
+      "preview": "editing/jump-cut.webp"
+    },
+    {
+      "name": "Long Take",
+      "utility": "Plan séquence prolongé sans coupe de montage. Immerge le spectateur dans le temps réel de l'action.",
+      "prompt": "Long take, continuous shot, no cuts, immersive cinematic choreography --v 6.0",
+      "preview": "editing/long-take.webp"
+    },
+    {
+      "name": "Montage",
+      "utility": "Séquence rapide de plans courts pour compresser le temps, montrer une progression ou une accumulation d'informations.",
+      "prompt": "Cinematic montage sequence, time compression, rapid visual storytelling, thematic collection of shots --v 6.0",
+      "preview": "editing/montage.webp"
+    },
+    {
+      "name": "Reaction Shot",
+      "utility": "Plan montrant la réaction d'un personnage à une action ou dialogue. Essentiel pour le rythme émotionnel.",
+      "prompt": "Reaction shot, emotional response, character focus, cinematic storytelling --v 6.0",
+      "preview": "editing/reaction-shot.webp"
+    },
+    {
+      "name": "Smash Cut",
+      "utility": "Transition brutale et inattendue d'une scène à une autre, souvent pour briser une ambiance (ex: d'un cri à un silence total).",
+      "prompt": "Smash cut, abrupt scene transition, jarring contrast, cinematic shock effect --v 6.0",
+      "preview": "editing/smash-cut.webp"
+    },
+    {
+      "name": "Split Screen",
+      "utility": "Division de l'écran en plusieurs cadres montrant des actions différentes simultanément. Très utile pour les appels téléphoniques ou les comparaisons.",
+      "prompt": "Split screen, multi-frame composition, simultaneous actions, cinematic layout, dynamic grid --v 6.0",
+      "preview": "editing/split-screen.webp"
+    },
+    {
+      "name": "Time Lapse",
+      "utility": "Technique capturant des images à intervalles puis lues en vitesse normale. Compresse des heures en secondes.",
+      "prompt": "Time lapse, accelerated time, compressed duration, cinematic passage --v 6.0",
+      "preview": "editing/time-lapse.webp"
+    },
+    {
+      "name": "Wipe Transition",
+      "utility": "Un plan \"pousse\" le précédent hors de l'écran. Style classique associé à l'aventure ou au vintage.",
+      "prompt": "Wipe transition, sliding frame, classic cinematic scene shift, energetic movement --v 6.0",
+      "preview": "editing/wipe-transition.webp"
+    }
+  ]
+}

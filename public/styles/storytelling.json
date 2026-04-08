@@ -1,0 +1,83 @@
+{
+  "category": "Storytelling",
+  "techniques": [
+    {
+      "name": "Breaking Fourth Wall",
+      "utility": "Un personnage regarde directement l'objectif ou s'adresse au public, brisant l'illusion pour créer complicité ou choc.",
+      "prompt": "Breaking the fourth wall, character looking directly into lens, intimate cinematic gaze --v 6.0",
+      "preview": "storytelling/breaking-fourth-wall.webp"
+    },
+    {
+      "name": "Cliffhanger",
+      "utility": "Fin de séquence sur un moment de suspense intense. Maintient l'attention et crée l'anticipation.",
+      "prompt": "Cliffhanger moment, suspenseful pause, dramatic tension, cinematic anticipation --v 6.0",
+      "preview": "storytelling/cliffhanger.webp"
+    },
+    {
+      "name": "Flashback",
+      "utility": "Retour dans le passé interrompant la chronologie. Révèle l'histoire ou la psychologie d'un personnage.",
+      "prompt": "Flashback sequence, memory visualization, temporal shift, cinematic nostalgia --v 6.0",
+      "preview": "storytelling/flashback.webp"
+    },
+    {
+      "name": "Flashforward",
+      "utility": "Saut dans le futur anticipant des événements à venir. Crée intrigue et questionnement.",
+      "prompt": "Flashforward, future glimpse, narrative foresight, cinematic anticipation --v 6.0",
+      "preview": "storytelling/flashforward.webp"
+    },
+    {
+      "name": "Foreshadowing",
+      "utility": "Placer un indice visuel discret qui suggère un événement futur dans l'histoire. Crée un sentiment de destin ou de tension.",
+      "prompt": "Foreshadowing, subtle visual clue, narrative depth, mysterious cinematic atmosphere --v 6.0",
+      "preview": "storytelling/foreshadowing.webp"
+    },
+    {
+      "name": "Frame Narrative",
+      "utility": "Histoire enchâssée dans une autre histoire. Le récit-cadre contextualise le récit principal.",
+      "prompt": "Frame narrative, story within story, layered storytelling, cinematic structure --v 6.0",
+      "preview": "storytelling/frame-narrative.webp"
+    },
+    {
+      "name": "In Medias Res",
+      "utility": "Commencer l'histoire en plein milieu de l'action, sans introduction. Immersion immédiate et brutale.",
+      "prompt": "In medias res, opening in the middle of chaos, high energy cinematic action, immersive start --v 6.0",
+      "preview": "storytelling/in-medias-res.webp"
+    },
+    {
+      "name": "Motif",
+      "utility": "Élément visuel ou sonore récurrent porteur de sens. Tisse des liens thématiques à travers le film.",
+      "prompt": "Visual motif, recurring symbol, thematic element, cinematic continuity --v 6.0",
+      "preview": "storytelling/motif.webp"
+    },
+    {
+      "name": "Non-Linear Narrative",
+      "utility": "Indices visuels montrant que le temps ne s'écoule pas normalement (changements de vêtements, de météo ou d'apparence soudains).",
+      "prompt": "Non-linear storytelling, fragmented time visuals, complex cinematic narrative clues --v 6.0",
+      "preview": "storytelling/non-linear-narrative.webp"
+    },
+    {
+      "name": "Parallel Storylines",
+      "utility": "Plusieurs intrigues simultanées qui s'entrelacent. Enrichit la narration et les thèmes.",
+      "prompt": "Parallel storylines, dual narratives, interwoven plots, cinematic complexity --v 6.0",
+      "preview": "storytelling/parallel-storylines.webp"
+    },
+    {
+      "name": "Reverse Motion",
+      "utility": "Lecture inversée de l'image. Effet temporel surréaliste ou révélateur.",
+      "prompt": "Reverse motion, backward playback, temporal reversal, cinematic effect --v 6.0",
+      "preview": "storytelling/reverse-motion.webp"
+    },
+    {
+      "name": "Symbolism",
+      "utility": "Utilisation d'images porteuses de significations profondes au-delà de leur sens littéral.",
+      "prompt": "Visual symbolism, metaphorical imagery, deeper meaning, cinematic subtext --v 6.0",
+      "preview": "storytelling/symbolism.webp"
+    },
+    {
+      "name": "Voiceover Narration",
+      "utility": "Voix off commentant ou racontant l'action. Guide le spectateur dans l'histoire.",
+      "prompt": "Voiceover narration, narrative voice, storytelling guide, cinematic perspective --v 6.0",
+      "preview": "storytelling/voiceover-narration.webp"
+    }
+  ]
+}

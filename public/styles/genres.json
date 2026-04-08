@@ -1,0 +1,119 @@
+{
+  "category": "Genres & Styles",
+  "techniques": [
+    {
+      "name": "Acid Western",
+      "utility": "Western psychédélique subvertissant les codes du genre. Atmosphère surréaliste et critique contre-culturelle.",
+      "prompt": "Acid western, psychedelic frontier, surreal desert, unconventional western, cinematic subversion --v 6.0",
+      "preview": "genres/acid-western.webp"
+    },
+    {
+      "name": "Cinema Verite",
+      "utility": "Style documentaire brut : caméra portée, lumière naturelle, absence d'artifice pour un sentiment de vérité absolue.",
+      "prompt": "Cinema verite, documentary realism, handheld camera, natural available light, unpolished cinematic truth --v 6.0",
+      "preview": "genres/cinema-verite.webp"
+    },
+    {
+      "name": "Dogme-95",
+      "utility": "Mouvement cinématographique danois : caméra à l'épaule, lumière naturelle uniquement, réalisme brut et sans artifice.",
+      "prompt": "Dogme 95 style, handheld camera, natural light only, raw realism, cinematic purity --v 6.0",
+      "preview": "genres/dogme-95.webp"
+    },
+    {
+      "name": "Film Noir",
+      "utility": "Style classique des années 40-50. Noir et blanc contrasté (low-key), ombres portées marquées (stores vénitiens), fumée de cigarette et ambiance mystérieuse.",
+      "prompt": "Film noir style, monochrome, high contrast, dramatic shadows, venetian blind shadows, smoky atmosphere --v 6.0",
+      "preview": "genres/film-noir.webp"
+    },
+    {
+      "name": "Found Footage",
+      "utility": "Style imitant des images \"trouvées\" ou amateurs. Caméra tremblante et défauts techniques pour l'authenticité.",
+      "prompt": "Found footage style, amateur camera, raw authenticity, documentary horror, cinematic realism --v 6.0",
+      "preview": "genres/found-footage.webp"
+    },
+    {
+      "name": "French New Wave (Nouvelle Vague)",
+      "utility": "Style spontané et brut. Caméra portée, lumière naturelle, décors réels et montage dynamique (jump cuts), privilégiant l'énergie au fini poli.",
+      "prompt": "French New Wave aesthetic, 1960s cinema, handheld camera, natural lighting, casual Parisian atmosphere --v 6.0",
+      "preview": "genres/french-new-wave.webp"
+    },
+    {
+      "name": "German Expressionism",
+      "utility": "Style des années 1920. Décors aux angles impossibles, ombres géométriques ultra-marquées et atmosphère cauchemardesque (type Cabinet du Dr. Caligari).",
+      "prompt": "German expressionism, silent film aesthetic, sharp angular shadows, distorted architecture, high contrast monochrome --v 6.0",
+      "preview": "genres/german-expressionism.webp"
+    },
+    {
+      "name": "Giallo",
+      "utility": "Style d'horreur/thriller italien des années 70. Couleurs primaires saturées (surtout le rouge), éclairages théâtraux et cadrages fétichistes ou insolites.",
+      "prompt": "Giallo aesthetic, vivid primary colors, deep red saturation, 1970s Italian horror style, theatrical lighting --v 6.0",
+      "preview": "genres/giallo.webp"
+    },
+    {
+      "name": "Hyperlink Cinema",
+      "utility": "Narratif interconnecté où plusieurs histoires s'entrelacent. Structure en réseau plutôt que linéaire.",
+      "prompt": "Hyperlink cinema, interconnected narratives, multi-thread storytelling, cinematic complexity --v 6.0",
+      "preview": "genres/hyperlink-cinema.webp"
+    },
+    {
+      "name": "Italian Neorealism",
+      "utility": "Mouvement italien d'après-guerre : tournage en extérieur, acteurs non professionnels, réalisme social.",
+      "prompt": "Italian neorealism, location shooting, non-professional actors, social realism, cinematic authenticity --v 6.0",
+      "preview": "genres/italian-neorealism.webp"
+    },
+    {
+      "name": "Mockumentary",
+      "utility": "Faux documentaire utilisant les codes du genre pour un effet comique ou satirique.",
+      "prompt": "Mockumentary style, fake documentary, comedic realism, talking heads, cinematic parody --v 6.0",
+      "preview": "genres/mockumentary.webp"
+    },
+    {
+      "name": "Mumblecore",
+      "utility": "Style ultra-naturaliste à petit budget. Focus sur les dialogues improvisés, les décors intérieurs réels et une caméra très discrète.",
+      "prompt": "Mumblecore aesthetic, low budget realism, naturalistic lighting, intimate handheld shots, raw cinematic dialogue --v 6.0",
+      "preview": "genres/mumblecore.webp"
+    },
+    {
+      "name": "Noir Tech",
+      "utility": "Fusion du film noir classique et de l'esthétique cyberpunk. Néons, pluie et crime futuriste.",
+      "prompt": "Noir tech aesthetic, cyberpunk noir, neon shadows, futuristic crime, cinematic fusion --v 6.0",
+      "preview": "genres/noir-tech.webp"
+    },
+    {
+      "name": "Poetic Realism",
+      "utility": "Mouvement français des années 30 : atmosphère lyrique, fatalisme romantique et beauté mélancolique.",
+      "prompt": "Poetic realism, lyrical atmosphere, romantic fatalism, French 1930s style, cinematic poetry --v 6.0",
+      "preview": "genres/poetic-realism.webp"
+    },
+    {
+      "name": "Slow Cinema",
+      "utility": "Style cinématographique caractérisé par des plans longs, une action minimale et un rythme contemplatif. Invite à la méditation visuelle.",
+      "prompt": "Slow cinema, long takes, minimal action, contemplative pacing, meditative cinematic style --v 6.0",
+      "preview": "genres/slow-cinema.webp"
+    },
+    {
+      "name": "Southern Gothic",
+      "utility": "Esthétique américaine du Sud : grandeur décadente, atmosphère humide et secrets enfouis.",
+      "prompt": "Southern gothic, decaying grandeur, humid atmosphere, dark Americana, cinematic decay --v 6.0",
+      "preview": "genres/southern-gothic.webp"
+    },
+    {
+      "name": "Spaghetti Western",
+      "utility": "Esthétique brute et poussiéreuse. Gros plans extrêmes sur les yeux, chaleur accablante, paysages arides et contrastes forts sous un soleil de plomb.",
+      "prompt": "Spaghetti western style, dusty atmosphere, extreme close-ups, sun-bleached colors, gritty desert landscape --v 6.0",
+      "preview": "genres/spaghetti-western.webp"
+    },
+    {
+      "name": "Surrealism",
+      "utility": "Logique onirique brisée. Espaces impossibles, juxtapositions bizarres et éclairages non naturels pour représenter l'inconscient (façon David Lynch).",
+      "prompt": "Surrealist cinema style, dream logic, impossible architecture, uncanny atmosphere, Lynchian visuals --v 6.0",
+      "preview": "genres/surrealism.webp"
+    },
+    {
+      "name": "Wuxia",
+      "utility": "Genre chinois d'arts martiaux : héros chevaleresques, combats aériens chorégraphiés et honneur.",
+      "prompt": "Wuxia style, martial arts fantasy, wire-fu action, Chinese period aesthetic, cinematic choreography --v 6.0",
+      "preview": "genres/wuxia.webp"
+    }
+  ]
+}

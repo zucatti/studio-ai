@@ -1,0 +1,185 @@
+{
+  "category": "Lighting",
+  "techniques": [
+    {
+      "name": "Ambient Light",
+      "utility": "Lumière ambiante non directionnelle présente dans l'environnement. Définit le niveau de base de visibilité avant tout éclairage additionnel.",
+      "prompt": "Ambient lighting, soft overall illumination, low contrast cinematic atmosphere, fill light everywhere --v 6.0",
+      "preview": "lightning/ambient-light.webp"
+    },
+    {
+      "name": "Available Light",
+      "utility": "Utilisation exclusive de la lumière naturellement présente sur le lieu de tournage, sans ajout artificiel. Apporte authenticité et réalisme documentaire.",
+      "prompt": "Available light, natural ambient illumination, documentary style, realistic cinematic look --v 6.0",
+      "preview": "lightning/available-light.webp"
+    },
+    {
+      "name": "Backlight (Rim Light)",
+      "utility": "Éclaire le sujet par l'arrière. Crée un contour lumineux (halo) qui détache le personnage du fond et lui donne de la profondeur.",
+      "prompt": "Cinematic backlight, rim light, halo effect, subject separation from background, sharp edges --v 6.0",
+      "preview": "lightning/backlight.webp"
+    },
+    {
+      "name": "Blue Hour",
+      "utility": "Période juste après le coucher du soleil où le ciel prend une teinte bleu profond. Crée une atmosphère calme, mélancolique ou mystérieuse.",
+      "prompt": "Blue hour lighting, deep blue sky, cool ambient light, melancholic cinematic atmosphere, twilight --v 6.0",
+      "preview": "lightning/blue-hour.webp"
+    },
+    {
+      "name": "Bounce Light",
+      "utility": "Lumière réfléchie sur une surface (mur, réflecteur) avant d'atteindre le sujet. Crée un éclairage doux et indirect, naturel et flatteur.",
+      "prompt": "Bounce light, reflected illumination, soft indirect lighting, natural fill, cinematic softness --v 6.0",
+      "preview": "lightning/bounce-light.webp"
+    },
+    {
+      "name": "Broad Lighting",
+      "utility": "Le côté du visage tourné vers la caméra reçoit la lumière principale. Élargit visuellement le visage, utilisé pour les visages minces.",
+      "prompt": "Broad lighting, wide face illumination, flattering portrait light, cinematic brightness --v 6.0",
+      "preview": "lightning/broad-lighting.webp"
+    },
+    {
+      "name": "Chiaroscuro",
+      "utility": "Contraste extrême entre zones très éclairées et zones sombres. Donne un aspect 'peinture' (type Caravage) très dramatique.",
+      "prompt": "Chiaroscuro lighting, painterly style, extreme light and shadow contrast, dramatic cinematic mood --v 6.0",
+      "preview": "lightning/chiaroscuro.webp"
+    },
+    {
+      "name": "Color Temperature",
+      "utility": "Mesure de la chaleur ou froideur de la lumière en Kelvin. Le chaud (orange) suggère confort, le froid (bleu) évoque tension ou modernité.",
+      "prompt": "Color temperature, warm to cool lighting, kelvin balance, cinematic mood setting --v 6.0",
+      "preview": "lightning/color-temperature.webp"
+    },
+    {
+      "name": "Cross Lighting",
+      "utility": "Deux sources lumineuses positionnées de chaque côté du sujet. Crée un jeu complexe d'ombres et de reliefs sur le visage.",
+      "prompt": "Cross lighting, dual light sources, complex shadows, dramatic cinematic depth --v 6.0",
+      "preview": "lightning/cross-lighting.webp"
+    },
+    {
+      "name": "Dappled Light",
+      "utility": "Lumière filtrée à travers les feuilles, stores ou objets semi-transparents. Crée des motifs organiques d'ombre et de lumière.",
+      "prompt": "Dappled light, filtered through leaves, natural patterns, organic cinematic texture --v 6.0",
+      "preview": "lightning/dappled-light.webp"
+    },
+    {
+      "name": "Edge Light",
+      "utility": "Fine ligne de lumière qui trace le contour du sujet. Sépare élégamment le personnage de l'arrière-plan avec raffinement.",
+      "prompt": "Edge light, thin rim highlight, subject separation, refined cinematic outline --v 6.0",
+      "preview": "lightning/edge-light.webp"
+    },
+    {
+      "name": "Eye Light",
+      "utility": "Petite source dédiée créant un reflet (catchlight) dans les yeux du sujet. Donne vie et éclat au regard.",
+      "prompt": "Eye light, catchlight reflection, sparkling eyes, cinematic portrait detail --v 6.0",
+      "preview": "lightning/eye-light.webp"
+    },
+    {
+      "name": "Fill Light",
+      "utility": "Lumière plus douce utilisée pour atténuer les ombres créées par la lumière clé. Elle permet de contrôler le contraste de la scène.",
+      "prompt": "Soft fill light, reduced shadows, balanced cinematic contrast, subtle ambient illumination --v 6.0",
+      "preview": "lightning/fill-light.webp"
+    },
+    {
+      "name": "Gobo Lighting",
+      "utility": "Lumière passant à travers un gabarit découpé pour projeter des ombres texturées. Technique signature du film noir.",
+      "prompt": "Gobo lighting, patterned shadows, textured light, cinematic atmosphere, film noir style --v 6.0",
+      "preview": "lightning/gobo-lighting.webp"
+    },
+    {
+      "name": "Golden Hour",
+      "utility": "Lumière chaude, ambrée et directionnelle juste avant le coucher ou après le lever du soleil. Très flatteuse pour les paysages et les visages.",
+      "prompt": "Golden hour lighting, warm amber sunlight, long shadows, soft cinematic glow, magic hour --v 6.0",
+      "preview": "lightning/golden-hour.webp"
+    },
+    {
+      "name": "Hard Light",
+      "utility": "Lumière directe non diffusée créant des ombres aux bords nets. Accentue textures et traits du visage.",
+      "prompt": "Hard lighting, sharp defined shadows, high contrast, harsh cinematic sun, intense highlights --v 6.0",
+      "preview": "lightning/hard-light.webp"
+    },
+    {
+      "name": "High-Key Lighting",
+      "utility": "Style très lumineux avec peu d'ombres. Crée une atmosphère optimiste, propre, éthérée ou humoristique.",
+      "prompt": "High-key lighting, bright atmosphere, minimal shadows, clean cinematic look, airy feel --v 6.0",
+      "preview": "lightning/high-key-lighting.webp"
+    },
+    {
+      "name": "Key Light",
+      "utility": "La source principale et la plus brillante d'une scène. Elle définit l'humeur générale et la direction principale des ombres.",
+      "prompt": "Strong key light, dominant light source, dramatic cinematic shadows, sculpted lighting --v 6.0",
+      "preview": "lightning/key-light.webp"
+    },
+    {
+      "name": "Kicker Light",
+      "utility": "Lumière d'accent placée derrière et sur le côté du sujet. Ajoute une touche de séparation plus ciblée qu'un backlight.",
+      "prompt": "Kicker light, accent rim light, edge highlight, cinematic separation, subtle glow --v 6.0",
+      "preview": "lightning/kicker-light.webp"
+    },
+    {
+      "name": "Lens Flare",
+      "utility": "Artefact lumineux créé par une source de lumière frappant directement l'objectif. Ajoute un sentiment de réalisme, de chaleur ou de grandeur épique.",
+      "prompt": "Anamorphic lens flare, horizontal light streaks, cinematic sun flare, high-end optical artifacts --v 6.0",
+      "preview": "lightning/lens-flare.webp"
+    },
+    {
+      "name": "Low-Key Lighting",
+      "utility": "Style dominé par l'obscurité et les contrastes forts. Parfait pour le mystère, la tension, le film noir ou le drame intense.",
+      "prompt": "Low-key lighting, high contrast, deep shadows, cinematic noir aesthetic, moody atmosphere --v 6.0",
+      "preview": "lightning/low-key-lighting.webp"
+    },
+    {
+      "name": "Motivated Lighting",
+      "utility": "Éclairage de studio qui imite une source réelle présente dans la scène (ex: une fenêtre ou une lampe). Renforce le réalisme visuel.",
+      "prompt": "Motivated lighting, light source mimicking environment, realistic cinematic illumination, believable light direction --v 6.0",
+      "preview": "lightning/motivated-lighting.webp"
+    },
+    {
+      "name": "Practical Lighting",
+      "utility": "Sources de lumière visibles à l'écran (lampes de bureau, bougies, enseignes néon). Elles servent à la fois de décor et d'éclairage.",
+      "prompt": "Practical lighting, visible light sources in scene, warm lamp glow, neon signs, cinematic interior atmosphere --v 6.0",
+      "preview": "lightning/practical-lighting.webp"
+    },
+    {
+      "name": "Rembrandt Lighting",
+      "utility": "Caractérisé par un petit triangle de lumière sur la joue à l'ombre. Donne un aspect classique, noble et profond aux portraits.",
+      "prompt": "Rembrandt lighting, cinematic portrait, light triangle on cheek, moody and classical lighting --v 6.0",
+      "preview": "lightning/rembrandt-lighting.webp"
+    },
+    {
+      "name": "Short Lighting",
+      "utility": "Le côté du visage dans l'ombre est tourné vers la caméra. Amincit le visage et ajoute du mystère au portrait.",
+      "prompt": "Short lighting, shadowed face toward camera, slimming effect, dramatic cinematic portrait --v 6.0",
+      "preview": "lightning/short-lighting.webp"
+    },
+    {
+      "name": "Side Lighting",
+      "utility": "La lumière frappe le sujet de côté. Accentue les textures et les volumes, créant un fort sentiment de tridimensionnalité et de profondeur.",
+      "prompt": "Side lighting, lateral illumination, textured shadows, cinematic depth, high relief --v 6.0",
+      "preview": "lightning/side-lighting.webp"
+    },
+    {
+      "name": "Silhouette",
+      "utility": "Sujet placé devant une source lumineuse puissante sans éclairage frontal. Réduit le personnage à une forme noire iconique pour suggérer le mystère ou l'héroïsme.",
+      "prompt": "Silhouette lighting, subject in shadow against bright background, backlit, iconic cinematic outline --v 6.0",
+      "preview": "lightning/silhouette.webp"
+    },
+    {
+      "name": "Soft Light",
+      "utility": "Lumière diffusée enveloppant le sujet. Atténue rides et imperfections, créant une ambiance douce et flatteuse.",
+      "prompt": "Soft lighting, diffused shadows, gentle cinematic illumination, flattering light, low contrast --v 6.0",
+      "preview": "lightning/soft-light.webp"
+    },
+    {
+      "name": "Three-Point Lighting",
+      "utility": "La configuration de base utilisant trois sources : une lumière clé (key), une de débouchage (fill) et une de contre-jour (backlight). Crée un relief parfait du sujet.",
+      "prompt": "Three-point lighting setup, cinematic studio lighting, key light, fill light, backlight, high-end production quality --v 6.0",
+      "preview": "lightning/three-point-lighting.webp"
+    },
+    {
+      "name": "Uplighting",
+      "utility": "Lumière projetée de bas en haut sur le sujet. Crée des ombres contre-nature, souvent utilisé pour un effet sinistre ou surnaturel.",
+      "prompt": "Uplighting, light from below, dramatic shadows, architectural cinematic lighting --v 6.0",
+      "preview": "lightning/uplighting.webp"
+    }
+  ]
+}

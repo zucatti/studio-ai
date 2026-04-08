@@ -1,0 +1,53 @@
+{
+  "category": "Visual Effects",
+  "techniques": [
+    {
+      "name": "Bokeh",
+      "utility": "Flou artistique des zones hors focus, créant des cercles lumineux doux. Esthétique onirique et romantique.",
+      "prompt": "Bokeh effect, out of focus highlights, dreamy background blur, cinematic depth --v 6.0",
+      "preview": "sfx/bokeh.webp"
+    },
+    {
+      "name": "Color Grading",
+      "utility": "Traitement colorimétrique de l'image en post-production. Définit l'atmosphère et le style visuel du film.",
+      "prompt": "Cinematic color grading, teal and orange, stylized palette, professional color science --v 6.0",
+      "preview": "sfx/color-grading.webp"
+    },
+    {
+      "name": "Desaturation",
+      "utility": "Réduction de la saturation des couleurs. Crée une ambiance austère, mélancolique ou intemporelle.",
+      "prompt": "Desaturated colors, muted palette, bleach bypass look, cinematic restraint --v 6.0",
+      "preview": "sfx/desaturation.webp"
+    },
+    {
+      "name": "Film Grain",
+      "utility": "Ajoute du 'bruit' organique imitant la pellicule argentique. Casse l'aspect trop lisse du numérique pour un rendu plus artistique et intemporel.",
+      "prompt": "Heavy film grain, 35mm film texture, gritty cinematic aesthetic, organic noise, vintage film look --v 6.0",
+      "preview": "sfx/film-grain.webp"
+    },
+    {
+      "name": "Forced Perspective",
+      "utility": "Illusion d'optique manipulant l'échelle perçue des objets selon leur distance à la caméra.",
+      "prompt": "Forced perspective, optical illusion, scale manipulation, cinematic trickery --v 6.0",
+      "preview": "sfx/forced-perspective.webp"
+    },
+    {
+      "name": "Lens Distortion",
+      "utility": "Déformation optique (barillet, coussinet) créée par l'objectif. Ajoute du caractère à l'image.",
+      "prompt": "Lens distortion, barrel effect, wide angle warping, cinematic optical character --v 6.0",
+      "preview": "sfx/lens-distortion.webp"
+    },
+    {
+      "name": "Morphing",
+      "utility": "Transformation fluide d'une image en une autre. Effet surréaliste ou fantastique de métamorphose.",
+      "prompt": "Morphing effect, seamless visual transformation, surreal cinematic transition, fluid change --v 6.0",
+      "preview": "sfx/morphing.webp"
+    },
+    {
+      "name": "Sepia Tone",
+      "utility": "Teinte brunâtre évoquant les photos anciennes. Crée instantanément une atmosphère nostalgique.",
+      "prompt": "Sepia tone, vintage warmth, nostalgic coloring, antique cinematic look --v 6.0",
+      "preview": "sfx/sepia-tone.webp"
+    }
+  ]
+}

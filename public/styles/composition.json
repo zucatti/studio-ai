@@ -1,0 +1,125 @@
+{
+  "category": "Composition",
+  "techniques": [
+    {
+      "name": "Balancing Elements",
+      "utility": "Répartition équilibrée du poids visuel dans le cadre. Les éléments se contrebalancent pour une harmonie compositionnelle.",
+      "prompt": "Balancing elements, visual counterweight, harmonious composition, cinematic stability --v 6.0",
+      "preview": "composition/balancing-elements.webp"
+    },
+    {
+      "name": "Centered Composition",
+      "utility": "Sujet placé au centre exact de l'image. Attire l'attention de manière frontale et autoritaire, idéal pour les portraits puissants.",
+      "prompt": "Center framing, subject in exact middle, frontal composition, powerful cinematic focus --v 6.0",
+      "preview": "composition/centered-composition.webp"
+    },
+    {
+      "name": "Contrast Composition",
+      "utility": "Opposition d'éléments visuels (clair/sombre, grand/petit) dans le cadre pour créer tension dramatique et impact narratif.",
+      "prompt": "Contrast composition, opposing visual elements, dramatic tension, cinematic impact --v 6.0",
+      "preview": "composition/contrast-composition.webp"
+    },
+    {
+      "name": "Depth Of Field",
+      "utility": "Zone de netteté dans l'image. Une faible profondeur isole le sujet, une grande profondeur maintient tout net.",
+      "prompt": "Shallow depth of field, bokeh background, sharp subject focus, cinematic portraiture --v 6.0",
+      "preview": "composition/depth-of-field.webp"
+    },
+    {
+      "name": "Diagonal Lines",
+      "utility": "Utilisation de lignes diagonales plutôt qu'horizontales. Suggère le mouvement, l'instabilité, le dynamisme ou une progression dramatique.",
+      "prompt": "Diagonal lines, dynamic composition, slanted visual elements, energetic cinematic framing --v 6.0",
+      "preview": "composition/diagonal-lines.webp"
+    },
+    {
+      "name": "Figure Ground",
+      "utility": "Relation entre le sujet (figure) et son environnement (fond). Clarté de cette séparation guide l'œil du spectateur.",
+      "prompt": "Figure ground relationship, clear subject separation, visual hierarchy, cinematic clarity --v 6.0",
+      "preview": "composition/figure-ground.webp"
+    },
+    {
+      "name": "Foreground Interest",
+      "utility": "Élément placé au premier plan pour ajouter de la profondeur et ancrer visuellement la composition.",
+      "prompt": "Foreground interest, layered depth, visual anchoring, cinematic dimension --v 6.0",
+      "preview": "composition/foreground-interest.webp"
+    },
+    {
+      "name": "Framing Within Frame",
+      "utility": "Utiliser un élément du décor (fenêtre, porte, arche) pour créer un second cadre autour du sujet. Ajoute profondeur et intrigue.",
+      "prompt": "Frame within a frame, subject seen through window, architectural framing, layered cinematic composition --v 6.0",
+      "preview": "composition/framing-within-frame.webp"
+    },
+    {
+      "name": "Golden Ratio",
+      "utility": "Composition basée sur la spirale de Fibonacci. Crée une harmonie visuelle mathématique que l'œil humain trouve naturellement esthétique.",
+      "prompt": "Golden ratio composition, Fibonacci spiral layout, harmonious cinematic framing, perfect proportions --v 6.0",
+      "preview": "composition/golden-ratio.webp"
+    },
+    {
+      "name": "Headroom",
+      "utility": "Gestion de l'espace au-dessus de la tête du personnage. Un headroom trop court crée une sensation d'oppression, tandis qu'un trop grand peut faire paraître le sujet perdu.",
+      "prompt": "Proper headroom, balanced vertical framing, professional cinematic portrait composition --v 6.0",
+      "preview": "composition/headroom.webp"
+    },
+    {
+      "name": "Lead Room",
+      "utility": "Espace laissé devant un sujet en mouvement ou regardant hors-cadre. Donne de l'air à la composition.",
+      "prompt": "Lead room, space in direction of movement, cinematic breathing room --v 6.0",
+      "preview": "composition/lead-room.webp"
+    },
+    {
+      "name": "Leading Lines",
+      "utility": "Utilisation de lignes (routes, murs, couloirs) qui convergent vers le sujet pour guider le regard du spectateur directement vers l'action principale.",
+      "prompt": "Leading lines, converging lines directing eye to subject, architectural composition, cinematic depth --v 6.0",
+      "preview": "composition/leading-lines.webp"
+    },
+    {
+      "name": "Mise En Scene",
+      "utility": "Arrangement complet de tous les éléments visuels dans le cadre : décor, éclairage, costumes, placement des acteurs.",
+      "prompt": "Mise en scene, complete visual arrangement, theatrical staging, cinematic artistry --v 6.0",
+      "preview": "composition/mise-en-scene.webp"
+    },
+    {
+      "name": "Negative Space",
+      "utility": "Le sujet est entouré d'une vaste zone vide. Accentue la solitude, l'isolement, ou laisse de la place pour que le spectateur puisse respirer et réfléchir.",
+      "prompt": "Negative space, minimal composition, subject surrounded by emptiness, cinematic isolation, atmospheric --v 6.0",
+      "preview": "composition/negative-space.webp"
+    },
+    {
+      "name": "Repetition And Pattern",
+      "utility": "Éléments visuels répétitifs (fenêtres, colonnes) créant un rythme hypnotique. Suggère uniformité ou perte d'individualité.",
+      "prompt": "Visual pattern, repetition of forms, rhythmic composition, cinematic geometric aesthetic --v 6.0",
+      "preview": "composition/repetition-and-pattern.webp"
+    },
+    {
+      "name": "Rule of Thirds",
+      "utility": "Positionnement des éléments clés sur les intersections d'une grille 3x3. Crée un équilibre visuel naturel et dynamique, évitant la rigidité d'un centrage parfait.",
+      "prompt": "Rule of thirds, balanced composition, subject positioned on grid line, natural cinematic framing --v 6.0",
+      "preview": "composition/rule-of-thirds.webp"
+    },
+    {
+      "name": "Shallow Focus",
+      "utility": "Mise au point très sélective avec fort bokeh. Isole le sujet en rendant l'arrière-plan complètement flou.",
+      "prompt": "Shallow focus, heavy bokeh, isolated subject, cinematic blur effect --v 6.0",
+      "preview": "composition/shallow-focus.webp"
+    },
+    {
+      "name": "Symmetry",
+      "utility": "Le cadre est parfaitement équilibré de part et d'autre d'un axe central. Évoque l'ordre, le formalisme, ou parfois une sensation clinique et inquiétante (très utilisé par Kubrick).",
+      "prompt": "Perfectly symmetrical composition, centered framing, balanced cinematic layout, Wes Anderson style --v 6.0",
+      "preview": "composition/symmetry.webp"
+    },
+    {
+      "name": "Triangular Composition",
+      "utility": "Organisation des sujets ou des éléments de décor pour former un triangle. Apporte une grande stabilité visuelle ou permet de souligner une hiérarchie entre trois personnages.",
+      "prompt": "Triangular composition, subjects arranged in a triangle, stable cinematic framing, balanced visual weight --v 6.0",
+      "preview": "composition/triangular-composition.webp"
+    },
+    {
+      "name": "Visual Weight",
+      "utility": "Importance visuelle relative des éléments selon leur taille, couleur, contraste et position dans le cadre.",
+      "prompt": "Visual weight balance, compositional equilibrium, cinematic harmony --v 6.0",
+      "preview": "composition/visual-weight.webp"
+    }
+  ]
+}
