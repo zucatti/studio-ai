@@ -17,11 +17,20 @@ export interface PendingJob {
   message: string;
 }
 
+// Validation context for Frame In/Out selection
+export interface ValidationContext {
+  type: 'frame-in' | 'frame-out';
+  callback: (imageUrl: string) => void;
+}
+
 export interface RushCreatorStore {
   // UI State
   isOpen: boolean;
   mode: RushMode;
   currentProjectId: string | null;
+
+  // Validation context (Frame In/Out)
+  validationContext: ValidationContext | null;
 
   // Media data
   media: RushMedia[];
@@ -42,7 +51,7 @@ export interface RushCreatorStore {
   duration: number;
 
   // Actions - UI
-  open: (projectId?: string) => void;
+  open: (projectId?: string, context?: ValidationContext) => void;
   close: () => void;
   setMode: (mode: RushMode) => void;
   setCurrentProjectId: (projectId: string | null) => void;
@@ -70,6 +79,10 @@ export interface RushCreatorStore {
 
   // Actions - Import
   importToBible: (type: 'location' | 'prop', name: string) => Promise<void>;
+
+  // Actions - Validation (Frame In/Out)
+  validateSelection: () => Promise<void>;
+  clearValidationContext: () => void;
 
   // Actions - Generation
   setPrompt: (prompt: string) => void;
@@ -99,6 +112,9 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       isOpen: false,
       mode: 'photo',
       currentProjectId: null,
+
+      // Validation context
+      validationContext: null,
 
       // Media data
       media: [],
@@ -134,8 +150,8 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       },
 
       // Actions - UI
-      open: (projectId) => {
-        set({ isOpen: true });
+      open: (projectId, context) => {
+        set({ isOpen: true, validationContext: context || null });
         if (projectId) {
           set({ currentProjectId: projectId });
           // Only fetch pending media (awaiting review)
@@ -147,6 +163,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
         isOpen: false,
         selectedIds: new Set(),
         currentIndex: 0,
+        validationContext: null,
       }),
 
       setMode: (mode) => set({ mode }),
@@ -318,6 +335,28 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
           console.error('[RushCreatorStore] Error deleting media:', error);
         }
       },
+
+      // Actions - Validation (Frame In/Out)
+      validateSelection: async () => {
+        const { selectedIds, media, validationContext, currentProjectId } = get();
+        if (selectedIds.size === 0 || !validationContext) return;
+
+        // Get the first selected media
+        const selectedId = Array.from(selectedIds)[0];
+        const selectedMedia = media.find(m => m.id === selectedId);
+        if (!selectedMedia) return;
+
+        // Move to gallery (status: selected)
+        await get().updateMediaStatus([selectedId], 'selected');
+
+        // Call the validation callback with the image URL
+        validationContext.callback(selectedMedia.url);
+
+        // Close the Rush Creator
+        get().close();
+      },
+
+      clearValidationContext: () => set({ validationContext: null }),
 
       // Actions - Import
       importToBible: async (type, name) => {

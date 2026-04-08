@@ -78,6 +78,8 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     const body = await request.json();
     const { description = '', duration = 5 } = body;
 
+    console.log('[shots/route] POST called:', { projectId, sequenceId, description, duration });
+
     const supabase = createServerSupabaseClient();
 
     // Verify project ownership
@@ -92,15 +94,26 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
-    // Verify sequence belongs to project
+    // Verify sequence belongs to project (either directly or via scene)
     const { data: sequence, error: seqError } = await supabase
       .from('sequences')
-      .select('id')
+      .select('id, project_id, scene_id')
       .eq('id', sequenceId)
-      .eq('project_id', projectId)
       .single();
 
+    console.log('[shots/route] POST sequence lookup:', { sequence, seqError, expectedProjectId: projectId });
+
     if (seqError || !sequence) {
+      return NextResponse.json({ error: 'Sequence not found' }, { status: 404 });
+    }
+
+    // Check if sequence belongs to this project
+    // Project-level sequences have project_id set directly
+    // Scene-level sequences need to check via scene
+    if (sequence.project_id !== projectId) {
+      // If not a project-level sequence, it might be a scene-level sequence
+      // For now, just check that project_id matches (clip workflow)
+      console.log('[shots/route] sequence project_id mismatch:', sequence.project_id, '!==', projectId);
       return NextResponse.json({ error: 'Sequence not found' }, { status: 404 });
     }
 
@@ -125,6 +138,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
         description,
         duration,
         sort_order: nextSortOrder,
+        shot_number: nextSortOrder + 1,  // shot_number is NOT NULL
         status: 'draft',
         // Initialize with empty segments array
         segments: [],
@@ -134,9 +148,10 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
 
     if (createError || !shot) {
       console.error('Error creating shot:', createError);
-      return NextResponse.json({ error: 'Failed to create shot' }, { status: 500 });
+      return NextResponse.json({ error: 'Failed to create shot', details: createError?.message }, { status: 500 });
     }
 
+    console.log('[shots/route] POST shot created successfully:', shot.id);
     return NextResponse.json({ shot });
   } catch (error) {
     console.error('Error:', error);

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { FolderOpen, Film, Trash2, Download, ChevronDown } from 'lucide-react';
+import { FolderOpen, Film, Trash2, Download, ChevronDown, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -22,6 +22,8 @@ export function RushActionBar() {
     clearSelection,
     selectAll,
     media,
+    validationContext,
+    validateSelection,
   } = useRushCreatorStore();
 
   const [isDeleting, setIsDeleting] = useState(false);
@@ -85,6 +87,22 @@ export function RushActionBar() {
 
       {/* Right side - Actions */}
       <div className="flex items-center gap-2">
+        {/* Validate button - shown when there's a validation context */}
+        {validationContext && (
+          <Button
+            size="sm"
+            onClick={validateSelection}
+            disabled={!hasSelection || selectionCount > 1}
+            className={cn(
+              'bg-green-600 hover:bg-green-700 text-white',
+              (!hasSelection || selectionCount > 1) && 'opacity-50 cursor-not-allowed'
+            )}
+          >
+            <Check className="w-4 h-4 mr-2" />
+            Valider → {validationContext.type === 'frame-in' ? 'Frame In' : 'Frame Out'}
+          </Button>
+        )}
+
         {/* Move to Gallery */}
         <Button
           variant="outline"

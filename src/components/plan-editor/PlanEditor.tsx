@@ -20,7 +20,7 @@ import {
 } from '@/components/ui/select';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
 import { ProjectBiblePicker } from '@/components/clip/ProjectBiblePicker';
-import { QuickShotGenerator } from '@/components/quick-shot/QuickShotGenerator';
+import { useRushCreatorStore } from '@/store/rush-creator-store';
 import { StorageImg } from '@/components/ui/storage-image';
 import { FrameEditor } from './FrameEditor';
 import { VideoRushesPanel } from './VideoRushesPanel';
@@ -38,7 +38,6 @@ import {
   Download,
   X,
   Loader2,
-  Wand2,
   FileText,
   Copy,
   Check,
@@ -115,9 +114,8 @@ export function PlanEditor({
   const [showBiblePicker, setShowBiblePicker] = useState(false);
   const [pickingFrame, setPickingFrame] = useState<'in' | 'out' | null>(null);
 
-  // Scene generator (QuickShot) state
-  const [showSceneGenerator, setShowSceneGenerator] = useState(false);
-  const [generatingFrame, setGeneratingFrame] = useState<'in' | 'out' | null>(null);
+  // Rush Creator store
+  const openRushCreator = useRushCreatorStore((state) => state.open);
 
   // Video model selection
   // - seedance-2: ByteDance Seedance 2.0 ($0.30/s) - native audio, 15s max
@@ -363,37 +361,21 @@ export function PlanEditor({
     setShowBiblePicker(true);
   }, []);
 
-  const openSceneGenerator = useCallback((frameType: 'in' | 'out') => {
-    console.log('[PlanEditor] Opening scene generator for frame:', frameType);
-    setGeneratingFrame(frameType);
-    setShowSceneGenerator(true);
-  }, []);
-
-  const handleGeneratedShots = useCallback((shots: Shot[]) => {
-    if (shots.length > 0 && shots[0].storyboard_image_url) {
-      const url = shots[0].storyboard_image_url;
-      if (generatingFrame === 'in') {
-        onUpdate({ storyboard_image_url: url, first_frame_url: url });
-      } else if (generatingFrame === 'out') {
-        onUpdate({ last_frame_url: url });
-      }
-      setShowSceneGenerator(false);
-      setGeneratingFrame(null);
-      toast.success(`Frame ${generatingFrame === 'in' ? 'In' : 'Out'} générée`);
-    }
-  }, [generatingFrame, onUpdate]);
-
-  // Handle image selection from multi-mode generator
-  const handleImageSelected = useCallback((imageUrl: string) => {
-    if (generatingFrame === 'in') {
-      onUpdate({ storyboard_image_url: imageUrl, first_frame_url: imageUrl });
-    } else if (generatingFrame === 'out') {
-      onUpdate({ last_frame_url: imageUrl });
-    }
-    setShowSceneGenerator(false);
-    setGeneratingFrame(null);
-    toast.success(`Frame ${generatingFrame === 'in' ? 'In' : 'Out'} sélectionnée`);
-  }, [generatingFrame, onUpdate]);
+  const openRushCreatorForFrame = useCallback((frameType: 'in' | 'out') => {
+    console.log('[PlanEditor] Opening Rush Creator for frame:', frameType);
+    openRushCreator(projectId, {
+      type: frameType === 'in' ? 'frame-in' : 'frame-out',
+      callback: (imageUrl: string) => {
+        if (frameType === 'in') {
+          onUpdate({ storyboard_image_url: imageUrl, first_frame_url: imageUrl });
+          toast.success('Image appliquée à Frame In');
+        } else {
+          onUpdate({ last_frame_url: imageUrl });
+          toast.success('Image appliquée à Frame Out');
+        }
+      },
+    });
+  }, [projectId, openRushCreator, onUpdate]);
 
   const handleImageSelect = useCallback((url: string) => {
     const frameType = pickingFrame; // Capture before clearing
@@ -1221,7 +1203,7 @@ export function PlanEditor({
                     height={frameStyle.height}
                     onOpenGallery={() => openGalleryPicker('in')}
                     onOpenBible={() => openBiblePicker('in')}
-                    onGenerate={() => openSceneGenerator('in')}
+                    onGenerate={() => openRushCreatorForFrame('in')}
                     onDownload={() => handleDownloadFrame('in')}
                     onClear={() => handleClearFrame('in')}
                     canLinkPrevious={hasPreviousFrame}
@@ -1246,7 +1228,7 @@ export function PlanEditor({
                       height={frameStyle.height}
                       onOpenGallery={() => openGalleryPicker('out')}
                       onOpenBible={() => openBiblePicker('out')}
-                      onGenerate={() => openSceneGenerator('out')}
+                      onGenerate={() => openRushCreatorForFrame('out')}
                       onDownload={() => handleDownloadFrame('out')}
                       onClear={() => handleClearFrame('out')}
                     />
@@ -1327,7 +1309,7 @@ export function PlanEditor({
             setShowGalleryPicker(false);
             setPickingFrame(null);
           }}
-          onSelect={(url) => handleImageSelect(url)}
+          onSelect={(url: string) => handleImageSelect(url)}
           title={`Choisir Frame ${pickingFrame === 'in' ? 'In' : 'Out'}`}
           aspectRatio={aspectRatio}
           currentProjectId={projectId}
@@ -1337,12 +1319,12 @@ export function PlanEditor({
         {/* Bible Picker */}
         <ProjectBiblePicker
           open={showBiblePicker}
-          onOpenChange={(open) => {
+          onOpenChange={(open: boolean) => {
             setShowBiblePicker(open);
             if (!open) setPickingFrame(null);
           }}
           projectId={projectId}
-          onSelect={(url) => handleImageSelect(url)}
+          onSelect={(url: string) => handleImageSelect(url)}
           title={`Bible - Frame ${pickingFrame === 'in' ? 'In' : 'Out'}`}
         />
 
@@ -1387,68 +1369,6 @@ export function PlanEditor({
         document.body
       )}
     </Dialog>
-
-    {/* Scene Generator (QuickShot with Bible integration) - Outside main dialog */}
-    {showSceneGenerator && (
-      <Dialog open={showSceneGenerator} onOpenChange={(open) => {
-        setShowSceneGenerator(open);
-        if (!open) setGeneratingFrame(null);
-      }}>
-        <DialogContent
-          className={cn(
-            'max-w-[90vw] w-[90vw] h-[85vh] max-h-[85vh]',
-            'flex flex-col p-0 gap-0',
-            'bg-[#0a0e12] border-white/10',
-            '[&>button]:hidden',
-            'z-[200]'
-          )}
-        >
-        <DialogHeader className="flex-shrink-0 px-6 py-4 border-b border-white/10 bg-[#0f1419]">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                <Wand2 className="w-5 h-5 text-purple-400" />
-              </div>
-              <div>
-                <DialogTitle className="text-lg font-semibold text-white">
-                  Générer {generatingFrame === 'in' ? 'Frame In' : 'Frame Out'}
-                </DialogTitle>
-                <p className="text-sm text-slate-400">
-                  Utilisez @Personnage #Lieu !Look pour créer une scène
-                </p>
-              </div>
-            </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              className="border-white/10 text-slate-300 hover:bg-white/5"
-              onClick={() => {
-                setShowSceneGenerator(false);
-                setGeneratingFrame(null);
-              }}
-            >
-              Fermer
-            </Button>
-          </div>
-        </DialogHeader>
-
-        <div className="flex-1 overflow-y-auto p-6">
-          <QuickShotGenerator
-            projectId={projectId}
-            defaultAspectRatio={aspectRatio}
-            onShotsGenerated={handleGeneratedShots}
-            onImageSelected={handleImageSelected}
-            lockAspectRatio={true}
-            showPlaceholders={true}
-            mode="multi"
-            title=""
-            description=""
-          />
-        </div>
-      </DialogContent>
-    </Dialog>
-    )}
 
     {/* Cinematic Style Wizard - Read-only preview of sequence's header */}
     {sequenceCinematicHeader && (

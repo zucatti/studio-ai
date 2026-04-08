@@ -27,7 +27,7 @@ interface RushTopBarProps {
 }
 
 export function RushTopBar({ activePanel, onPanelChange }: RushTopBarProps) {
-  const { close, currentProjectId } = useRushCreatorStore();
+  const { close, currentProjectId, validationContext } = useRushCreatorStore();
   const [showMenu, setShowMenu] = useState(false);
 
   const handleNavClick = () => {
@@ -94,6 +94,16 @@ export function RushTopBar({ activePanel, onPanelChange }: RushTopBarProps) {
 
         {/* Title */}
         <span className="text-base font-semibold text-white">Rush Creator</span>
+
+        {/* Validation context indicator */}
+        {validationContext && (
+          <div className="ml-3 flex items-center gap-2 px-3 py-1 rounded-lg bg-green-500/20 border border-green-500/30">
+            <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <span className="text-sm text-green-400 font-medium">
+              Sélection pour {validationContext.type === 'frame-in' ? 'Frame In' : 'Frame Out'}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Center: Panel tabs (open panels inside Rush Creator) */}

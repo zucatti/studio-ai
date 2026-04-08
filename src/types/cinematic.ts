@@ -844,6 +844,10 @@ export interface Sequence {
   title: string | null;
   sort_order: number;
 
+  // Timing (for music video - derived from linked music_section)
+  start_time?: number | null;
+  end_time?: number | null;
+
   // Cinematic style (shared by all plans in this sequence)
   cinematic_header: CinematicHeaderConfig | null;
 

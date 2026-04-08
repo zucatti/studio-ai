@@ -584,6 +584,7 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
         const newSequence: Sequence = {
           id: data.sequence.id,
           scene_id: shortId,
+          project_id: null, // Shorts sequences belong to scene, not project
           title: data.sequence.title ?? null,
           sort_order: data.sequence.sort_order ?? 0,
           cinematic_header: data.sequence.cinematic_header ?? null,

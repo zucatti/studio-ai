@@ -38,6 +38,9 @@
   "exclude": [
     "node_modules",
     "scripts",
-    "worker"
+    "worker",
+    "src/**/*-old/**",
+    "src/app/**/clip-old/**",
+    "src/components/clip-old/**"
   ]
 }
