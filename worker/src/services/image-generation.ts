@@ -201,6 +201,14 @@ async function generateWithKlingO1(
     num_images: numImages,
   };
 
+  // === LOG FULL PAYLOAD ===
+  console.log(`\n========== FAL.AI IMAGE REQUEST ==========`);
+  console.log(`[ImageGen] Model: kling-o1`);
+  console.log(`[ImageGen] Endpoint: fal-ai/kling-image/o1`);
+  console.log(`[ImageGen] FULL PAYLOAD:`);
+  console.log(JSON.stringify(input, null, 2));
+  console.log(`==========================================\n`);
+
   try {
     const result = await fal.subscribe('fal-ai/kling-image/o1', {
       input,
@@ -265,6 +273,14 @@ async function generateWithSeedream5(
       num_images: numImages,
     };
 
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI IMAGE REQUEST ==========`);
+    console.log(`[ImageGen] Model: seedream-5 (with refs)`);
+    console.log(`[ImageGen] Endpoint: fal-ai/bytedance/seedream/v5/lite/edit`);
+    console.log(`[ImageGen] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`==========================================\n`);
+
     try {
       const result = await fal.subscribe('fal-ai/bytedance/seedream/v5/lite/edit', {
         input,
@@ -303,6 +319,14 @@ async function generateWithSeedream5(
       aspect_ratio: aspectRatio,
       num_images: numImages,
     };
+
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI IMAGE REQUEST ==========`);
+    console.log(`[ImageGen] Model: seedream-5 (text-to-image)`);
+    console.log(`[ImageGen] Endpoint: fal-ai/bytedance/seedream/v5/lite/text-to-image`);
+    console.log(`[ImageGen] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`==========================================\n`);
 
     try {
       const result = await fal.subscribe('fal-ai/bytedance/seedream/v5/lite/text-to-image', {
@@ -377,6 +401,14 @@ async function generateWithGPTImage(
       output_format: 'webp',
     };
 
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI IMAGE REQUEST ==========`);
+    console.log(`[ImageGen] Model: gpt-image-1.5 (with refs)`);
+    console.log(`[ImageGen] Endpoint: fal-ai/gpt-image-1.5/edit`);
+    console.log(`[ImageGen] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`==========================================\n`);
+
     try {
       const result = await fal.subscribe('fal-ai/gpt-image-1.5/edit', {
         input,
@@ -417,6 +449,14 @@ async function generateWithGPTImage(
       num_images: Math.min(numImages, 4),
       output_format: 'webp',
     };
+
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI IMAGE REQUEST ==========`);
+    console.log(`[ImageGen] Model: gpt-image-1.5 (text-to-image)`);
+    console.log(`[ImageGen] Endpoint: fal-ai/gpt-image-1.5/text-to-image`);
+    console.log(`[ImageGen] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`==========================================\n`);
 
     try {
       const result = await fal.subscribe('fal-ai/gpt-image-1.5/text-to-image', {
@@ -518,6 +558,14 @@ async function generateWithNanoBanana2(
       output_format: 'webp',
     };
 
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI IMAGE REQUEST ==========`);
+    console.log(`[ImageGen] Model: nano-banana-2 (with refs)`);
+    console.log(`[ImageGen] Endpoint: fal-ai/nano-banana-2/edit`);
+    console.log(`[ImageGen] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`==========================================\n`);
+
     try {
       // Use the edit/image-to-image endpoint
       const result = await fal.subscribe('fal-ai/nano-banana-2/edit', {
@@ -559,6 +607,14 @@ async function generateWithNanoBanana2(
       num_images: numImages,
       output_format: 'webp',
     };
+
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI IMAGE REQUEST ==========`);
+    console.log(`[ImageGen] Model: nano-banana-2 (text-to-image)`);
+    console.log(`[ImageGen] Endpoint: fal-ai/nano-banana-2`);
+    console.log(`[ImageGen] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`==========================================\n`);
 
     try {
       const result = await fal.subscribe('fal-ai/nano-banana-2', {
@@ -689,6 +745,14 @@ async function generateWithGrok(
       output_format: 'webp',
     };
 
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI IMAGE REQUEST ==========`);
+    console.log(`[ImageGen] Model: grok (with refs)`);
+    console.log(`[ImageGen] Endpoint: xai/grok-imagine-image/edit`);
+    console.log(`[ImageGen] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`==========================================\n`);
+
     try {
       const result = await fal.subscribe('xai/grok-imagine-image/edit', {
         input,
@@ -729,6 +793,14 @@ async function generateWithGrok(
       num_images: numImages,
       output_format: 'webp',
     };
+
+    // === LOG FULL PAYLOAD ===
+    console.log(`\n========== FAL.AI IMAGE REQUEST ==========`);
+    console.log(`[ImageGen] Model: grok (text-to-image)`);
+    console.log(`[ImageGen] Endpoint: xai/grok-imagine-image`);
+    console.log(`[ImageGen] FULL PAYLOAD:`);
+    console.log(JSON.stringify(input, null, 2));
+    console.log(`==========================================\n`);
 
     try {
       const result = await fal.subscribe('xai/grok-imagine-image', {
