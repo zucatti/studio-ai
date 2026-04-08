@@ -661,6 +661,23 @@ export function MentionInput({
     }
   }, []);
 
+  // Clean up orphan triggers (/, &, !, #, @ that are alone - not followed by valid content)
+  const cleanupOrphanTriggers = useCallback(() => {
+    // Remove orphan triggers: @ # ! / & followed by whitespace or end of string
+    // Valid patterns like @Character, #Location, !Look, /style-slug, &in, &out are kept
+    // because they have content after the trigger (not whitespace/end)
+    const cleaned = value.replace(/[@#!\/&](?=\s|$)/g, '');
+
+    if (cleaned !== value) {
+      onChange(cleaned);
+    }
+  }, [value, onChange]);
+
+  // Handle blur to clean up orphan triggers
+  const handleBlur = useCallback(() => {
+    cleanupOrphanTriggers();
+  }, [cleanupOrphanTriggers]);
+
   // Auto-resize textarea and overlay (only if not using fixedHeight or flexLayout)
   useEffect(() => {
     if (useFixedHeight || useFlexLayout) return; // Skip auto-resize
@@ -722,6 +739,7 @@ export function MentionInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onScroll={handleScroll}
+          onBlur={handleBlur}
           placeholder=""
           className={cn(
             'relative w-full resize-none bg-transparent',
