@@ -64,7 +64,18 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       console.error('Error fetching shots:', shotsError);
     }
 
-    return NextResponse.json({ section, shots: shots || [] });
+    // Fetch linked sequence if exists
+    let sequence = null;
+    if (section.sequence_id) {
+      const { data: seq } = await supabase
+        .from('sequences')
+        .select('*')
+        .eq('id', section.sequence_id)
+        .single();
+      sequence = seq;
+    }
+
+    return NextResponse.json({ section, shots: shots || [], sequence });
   } catch (error) {
     console.error('Error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
@@ -81,7 +92,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
 
     const { projectId, sectionId } = await params;
     const body = await request.json();
-    const { name, section_type, start_time, end_time, mood, notes, sort_order } = body;
+    const { name, section_type, start_time, end_time, mood, notes, sort_order, sequence_id } = body;
 
     const supabase = createServerSupabaseClient();
 
@@ -109,6 +120,7 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     if (mood !== undefined) updateData.mood = mood;
     if (notes !== undefined) updateData.notes = notes;
     if (sort_order !== undefined) updateData.sort_order = sort_order;
+    if (sequence_id !== undefined) updateData.sequence_id = sequence_id;
 
     // Validate times if both provided
     if (updateData.start_time !== undefined && updateData.end_time !== undefined) {

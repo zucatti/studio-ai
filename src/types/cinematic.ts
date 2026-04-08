@@ -839,7 +839,8 @@ export const TRANSITION_TYPE_OPTIONS: { value: TransitionType; label: string; ca
 
 export interface Sequence {
   id: string;
-  scene_id: string;  // Short ID (scenes table)
+  scene_id: string | null;    // Short ID (scenes table) - for shorts
+  project_id: string | null;  // Project ID - for music video (sequences belong to project directly)
   title: string | null;
   sort_order: number;
 

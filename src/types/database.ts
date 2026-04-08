@@ -187,6 +187,7 @@ export interface Database {
           color: string;
           mood: string | null;
           notes: string | null;
+          sequence_id: string | null;
           assembled_video_url: string | null;
           assembled_video_duration: number | null;
           sort_order: number;
@@ -203,6 +204,7 @@ export interface Database {
           color?: string;
           mood?: string | null;
           notes?: string | null;
+          sequence_id?: string | null;
           assembled_video_url?: string | null;
           assembled_video_duration?: number | null;
           sort_order?: number;
@@ -219,6 +221,7 @@ export interface Database {
           color?: string;
           mood?: string | null;
           notes?: string | null;
+          sequence_id?: string | null;
           assembled_video_url?: string | null;
           assembled_video_duration?: number | null;
           sort_order?: number;

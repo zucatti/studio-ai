@@ -28,6 +28,7 @@ import {
   ChevronLeft,
   Clapperboard,
   X,
+  Layers,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MusicSection, MusicSectionType, AspectRatio, TransitionType } from '@/types/database';
@@ -36,6 +37,7 @@ import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { toast } from 'sonner';
 import { StorageImg, StorageMedia } from '@/components/ui/storage-image';
 import WaveSurfer from 'wavesurfer.js';
+import { SectionSequenceModal } from './SectionSequenceModal';
 import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js';
 import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.js';
 import { PlanEditor, type PlanData, type VideoGenerationOptions, type VideoGenerationProgress } from '@/components/plan-editor';
@@ -141,6 +143,9 @@ export function ClipTimeline({
     initialStart: number;
     initialEnd: number;
   } | null>(null);
+
+  // Section sequence editor modal
+  const [sequenceModalSection, setSequenceModalSection] = useState<MusicSection | null>(null);
 
   // Calculate minimum start time for new section (end of last section)
   const minNewSectionStart = useMemo(() => {
@@ -1840,6 +1845,19 @@ export function ClipTimeline({
                             </Button>
                           );
                         })()}
+                        {/* Edit sequence button */}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSequenceModalSection(section);
+                          }}
+                          title="Éditer la séquence"
+                        >
+                          <Layers className="h-3.5 w-3.5" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -2477,6 +2495,14 @@ export function ClipTimeline({
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Section Sequence Editor Modal */}
+      <SectionSequenceModal
+        isOpen={sequenceModalSection !== null}
+        onClose={() => setSequenceModalSection(null)}
+        projectId={projectId}
+        section={sequenceModalSection}
+      />
     </div>
   );
 }
