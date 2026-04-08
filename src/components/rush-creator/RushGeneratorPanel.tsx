@@ -84,6 +84,11 @@ export function RushGeneratorPanel() {
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || !currentProjectId || isSubmitting) return;
 
+    // Exit fullscreen mode when generating
+    if (isPromptFullscreen) {
+      togglePromptFullscreen();
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -99,7 +104,7 @@ export function RushGeneratorPanel() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [prompt, currentProjectId, generate, isSubmitting, setPrompt, quantity]);
+  }, [prompt, currentProjectId, generate, isSubmitting, setPrompt, quantity, isPromptFullscreen, togglePromptFullscreen]);
 
   // Handle Cmd/Ctrl + Enter to submit
   const handleKeyDown = (e: React.KeyboardEvent) => {
