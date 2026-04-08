@@ -26,6 +26,7 @@ import type { Plan, Short } from '@/store/shorts-store';
 import type { GlobalAsset } from '@/types/database';
 import type { Segment, ShotType, CameraMovement, CinematicHeaderConfig, ShotBeat } from '@/types/cinematic';
 import { cinematicHeaderToPrompt, getStyleBibleFromCinematicStyle } from '@/lib/cinematic-header-to-prompt';
+import { parseStyleMentions, findStylesBySlugs } from '@/lib/styles';
 
 // ============================================================================
 // Types
@@ -1507,4 +1508,81 @@ export function extractDialogueCharacterIds(plans: Plan[]): string[] {
   }
 
   return Array.from(ids);
+}
+
+// ============================================================================
+// Style Mentions Expansion
+// ============================================================================
+
+/**
+ * Expand /style mentions in text to their full Midjourney prompts
+ *
+ * Input: "@Morgana walks through the forest /dolly-zoom /golden-hour-lighting"
+ * Output: "@Morgana walks through the forest /dolly-zoom /golden-hour-lighting [STYLES: dolly zoom, Hitchcock zoom effect..., golden hour lighting, warm amber sunlight...]"
+ *
+ * The /tags are kept for visibility, and the expanded prompts are appended in a [STYLES] block.
+ */
+export async function expandStyleMentionsInText(text: string): Promise<string> {
+  const slugs = parseStyleMentions(text);
+  if (slugs.length === 0) {
+    return text;
+  }
+
+  const stylesMap = await findStylesBySlugs(slugs);
+  if (stylesMap.size === 0) {
+    return text;
+  }
+
+  // Collect prompts (clean --v 6.0 suffix)
+  const stylePrompts: string[] = [];
+  for (const [, tech] of stylesMap) {
+    const cleanPrompt = tech.prompt.replace(/\s*--v\s*\d+\.\d+\s*$/, '').trim();
+    stylePrompts.push(cleanPrompt);
+  }
+
+  // Append style prompts as a single block
+  return `${text} [STYLES: ${stylePrompts.join(', ')}]`;
+}
+
+/**
+ * Expand style mentions in segment descriptions and element content
+ * Call this before building the final prompt
+ */
+export async function expandStylesInSegments(segments: Segment[]): Promise<Segment[]> {
+  const expanded: Segment[] = [];
+
+  for (const segment of segments) {
+    const newSegment = { ...segment };
+
+    // Expand in description
+    if (newSegment.description) {
+      newSegment.description = await expandStyleMentionsInText(newSegment.description);
+    }
+
+    // Expand in elements
+    if (newSegment.elements) {
+      newSegment.elements = await Promise.all(
+        newSegment.elements.map(async (el) => ({
+          ...el,
+          content: el.content ? await expandStyleMentionsInText(el.content) : el.content,
+          content_en: el.content_en ? await expandStyleMentionsInText(el.content_en) : el.content_en,
+        }))
+      );
+    }
+
+    // Legacy beats
+    if (newSegment.beats) {
+      newSegment.beats = await Promise.all(
+        newSegment.beats.map(async (beat) => ({
+          ...beat,
+          content: beat.content ? await expandStyleMentionsInText(beat.content) : beat.content,
+          content_en: beat.content_en ? await expandStyleMentionsInText(beat.content_en) : beat.content_en,
+        }))
+      );
+    }
+
+    expanded.push(newSegment);
+  }
+
+  return expanded;
 }

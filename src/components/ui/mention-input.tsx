@@ -5,6 +5,8 @@ import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { User, MapPin, Package, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { StorageThumbnail } from '@/components/ui/storage-image';
+import { StylesModal } from '@/components/ui/styles-modal';
+import { generateStyleReference, type StyleTechnique } from '@/lib/styles';
 
 // Types for mention suggestions
 export interface MentionSuggestion {
@@ -26,6 +28,8 @@ interface MentionInputProps {
   className?: string;
   minHeight?: string;
   projectId: string;
+  /** Media type for style filtering. Defaults to 'video' */
+  mediaType?: 'image' | 'video';
 }
 
 type TriggerChar = '@' | '#' | '!';
@@ -63,15 +67,16 @@ function setCachedSuggestions(key: string, data: MentionSuggestion[]): void {
 
 // Parse text and render with styled mentions
 // IMPORTANT: This must render text EXACTLY like the textarea to avoid cursor drift
-// @ = characters (blue), # = locations/props (green), ! = looks (purple), &in/&out = frame refs (orange)
+// @ = characters (blue), # = locations/props (green), ! = looks (purple), &in/&out = frame refs (orange), /style = styles (amber)
 function StyledMentionOverlay({ text }: { text: string }) {
-  // Match @Character, #Location, !Look, and &in/&out
-  const mentionRegex = /([@#!][A-Z][a-zA-Z0-9_]*|&in\b|&out\b)/gi;
+  // Match @Character, #Location, !Look, &in/&out, and /style-slug
+  const mentionRegex = /([@#!][A-Z][a-zA-Z0-9_]*|&in\b|&out\b|\/[a-z0-9-]+)/gi;
   const parts: {
     text: string;
     isMention: boolean;
-    prefix?: '@' | '#' | '!' | '&';
+    prefix?: '@' | '#' | '!' | '&' | '/';
     isFrameRef?: boolean;
+    isStyleRef?: boolean;
   }[] = [];
 
   let lastIndex = 0;
@@ -92,6 +97,14 @@ function StyledMentionOverlay({ text }: { text: string }) {
         isMention: true,
         prefix: '&',
         isFrameRef: true,
+      });
+    } else if (fullMatch.startsWith('/')) {
+      // Style reference
+      parts.push({
+        text: fullMatch,
+        isMention: true,
+        prefix: '/',
+        isStyleRef: true,
       });
     } else {
       const prefix = fullMatch[0] as '@' | '#' | '!';
@@ -119,6 +132,15 @@ function StyledMentionOverlay({ text }: { text: string }) {
         if (part.isFrameRef) {
           return (
             <span key={idx} className="text-orange-400">
+              {part.text}
+            </span>
+          );
+        }
+
+        // Style references (/dolly-zoom)
+        if (part.isStyleRef) {
+          return (
+            <span key={idx} className="text-amber-400">
               {part.text}
             </span>
           );
@@ -155,6 +177,7 @@ export function MentionInput({
   className,
   minHeight = '100px',
   projectId,
+  mediaType = 'video',
 }: MentionInputProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -170,6 +193,10 @@ export function MentionInput({
   const [isLoading, setIsLoading] = useState(false);
   const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0 });
   const [currentCharacterForLooks, setCurrentCharacterForLooks] = useState<string | null>(null);
+
+  // Styles modal state
+  const [isStylesModalOpen, setIsStylesModalOpen] = useState(false);
+  const [styleTriggerIndex, setStyleTriggerIndex] = useState<number>(-1);
 
   // Find the last @Character reference in text before a given position
   const findLastCharacterRef = useCallback((text: string): string | null => {
@@ -432,6 +459,34 @@ export function MentionInput({
     });
   }, [value, triggerIndex]);
 
+  // Handle style selection from modal
+  const handleStyleSelect = useCallback((technique: StyleTechnique) => {
+    if (styleTriggerIndex < 0 || !textareaRef.current) return;
+
+    const cursorPos = textareaRef.current.selectionStart;
+    const before = value.slice(0, styleTriggerIndex);
+    const after = value.slice(cursorPos);
+
+    const reference = generateStyleReference(technique);
+    const newValue = before + reference + ' ' + after;
+
+    // Close modal and reset state
+    setIsStylesModalOpen(false);
+    setStyleTriggerIndex(-1);
+
+    // Update value
+    onChange(newValue);
+
+    // Focus and set cursor position
+    setTimeout(() => {
+      if (textareaRef.current) {
+        const newCursorPos = styleTriggerIndex + reference.length + 1;
+        textareaRef.current.focus();
+        textareaRef.current.setSelectionRange(newCursorPos, newCursorPos);
+      }
+    }, 10);
+  }, [value, onChange, styleTriggerIndex]);
+
   // Handle text change and detect triggers
   const handleChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const newValue = e.target.value;
@@ -442,7 +497,26 @@ export function MentionInput({
     // Look for trigger character before cursor
     const textBeforeCursor = newValue.slice(0, cursorPos);
 
-    // Find the last trigger character
+    // Check for / trigger (styles modal)
+    const slashIdx = textBeforeCursor.lastIndexOf('/');
+    if (slashIdx >= 0) {
+      const charBefore = slashIdx > 0 ? textBeforeCursor[slashIdx - 1] : ' ';
+      // Valid if at start of line/word and just typed (no text after yet)
+      if (/[\s\n]/.test(charBefore) || slashIdx === 0) {
+        const textAfterSlash = textBeforeCursor.slice(slashIdx + 1);
+        // Open modal only when just typing / (nothing or very short text after)
+        if (textAfterSlash === '') {
+          setStyleTriggerIndex(slashIdx);
+          setIsStylesModalOpen(true);
+          // Close any regular dropdown
+          setIsOpen(false);
+          setTriggerChar(null);
+          return;
+        }
+      }
+    }
+
+    // Find the last trigger character (for @ # !)
     let lastTriggerIndex = -1;
     let lastTrigger: TriggerChar | null = null;
 
@@ -755,6 +829,19 @@ export function MentionInput({
         </div>,
         document.body
       )}
+
+      {/* Styles Modal */}
+      <StylesModal
+        isOpen={isStylesModalOpen}
+        onClose={() => {
+          setIsStylesModalOpen(false);
+          setStyleTriggerIndex(-1);
+          // Refocus textarea
+          setTimeout(() => textareaRef.current?.focus(), 10);
+        }}
+        onSelect={handleStyleSelect}
+        mediaType={mediaType}
+      />
     </>
   );
 }
