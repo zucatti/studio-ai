@@ -1037,6 +1037,17 @@ export function ClipTimeline({
     wavesurfer.on('pause', () => isMounted && setIsPlaying(false));
     wavesurfer.on('finish', () => isMounted && setIsPlaying(false));
     wavesurfer.on('timeupdate', (time) => isMounted && setCurrentTime(time));
+    wavesurfer.on('error', (error) => {
+      // Ignore AbortError - happens during React Strict Mode unmount/remount
+      if (error instanceof Error && error.name === 'AbortError') return;
+      console.error('[ClipTimeline] WaveSurfer error:', error);
+      if (isMounted) {
+        setIsLoading(false);
+        toast.error('Erreur de chargement audio', {
+          description: String(error),
+        });
+      }
+    });
 
     // Handle click to select time for splitting
     wavesurfer.on('click', () => {

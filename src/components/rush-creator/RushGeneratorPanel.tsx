@@ -90,8 +90,7 @@ export function RushGeneratorPanel() {
         promises.push(generate());
       }
       await Promise.all(promises);
-      // Clear prompt after successful submission
-      setPrompt('');
+      // Keep prompt for iteration - user can clear manually if needed
     } catch (err) {
       console.error('[RushGenerator] Error:', err);
     } finally {
@@ -222,7 +221,7 @@ export function RushGeneratorPanel() {
         {/* Generate button */}
         <Button
           onClick={handleGenerate}
-          disabled={!prompt.trim() || !currentProjectId || isSubmitting}
+          disabled={isSubmitting}
           className={cn(
             'h-9 px-4',
             mode === 'photo'
@@ -252,11 +251,12 @@ export function RushGeneratorPanel() {
             value={prompt}
             onChange={setPrompt}
             placeholder={mode === 'photo'
-              ? '@Personnage dans #Lieu avec !Style...'
-              : 'Décrivez la vidéo à générer...'
+              ? '@Personnage dans #Lieu avec /style...'
+              : 'Décrivez la vidéo avec /style...'
             }
             minHeight="80px"
             projectId={currentProjectId}
+            mediaType={mode === 'photo' ? 'image' : 'video'}
             className="bg-white/5 border-white/10 text-base"
           />
         ) : (

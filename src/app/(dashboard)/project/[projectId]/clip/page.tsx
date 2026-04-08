@@ -93,8 +93,7 @@ export default function ClipPage() {
     fetchMasterAudio();
   }, [projectId]);
 
-  // Build audio URL - temporary proxy while B2 CORS propagates
-  // TODO: Once CORS works, switch back to getSignedUrl()
+  // Build audio URL - sign B2 URL then proxy for CORS
   useEffect(() => {
     if (!masterAudio?.data?.fileUrl) {
       setSignedAudioUrl(null);
@@ -104,8 +103,26 @@ export default function ClipPage() {
     const fileUrl = masterAudio.data.fileUrl;
 
     if (fileUrl.startsWith('b2://')) {
-      // Use proxy temporarily
-      setSignedAudioUrl(`/api/storage/proxy?url=${encodeURIComponent(fileUrl)}`);
+      // Sign the B2 URL first, then pass to proxy for CORS
+      const signUrl = async () => {
+        try {
+          const res = await fetch('/api/storage/sign', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ urls: [fileUrl] }),
+          });
+          if (!res.ok) throw new Error('Failed to sign URL');
+          const { signedUrls } = await res.json();
+          const signedUrl = signedUrls[fileUrl];
+          if (!signedUrl) throw new Error('No signed URL returned');
+          // Use proxy with signed URL to handle CORS
+          setSignedAudioUrl(`/api/storage/proxy?url=${encodeURIComponent(signedUrl)}`);
+        } catch (error) {
+          console.error('[Clip] Error signing audio URL:', error);
+          setSignedAudioUrl(null);
+        }
+      };
+      signUrl();
     } else {
       setSignedAudioUrl(fileUrl);
     }
