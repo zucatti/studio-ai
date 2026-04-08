@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Sparkles, Loader2, ChevronDown, Minus, Plus } from 'lucide-react';
+import { Sparkles, Loader2, ChevronDown, Minus, Plus, Maximize2, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MentionInput } from '@/components/ui/mention-input';
 import { cn } from '@/lib/utils';
@@ -63,6 +63,7 @@ export function RushGeneratorPanel() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quantity, setQuantity] = useState(1);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   // Clamp duration when model changes
   useEffect(() => {
@@ -245,8 +246,8 @@ export function RushGeneratorPanel() {
         </Button>
       </div>
 
-      {/* Prompt input - full width */}
-      <div onKeyDown={handleKeyDown}>
+      {/* Prompt input - full width with expand/collapse */}
+      <div className="relative" onKeyDown={handleKeyDown}>
         {currentProjectId ? (
           <MentionInput
             value={prompt}
@@ -255,7 +256,7 @@ export function RushGeneratorPanel() {
               ? '@Personnage dans #Lieu avec /style...'
               : 'Décrivez la vidéo avec /style...'
             }
-            minHeight="80px"
+            fixedHeight={isExpanded ? '300px' : '80px'}
             projectId={currentProjectId}
             mediaType={mode === 'photo' ? 'image' : 'video'}
             className="bg-white/5 border-white/10 text-base"
@@ -268,9 +269,26 @@ export function RushGeneratorPanel() {
               ? 'Décrivez l\'image à générer...'
               : 'Décrivez la vidéo à générer...'
             }
-            className="w-full min-h-[80px] px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white text-base placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 resize-none"
+            className={cn(
+              'w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white text-base placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 resize-none overflow-y-auto',
+              isExpanded ? 'h-[300px]' : 'h-[80px]'
+            )}
           />
         )}
+
+        {/* Expand/Collapse button */}
+        <button
+          type="button"
+          onClick={() => setIsExpanded(!isExpanded)}
+          className="absolute bottom-2 right-2 w-6 h-6 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors text-slate-400 hover:text-white"
+          title={isExpanded ? 'Réduire' : 'Agrandir'}
+        >
+          {isExpanded ? (
+            <Minimize2 className="w-3.5 h-3.5" />
+          ) : (
+            <Maximize2 className="w-3.5 h-3.5" />
+          )}
+        </button>
       </div>
     </div>
   );

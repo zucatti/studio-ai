@@ -26,7 +26,10 @@ interface MentionInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   className?: string;
+  /** @deprecated Use fixedHeight instead */
   minHeight?: string;
+  /** Fixed height with scroll - no auto-resize */
+  fixedHeight?: string;
   projectId: string;
   /** Media type for style filtering. Defaults to 'video' */
   mediaType?: 'image' | 'video';
@@ -175,10 +178,14 @@ export function MentionInput({
   onChange,
   placeholder,
   className,
-  minHeight = '100px',
+  minHeight,
+  fixedHeight,
   projectId,
   mediaType = 'video',
 }: MentionInputProps) {
+  // Use fixedHeight if provided, otherwise fall back to minHeight for backwards compatibility
+  const height = fixedHeight || minHeight || '100px';
+  const useFixedHeight = !!fixedHeight;
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -652,17 +659,18 @@ export function MentionInput({
     }
   }, []);
 
-  // Auto-resize textarea and overlay
+  // Auto-resize textarea and overlay (only if not using fixedHeight)
   useEffect(() => {
+    if (useFixedHeight) return; // Skip auto-resize when using fixed height
     if (textareaRef.current && overlayRef.current) {
-      const height = Math.max(
-        parseInt(minHeight),
+      const computedHeight = Math.max(
+        parseInt(height),
         textareaRef.current.scrollHeight
       );
-      textareaRef.current.style.height = `${height}px`;
-      overlayRef.current.style.height = `${height}px`;
+      textareaRef.current.style.height = `${computedHeight}px`;
+      overlayRef.current.style.height = `${computedHeight}px`;
     }
-  }, [value, minHeight]);
+  }, [value, height, useFixedHeight]);
 
   const config = triggerChar ? TRIGGER_CONFIG[triggerChar] : null;
 
@@ -683,13 +691,14 @@ export function MentionInput({
         <div
           ref={overlayRef}
           className={cn(
-            'absolute inset-0 pointer-events-none overflow-hidden',
+            'absolute inset-0 pointer-events-none',
             'px-3 py-2 text-sm leading-normal',
             'whitespace-pre-wrap break-words',
-            'text-white font-normal tracking-normal'
+            'text-white font-normal tracking-normal',
+            useFixedHeight ? 'overflow-y-auto' : 'overflow-hidden'
           )}
           style={{
-            minHeight,
+            ...(useFixedHeight ? { height } : { minHeight: height }),
             fontFamily: 'inherit',
             wordSpacing: 'normal',
             letterSpacing: 'normal',
@@ -717,10 +726,11 @@ export function MentionInput({
             'text-transparent caret-white',
             'focus:outline-none',
             'selection:bg-blue-500/30',
-            'font-normal tracking-normal'
+            'font-normal tracking-normal',
+            useFixedHeight && 'overflow-y-auto'
           )}
           style={{
-            minHeight,
+            ...(useFixedHeight ? { height } : { minHeight: height }),
             wordSpacing: 'normal',
             letterSpacing: 'normal',
           }}
