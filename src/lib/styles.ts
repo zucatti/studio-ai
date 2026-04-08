@@ -189,6 +189,7 @@ export function parseStyleMentions(text: string): string[] {
 
 /**
  * Expand /style mentions in text to their full prompts
+ * Removes the /slug tags from the text (they're redundant once expanded)
  */
 export async function expandStyleMentions(text: string): Promise<{
   expandedText: string;
@@ -203,14 +204,23 @@ export async function expandStyleMentions(text: string): Promise<{
 
   const stylesMap = await findStylesBySlugs(slugs);
 
-  // Collect all style prompts (without removing from text - we keep the tag for display)
+  // Remove /slug tags from text (they're technical markers, not natural language)
+  let cleanedText = text;
+  for (const slug of slugs) {
+    // Remove the /slug (case insensitive) - the expanded prompt will describe the style
+    cleanedText = cleanedText.replace(new RegExp(`\\/${slug}\\b`, 'gi'), '');
+  }
+  // Clean up any double spaces left behind
+  cleanedText = cleanedText.replace(/  +/g, ' ').trim();
+
+  // Collect all style prompts
   for (const [, tech] of stylesMap) {
     // Clean the prompt: remove --v 6.0 suffix if present
     const cleanPrompt = tech.prompt.replace(/\s*--v\s*\d+\.\d+\s*$/, '').trim();
     stylePrompts.push(cleanPrompt);
   }
 
-  return { expandedText: text, stylePrompts };
+  return { expandedText: cleanedText, stylePrompts };
 }
 
 /**

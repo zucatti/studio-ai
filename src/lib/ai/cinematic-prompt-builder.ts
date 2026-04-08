@@ -1533,6 +1533,13 @@ export async function expandStyleMentionsInText(text: string): Promise<string> {
     return text;
   }
 
+  // Remove /slug tags from text (they're technical markers, not natural language)
+  let cleanedText = text;
+  for (const slug of slugs) {
+    cleanedText = cleanedText.replace(new RegExp(`\\/${slug}\\b`, 'gi'), '');
+  }
+  cleanedText = cleanedText.replace(/  +/g, ' ').trim();
+
   // Collect prompts (clean --v 6.0 suffix)
   const stylePrompts: string[] = [];
   for (const [, tech] of stylesMap) {
@@ -1540,8 +1547,8 @@ export async function expandStyleMentionsInText(text: string): Promise<string> {
     stylePrompts.push(cleanPrompt);
   }
 
-  // Append style prompts as a single block
-  return `${text} [STYLES: ${stylePrompts.join(', ')}]`;
+  // Append style prompts as a single block (without the /tags)
+  return `${cleanedText}\n${stylePrompts.join('\n')}`;
 }
 
 /**
