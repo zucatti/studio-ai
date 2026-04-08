@@ -1024,8 +1024,8 @@ export function SegmentEditor({
               <div className="absolute inset-0 flex">
                 {/* Left Panel - Camera Preview (scrolls independently) */}
                 <div className="w-[40%] h-full flex-shrink-0 p-6 border-r border-white/10 overflow-y-auto">
-                  {/* Toggle Camera/Video Preview */}
-                  {previewVideoUrl && (
+                  {/* Toggle Camera/Video Preview - show when generating or when video exists */}
+                  {(previewVideoUrl || isPreviewing) && (
                     <div className="flex gap-1 mb-2 p-0.5 bg-slate-800/50 rounded-lg w-fit">
                       <button
                         onClick={() => setShowVideoPreview(false)}
@@ -1044,19 +1044,27 @@ export function SegmentEditor({
                         className={cn(
                           "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors",
                           showVideoPreview
-                            ? "bg-amber-500 text-black"
+                            ? (isPreviewing ? "bg-amber-500/50 text-black" : "bg-amber-500 text-black")
                             : "text-slate-400 hover:text-white"
                         )}
                       >
                         <Video className="w-3.5 h-3.5" />
-                        Preview
+                        {isPreviewing ? 'Génération...' : 'Preview'}
                       </button>
                     </div>
                   )}
 
                   {/* Camera Preview or Video Preview */}
                   <div className="aspect-video mb-5">
-                    {previewVideoUrl && showVideoPreview ? (
+                    {!showVideoPreview ? (
+                      // Camera tab selected - always show camera preview
+                      <CameraPreview
+                        movement={formData.camera_movement || 'static'}
+                        framing={formData.shot_framing || 'medium'}
+                        composition={formData.shot_composition}
+                      />
+                    ) : previewVideoUrl ? (
+                      // Video tab selected + video ready
                       <div className="relative w-full h-full">
                         {/* Badge PREVIEW */}
                         <div className="absolute top-2 left-2 z-10 px-2 py-1 bg-amber-500 text-black text-[10px] font-bold rounded">
@@ -1070,6 +1078,7 @@ export function SegmentEditor({
                         />
                       </div>
                     ) : isPreviewing ? (
+                      // Video tab selected + generating
                       <div className="relative w-full h-full bg-slate-900 rounded-lg overflow-hidden border border-amber-500/30 flex items-center justify-center">
                         <div className="text-center">
                           <Loader2 className="w-8 h-8 animate-spin text-amber-400 mx-auto mb-2" />
@@ -1078,6 +1087,7 @@ export function SegmentEditor({
                         </div>
                       </div>
                     ) : (
+                      // Video tab selected but no video and not generating - show camera as fallback
                       <CameraPreview
                         movement={formData.camera_movement || 'static'}
                         framing={formData.shot_framing || 'medium'}
