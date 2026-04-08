@@ -470,8 +470,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       const manualViews = extractCharacterViews(allSegmentText);
       console.log('[QueueVideo] Manual view hints:', Object.fromEntries(manualViews));
 
-      // Get shot framing from cinematic header
-      const shotFraming = segments[0]?.shot_framing || cinematicHeader?.shot_type;
+      // Get shot framing from first segment
+      const shotFraming = segments[0]?.shot_framing;
 
       // Analyze characters to determine Stars vs Figurants and image budget
       // Pass videoModel so it uses the correct config (Seedance vs Kling)
