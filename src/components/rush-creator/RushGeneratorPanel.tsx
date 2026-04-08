@@ -246,10 +246,6 @@ export function RushGeneratorPanel() {
       </div>
 
       {/* Prompt input - full width */}
-      {/* DEBUG: Show currentProjectId status */}
-      <div className="text-xs text-red-400 mb-1">
-        DEBUG: currentProjectId = {currentProjectId || 'NULL'}
-      </div>
       <div onKeyDown={handleKeyDown}>
         {currentProjectId ? (
           <MentionInput

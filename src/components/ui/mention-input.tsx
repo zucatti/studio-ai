@@ -538,7 +538,6 @@ export function MentionInput({
 
     if (lastTrigger && lastTriggerIndex >= 0) {
       const query = textBeforeCursor.slice(lastTriggerIndex + 1);
-      console.log('[MentionInput] Trigger detected:', lastTrigger, 'query:', query, 'projectId:', projectId);
       setTriggerChar(lastTrigger);
       setTriggerIndex(lastTriggerIndex);
       setSearchQuery(query);
@@ -628,11 +627,6 @@ export function MentionInput({
       updateDropdownPosition();
     }
   }, [isOpen, updateDropdownPosition]);
-
-  // DEBUG: Log state changes
-  useEffect(() => {
-    console.log('[MentionInput] State:', { isOpen, triggerChar, suggestions: suggestions.length, filtered: filteredSuggestions.length });
-  }, [isOpen, triggerChar, suggestions.length, filteredSuggestions.length]);
 
   // Close dropdown on click outside
   useEffect(() => {
