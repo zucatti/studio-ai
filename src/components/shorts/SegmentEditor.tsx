@@ -226,9 +226,10 @@ interface ElementEditorProps {
   onDragOver?: (e: React.DragEvent) => void;
   onDrop?: () => void;
   onDragEnd?: () => void;
+  projectId: string;
 }
 
-function ElementEditor({ element, index, characters, onChange, onDelete, canDelete, isDragging, onDragStart, onDragOver, onDrop, onDragEnd }: ElementEditorProps) {
+function ElementEditor({ element, index, characters, onChange, onDelete, canDelete, isDragging, onDragStart, onDragOver, onDrop, onDragEnd, projectId }: ElementEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   // Get element type config
@@ -455,14 +456,15 @@ function ElementEditor({ element, index, characters, onChange, onDelete, canDele
         )}
       </div>
 
-      {/* Content textarea */}
+      {/* Content with MentionInput */}
       <div className="relative">
-        <Textarea
+        <MentionInput
           value={element.content || ''}
-          onChange={(e) => onChange({ ...element, content: e.target.value })}
+          onChange={(v) => onChange({ ...element, content: v })}
           placeholder={ELEMENT_PLACEHOLDERS[element.type] || 'Enter content...'}
-          rows={2}
-          className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 resize-none text-sm pb-6"
+          projectId={projectId}
+          fixedHeight="60px"
+          className="bg-slate-800/50 border-white/10 text-white placeholder:text-slate-600 text-sm"
         />
         {/* Translation indicator - shows if content_en exists and differs */}
         {element.content_en && element.content_en !== element.content && (
@@ -1190,6 +1192,7 @@ export function SegmentEditor({
                               onDragOver={(e) => handleDragOver(e, index)}
                               onDrop={() => handleDrop(index)}
                               onDragEnd={handleDragEnd}
+                              projectId={projectId}
                             />
                             {/* Insert button between elements */}
                             <div className="group relative h-2 -my-0.5">
