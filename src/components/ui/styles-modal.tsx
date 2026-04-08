@@ -270,7 +270,7 @@ function TechniqueCard({
     <button
       onClick={onClick}
       onMouseEnter={() => onHover(technique)}
-      onMouseLeave={() => onHover(null)}
+      // Don't clear on leave - keep preview sticky until another technique is hovered
       className={cn(
         'group relative aspect-video rounded-lg overflow-hidden border transition-all',
         isHovered
