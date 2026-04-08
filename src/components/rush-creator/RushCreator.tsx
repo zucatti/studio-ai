@@ -27,6 +27,7 @@ export function RushCreator({ projectId }: RushCreatorProps) {
     navigateNext,
     getTotalItems,
     isLoading,
+    isPromptFullscreen,
   } = useRushCreatorStore();
 
   const totalItems = getTotalItems();
@@ -111,43 +112,47 @@ export function RushCreator({ projectId }: RushCreatorProps) {
         onPanelChange={setActivePanel}
       />
 
-      {/* Main content - Carousel */}
-      <main className="flex-1 relative overflow-hidden">
-        {/* Side Panel (inside main for proper positioning) */}
-        <RushSidePanel panelType={activePanel} onClose={() => setActivePanel(null)} />
-        {isLoading ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="flex flex-col items-center gap-3">
-              <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-              <span className="text-slate-400 text-sm">Chargement...</span>
+      {/* Main content - Carousel (hidden in fullscreen mode) */}
+      {!isPromptFullscreen && (
+        <main className="flex-1 relative overflow-hidden">
+          {/* Side Panel (inside main for proper positioning) */}
+          <RushSidePanel panelType={activePanel} onClose={() => setActivePanel(null)} />
+          {isLoading ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                <span className="text-slate-400 text-sm">Chargement...</span>
+              </div>
             </div>
-          </div>
-        ) : totalItems === 0 ? (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <p className="text-slate-400 text-lg mb-2">Aucun rush</p>
-              <p className="text-slate-500 text-sm">Utilisez le panneau ci-dessous pour générer des images ou vidéos</p>
+          ) : totalItems === 0 ? (
+            <div className="flex items-center justify-center h-full">
+              <div className="text-center">
+                <p className="text-slate-400 text-lg mb-2">Aucun rush</p>
+                <p className="text-slate-500 text-sm">Utilisez le panneau ci-dessous pour générer des images ou vidéos</p>
+              </div>
             </div>
-          </div>
-        ) : (
-          <RushCarousel />
-        )}
-      </main>
+          ) : (
+            <RushCarousel />
+          )}
+        </main>
+      )}
 
-      {/* Action bar */}
-      <RushActionBar />
+      {/* Action bar (hidden in fullscreen mode) */}
+      {!isPromptFullscreen && <RushActionBar />}
 
       {/* Generator panel */}
       <RushGeneratorPanel />
 
-      {/* Keyboard hints - positioned in the main content area */}
-      <div className="absolute bottom-[220px] right-6 text-slate-600 text-xs flex items-center gap-3 pointer-events-none">
-        <span>← → Navigation</span>
-        <span>•</span>
-        <span>Espace Selection</span>
-        <span>•</span>
-        <span>Echap Fermer</span>
-      </div>
+      {/* Keyboard hints - positioned in the main content area (hidden in fullscreen mode) */}
+      {!isPromptFullscreen && (
+        <div className="absolute bottom-[240px] right-6 text-slate-600 text-xs flex items-center gap-3 pointer-events-none">
+          <span>← → Navigation</span>
+          <span>•</span>
+          <span>Espace Selection</span>
+          <span>•</span>
+          <span>Echap Fermer</span>
+        </div>
+      )}
     </div>,
     document.body
   );

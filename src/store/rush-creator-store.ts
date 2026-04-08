@@ -28,6 +28,7 @@ export interface RushCreatorStore {
   isOpen: boolean;
   mode: RushMode;
   currentProjectId: string | null;
+  isPromptFullscreen: boolean;
 
   // Validation context (Frame In/Out)
   validationContext: ValidationContext | null;
@@ -55,6 +56,7 @@ export interface RushCreatorStore {
   close: () => void;
   setMode: (mode: RushMode) => void;
   setCurrentProjectId: (projectId: string | null) => void;
+  togglePromptFullscreen: () => void;
 
   // Actions - Navigation
   navigateTo: (index: number) => void;
@@ -112,6 +114,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       isOpen: false,
       mode: 'photo',
       currentProjectId: null,
+      isPromptFullscreen: false,
 
       // Validation context
       validationContext: null,
@@ -168,9 +171,12 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
         selectedIds: new Set(),
         currentIndex: 0,
         validationContext: null,
+        isPromptFullscreen: false,
       }),
 
       setMode: (mode) => set({ mode }),
+
+      togglePromptFullscreen: () => set((state) => ({ isPromptFullscreen: !state.isPromptFullscreen })),
 
       setCurrentProjectId: (projectId) => {
         set({ currentProjectId: projectId, media: [], currentIndex: 0, pendingJobs: [] });

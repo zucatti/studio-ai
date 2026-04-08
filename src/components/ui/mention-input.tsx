@@ -184,8 +184,10 @@ export function MentionInput({
   mediaType = 'video',
 }: MentionInputProps) {
   // Use fixedHeight if provided, otherwise fall back to minHeight for backwards compatibility
-  const height = fixedHeight || minHeight || '100px';
+  // If neither is provided, use flex layout (for fullscreen mode)
+  const height = fixedHeight || minHeight;
   const useFixedHeight = !!fixedHeight;
+  const useFlexLayout = !height;
   const containerRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -659,10 +661,10 @@ export function MentionInput({
     }
   }, []);
 
-  // Auto-resize textarea and overlay (only if not using fixedHeight)
+  // Auto-resize textarea and overlay (only if not using fixedHeight or flexLayout)
   useEffect(() => {
-    if (useFixedHeight) return; // Skip auto-resize when using fixed height
-    if (textareaRef.current && overlayRef.current) {
+    if (useFixedHeight || useFlexLayout) return; // Skip auto-resize
+    if (textareaRef.current && overlayRef.current && height) {
       const computedHeight = Math.max(
         parseInt(height),
         textareaRef.current.scrollHeight
@@ -670,7 +672,7 @@ export function MentionInput({
       textareaRef.current.style.height = `${computedHeight}px`;
       overlayRef.current.style.height = `${computedHeight}px`;
     }
-  }, [value, height, useFixedHeight]);
+  }, [value, height, useFixedHeight, useFlexLayout]);
 
   const config = triggerChar ? TRIGGER_CONFIG[triggerChar] : null;
 
@@ -683,6 +685,7 @@ export function MentionInput({
           'bg-white/5 border border-white/10',
           'focus-within:border-blue-500/50',
           'transition-colors',
+          useFlexLayout && 'flex-1 flex flex-col',
           className
         )}
       >
@@ -695,10 +698,10 @@ export function MentionInput({
             'px-3 py-2 text-sm leading-normal',
             'whitespace-pre-wrap break-words',
             'text-white font-normal tracking-normal',
-            useFixedHeight ? 'overflow-y-auto' : 'overflow-hidden'
+            (useFixedHeight || useFlexLayout) ? 'overflow-y-auto' : 'overflow-hidden'
           )}
           style={{
-            ...(useFixedHeight ? { height } : { minHeight: height }),
+            ...(height ? (useFixedHeight ? { height } : { minHeight: height }) : {}),
             fontFamily: 'inherit',
             wordSpacing: 'normal',
             letterSpacing: 'normal',
@@ -727,10 +730,11 @@ export function MentionInput({
             'focus:outline-none',
             'selection:bg-blue-500/30',
             'font-normal tracking-normal',
-            useFixedHeight && 'overflow-y-auto'
+            (useFixedHeight || useFlexLayout) && 'overflow-y-auto',
+            useFlexLayout && 'flex-1'
           )}
           style={{
-            ...(useFixedHeight ? { height } : { minHeight: height }),
+            ...(height ? (useFixedHeight ? { height } : { minHeight: height }) : {}),
             wordSpacing: 'normal',
             letterSpacing: 'normal',
           }}

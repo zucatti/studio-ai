@@ -55,6 +55,8 @@ export function RushGeneratorPanel() {
     duration,
     setDuration,
     generate,
+    isPromptFullscreen,
+    togglePromptFullscreen,
   } = useRushCreatorStore();
 
   // Get duration limits for current model
@@ -63,7 +65,6 @@ export function RushGeneratorPanel() {
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [quantity, setQuantity] = useState(1);
-  const [isExpanded, setIsExpanded] = useState(false);
 
   // Clamp duration when model changes
   useEffect(() => {
@@ -109,7 +110,10 @@ export function RushGeneratorPanel() {
   };
 
   return (
-    <div className="border-t border-white/10 bg-[#0d1520]/95 backdrop-blur-sm px-6 py-4">
+    <div className={cn(
+      'border-t border-white/10 bg-[#0d1520]/95 backdrop-blur-sm px-6 py-4',
+      isPromptFullscreen && 'flex-1 flex flex-col'
+    )}>
       {/* Toolbar row */}
       <div className="flex items-center gap-3 mb-3">
         {/* Mode toggle */}
@@ -247,7 +251,10 @@ export function RushGeneratorPanel() {
       </div>
 
       {/* Prompt input - full width with expand/collapse */}
-      <div className="relative" onKeyDown={handleKeyDown}>
+      <div className={cn(
+        'relative',
+        isPromptFullscreen && 'flex-1 flex flex-col'
+      )} onKeyDown={handleKeyDown}>
         {currentProjectId ? (
           <MentionInput
             value={prompt}
@@ -256,10 +263,13 @@ export function RushGeneratorPanel() {
               ? '@Personnage dans #Lieu avec /style...'
               : 'Décrivez la vidéo avec /style...'
             }
-            fixedHeight={isExpanded ? '300px' : '80px'}
+            fixedHeight={isPromptFullscreen ? undefined : '80px'}
+            className={cn(
+              'bg-white/5 border-white/10 text-base',
+              isPromptFullscreen && 'flex-1'
+            )}
             projectId={currentProjectId}
             mediaType={mode === 'photo' ? 'image' : 'video'}
-            className="bg-white/5 border-white/10 text-base"
           />
         ) : (
           <textarea
@@ -271,19 +281,19 @@ export function RushGeneratorPanel() {
             }
             className={cn(
               'w-full px-4 py-3 bg-white/5 border border-white/10 rounded-lg text-white text-base placeholder:text-slate-500 focus:outline-none focus:border-blue-500/50 resize-none overflow-y-auto',
-              isExpanded ? 'h-[300px]' : 'h-[80px]'
+              isPromptFullscreen ? 'flex-1' : 'h-[80px]'
             )}
           />
         )}
 
-        {/* Expand/Collapse button */}
+        {/* Fullscreen toggle button */}
         <button
           type="button"
-          onClick={() => setIsExpanded(!isExpanded)}
+          onClick={togglePromptFullscreen}
           className="absolute bottom-2 right-2 w-6 h-6 rounded bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors text-slate-400 hover:text-white"
-          title={isExpanded ? 'Réduire' : 'Agrandir'}
+          title={isPromptFullscreen ? 'Réduire' : 'Plein écran'}
         >
-          {isExpanded ? (
+          {isPromptFullscreen ? (
             <Minimize2 className="w-3.5 h-3.5" />
           ) : (
             <Maximize2 className="w-3.5 h-3.5" />
