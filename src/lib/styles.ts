@@ -29,7 +29,8 @@ export const STYLE_CATEGORIES: {
   icon: string;
   mediaTypes: ('image' | 'video')[];
 }[] = [
-  { id: 'camera_work', label: 'Camera Work', icon: 'Video', mediaTypes: ['video'] },
+  { id: 'framing', label: 'Cadrage', icon: 'Frame', mediaTypes: ['image', 'video'] },
+  { id: 'camera_work', label: 'Camera Motion', icon: 'Video', mediaTypes: ['video'] },
   { id: 'composition', label: 'Composition', icon: 'Layout', mediaTypes: ['image', 'video'] },
   { id: 'editing', label: 'Editing', icon: 'Scissors', mediaTypes: ['video'] },
   { id: 'genres', label: 'Genres', icon: 'Film', mediaTypes: ['image', 'video'] },

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Search, Video, Layout, Scissors, Film, Sun, Sparkles, BookOpen, Loader2 } from 'lucide-react';
+import { X, Search, Video, Layout, Scissors, Film, Sun, Sparkles, BookOpen, Loader2, Frame } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   loadAllStyles,
@@ -22,6 +22,7 @@ interface StylesModalProps {
 
 // Icon mapping
 const CATEGORY_ICONS: Record<string, typeof Video> = {
+  framing: Frame,
   camera_work: Video,
   composition: Layout,
   editing: Scissors,

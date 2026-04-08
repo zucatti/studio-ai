@@ -1,0 +1,155 @@
+{
+  "category": "Framing",
+  "techniques": [
+    {
+      "name": "Aerial Shot",
+      "utility": "Vue depuis une grande hauteur (drone/hélicoptère). Sert à établir l'immensité d'un paysage ou l'échelle d'une action.",
+      "prompt": "Aerial shot, high altitude, bird's eye view, sweeping landscape, cinematic scale --v 6.0",
+      "preview": "camera_work/aerial-shot.webp"
+    },
+    {
+      "name": "Bird's Eye View",
+      "utility": "Angle vertical à 90° regardant directement vers le bas. Donne une perspective 'divine', rendant les sujets petits ou révélant des motifs géométriques.",
+      "prompt": "Bird's eye view, top-down perspective, straight down angle, cinematic geometry --v 6.0",
+      "preview": "camera_work/birds-eye-view.webp"
+    },
+    {
+      "name": "Choker Shot",
+      "utility": "Cadrage très serré du menton au front. Plus intime que le gros plan, capte l'intensité émotionnelle.",
+      "prompt": "Choker shot, tight framing on face, intense close-up, cinematic intimacy --v 6.0",
+      "preview": "camera_work/choker-shot.webp"
+    },
+    {
+      "name": "Close-Up",
+      "utility": "Cadre serré sur le visage ou un objet. Sert à capturer les émotions intimes et les détails subtils invisibles de loin.",
+      "prompt": "Close-up shot, portrait, detailed facial expressions, intimate cinematic framing --v 6.0",
+      "preview": "camera_work/close-up.webp"
+    },
+    {
+      "name": "Cowboy Shot (Medium Long Shot)",
+      "utility": "Cadre le personnage des mi-cuisses à la tête. Initialement utilisé dans les westerns pour montrer les pistolets à la ceinture.",
+      "prompt": "Cowboy shot, medium long shot, mid-thigh to head framing, cinematic western aesthetic --v 6.0",
+      "preview": "camera_work/cowboy-shot.webp"
+    },
+    {
+      "name": "Dutch Angle",
+      "utility": "Inclinaison de la caméra sur son axe roll. Crée un sentiment de malaise, de confusion psychologique ou de tension.",
+      "prompt": "Dutch angle, tilted frame, canted shot, cinematic tension, disorienting perspective --v 6.0",
+      "preview": "camera_work/dutch-angle.webp"
+    },
+    {
+      "name": "Establishing Shot",
+      "utility": "Plan large au début d'une scène pour situer le contexte, le lieu et l'heure de la journée.",
+      "prompt": "Establishing shot, wide angle, environmental storytelling, cinematic location introduction --v 6.0",
+      "preview": "camera_work/establishing-shot.webp"
+    },
+    {
+      "name": "Extreme Close-Up",
+      "utility": "Focus ultra-serré sur un détail précis (un iris, une larme, une serrure). Amplifie l'importance dramatique d'un micro-détail.",
+      "prompt": "Extreme close-up, macro photography, hyper-detailed, cinematic focus on texture --v 6.0",
+      "preview": "camera_work/extreme-close-up.webp"
+    },
+    {
+      "name": "Extreme Long Shot",
+      "utility": "Le sujet est minuscule dans un environnement vaste. Souligne l'isolement, la solitude ou la puissance de la nature.",
+      "prompt": "Extreme long shot, wide vista, subject dwarfed by environment, cinematic isolation --v 6.0",
+      "preview": "camera_work/extreme-long-shot.webp"
+    },
+    {
+      "name": "Eye-Level Shot",
+      "utility": "Caméra à hauteur d'yeux. C'est l'angle le plus neutre, créant un sentiment d'égalité et de réalisme entre le spectateur et le sujet.",
+      "prompt": "Eye-level shot, neutral perspective, realistic framing, cinematic observation --v 6.0",
+      "preview": "camera_work/eye-level-shot.webp"
+    },
+    {
+      "name": "Head-On Shot",
+      "utility": "Sujet faisant face directement à l'objectif. Crée un sentiment de confrontation, de puissance ou une connexion directe et intense avec le spectateur.",
+      "prompt": "Head-on shot, symmetrical framing, subject looking directly into camera, powerful cinematic gaze --v 6.0",
+      "preview": "camera_work/head-on-shot.webp"
+    },
+    {
+      "name": "High Angle Shot",
+      "utility": "Caméra placée au-dessus du sujet. Rend le personnage plus petit, vulnérable ou insignifiant, tout en offrant une vue d'ensemble du décor.",
+      "prompt": "High angle shot, looking down on subject, feeling of vulnerability, cinematic perspective --v 6.0",
+      "preview": "camera_work/high-angle-shot.webp"
+    },
+    {
+      "name": "Insert Shot",
+      "utility": "Plan de détail sur un objet spécifique (une horloge, une lettre). Dirige l'attention du spectateur sur un élément crucial pour l'histoire.",
+      "prompt": "Insert shot, close-up on a specific object, narrative detail, shallow depth of field, cinematic focus --v 6.0",
+      "preview": "camera_work/insert-shot.webp"
+    },
+    {
+      "name": "Long Shot",
+      "utility": "Montre le sujet en entier dans son environnement. Équilibre l'importance du personnage et du décor pour établir une relation spatiale.",
+      "prompt": "Long shot, full body visible, subject within vast environment, cinematic composition --v 6.0",
+      "preview": "camera_work/long-shot.webp"
+    },
+    {
+      "name": "Low Angle Shot",
+      "utility": "Caméra placée en dessous du sujet. Donne une impression de domination, de puissance, d'héroïsme ou de menace.",
+      "prompt": "Low angle shot, looking up at subject, heroic perspective, dominant cinematic framing --v 6.0",
+      "preview": "camera_work/low-angle-shot.webp"
+    },
+    {
+      "name": "Master Shot",
+      "utility": "Plan large continu qui capture l'intégralité d'une scène. Sert de base visuelle pour situer tous les acteurs et l'action globale.",
+      "prompt": "Master shot, wide angle, full scene coverage, cinematic ensemble staging --v 6.0",
+      "preview": "camera_work/master-shot.webp"
+    },
+    {
+      "name": "Medium Close Up",
+      "utility": "Cadrage de la poitrine à la tête. Distance conversationnelle idéale pour les dialogues.",
+      "prompt": "Medium close-up, chest to head framing, conversational distance, cinematic balance --v 6.0",
+      "preview": "camera_work/medium-close-up.webp"
+    },
+    {
+      "name": "Medium Shot",
+      "utility": "Cadre le sujet de la taille jusqu'en haut. Idéal pour les scènes de dialogue car il capture à la fois les expressions et le langage corporel.",
+      "prompt": "Medium shot, waist-up framing, cinematic dialogue scene, natural body language --v 6.0",
+      "preview": "camera_work/medium-shot.webp"
+    },
+    {
+      "name": "Over-the-Shoulder",
+      "utility": "Plan filmé par-dessus l'épaule d'un personnage. Place le spectateur au cœur de la conversation et définit la relation entre les sujets.",
+      "prompt": "Over-the-shoulder shot, conversation perspective, cinematic depth of field, intimate dialogue --v 6.0",
+      "preview": "camera_work/over-the-shoulder.webp"
+    },
+    {
+      "name": "Overhead Shot",
+      "utility": "Caméra placée directement au-dessus, souvent utilisé pour des vues de dessus de tables ou des chorégraphies d'action précises.",
+      "prompt": "Overhead shot, directly from above, flat lay perspective, cinematic layout --v 6.0",
+      "preview": "camera_work/overhead-shot.webp"
+    },
+    {
+      "name": "POV Shot (Point of View)",
+      "utility": "La caméra devient les yeux d'un personnage. Permet au spectateur de vivre l'action directement à travers le regard du protagoniste.",
+      "prompt": "POV shot, first-person perspective, through the character's eyes, immersive cinematic experience --v 6.0",
+      "preview": "camera_work/pov-shot.webp"
+    },
+    {
+      "name": "Static Shot",
+      "utility": "Caméra parfaitement fixe sur trépied. L'absence de mouvement force l'attention sur la composition, le jeu d'acteur ou crée une tension contemplative.",
+      "prompt": "Static shot, locked-off camera, tripod stability, cinematic still composition, zero camera movement --v 6.0",
+      "preview": "camera_work/static-shot.webp"
+    },
+    {
+      "name": "Three Shot",
+      "utility": "Plan cadrant trois personnages ensemble. Montre les dynamiques de groupe et les triangles relationnels.",
+      "prompt": "Three shot, three subjects in frame, group dynamics, cinematic composition --v 6.0",
+      "preview": "camera_work/three-shot.webp"
+    },
+    {
+      "name": "Two Shot",
+      "utility": "Plan cadrant deux personnages ensemble. Idéal pour établir une relation, un conflit ou une complicité dans une seule image.",
+      "prompt": "Two shot, two characters in frame, balanced cinematic composition, character interaction --v 6.0",
+      "preview": "camera_work/two-shot.webp"
+    },
+    {
+      "name": "Worms Eye View",
+      "utility": "Angle extrêmement bas, comme vu par un ver de terre. Effet dramatique et imposant maximal.",
+      "prompt": "Worm's eye view, extreme low angle, ground level perspective, cinematic drama --v 6.0",
+      "preview": "camera_work/worms-eye-view.webp"
+    }
+  ]
+}
