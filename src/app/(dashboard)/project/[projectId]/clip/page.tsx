@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { PlanEditor, type VideoGenerationOptions, type PlanData } from '@/components/plan-editor';
@@ -33,6 +33,13 @@ interface AudioData {
   duration?: number;
   title?: string;
   artist?: string;
+  workAreaStart?: number;
+  workAreaEnd?: number;
+}
+
+interface WorkArea {
+  start: number;
+  end: number;
 }
 
 // === MAIN COMPONENT ===
@@ -75,6 +82,15 @@ export default function ClipPage() {
   const [wizardSequenceId, setWizardSequenceId] = useState<string | null>(null);
   const [isWizardOpen, setIsWizardOpen] = useState(false);
 
+  // Work area state (from audio asset)
+  const [workArea, setWorkArea] = useState<WorkArea | null>(null);
+  const workAreaRef = useRef<WorkArea | null>(null);
+
+  // Keep ref in sync with state to avoid stale closures
+  useEffect(() => {
+    workAreaRef.current = workArea;
+  }, [workArea]);
+
   // === FETCH DATA ===
 
   // Fetch project assets (bible)
@@ -108,11 +124,19 @@ export default function ClipPage() {
         }
 
         if (masterAsset) {
+          const audioData = masterAsset.data as AudioData;
           setMasterAudio({
             id: masterAsset.id,
             name: masterAsset.name,
-            data: masterAsset.data as AudioData,
+            data: audioData,
           });
+          // Load work area if saved
+          if (audioData.workAreaStart !== undefined && audioData.workAreaEnd !== undefined) {
+            setWorkArea({
+              start: audioData.workAreaStart,
+              end: audioData.workAreaEnd,
+            });
+          }
         }
       } catch (error) {
         console.error('Error fetching master audio:', error);
@@ -234,14 +258,47 @@ export default function ClipPage() {
 
   // === COMPUTED ===
 
+  // Calculate dynamic sequence positions based on work area and plan durations
+  // Sequences are chained: first starts at workArea.start, each follows the previous
+  const computedSequences = useMemo(() => {
+    if (!workArea) {
+      // No work area - use original positions
+      return sequences;
+    }
+
+    let currentPosition = workArea.start;
+
+    return sequences
+      .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+      .map(seq => {
+        // Calculate sequence duration from its plans
+        const sequencePlans = plans.filter(p => p.sequence_id === seq.id);
+        const sequenceDuration = sequencePlans.reduce((sum, p) => sum + (p.duration || 0), 0);
+
+        // Use minimum duration of 5s if no plans
+        const effectiveDuration = sequenceDuration > 0 ? sequenceDuration : 5;
+
+        const start = currentPosition;
+        const end = Math.min(currentPosition + effectiveDuration, workArea.end);
+
+        currentPosition = end;
+
+        return {
+          ...seq,
+          start_time: start,
+          end_time: end,
+        };
+      });
+  }, [sequences, plans, workArea]);
+
   const selectedPlan = useMemo(() => {
     return plans.find(p => p.id === selectedPlanId) || null;
   }, [plans, selectedPlanId]);
 
   const selectedSequence = useMemo(() => {
     if (!selectedPlan) return null;
-    return sequences.find(s => s.id === selectedPlan.sequence_id) || null;
-  }, [selectedPlan, sequences]);
+    return computedSequences.find(s => s.id === selectedPlan.sequence_id) || null;
+  }, [selectedPlan, computedSequences]);
 
   const previousPlan = useMemo(() => {
     if (!selectedPlan) return null;
@@ -295,14 +352,43 @@ export default function ClipPage() {
 
   // === HANDLERS ===
 
-  const handleCreateSequence = useCallback(async (startTime?: number, endTime?: number) => {
+  const handleCreateSequence = useCallback(async () => {
+    // Positions are computed dynamically based on work area and plan durations
+    // We just create a new sequence - it will be placed after existing ones
+    const currentWorkArea = workAreaRef.current;
+
+    // Calculate where the new sequence would start (after existing sequences)
+    let nextStart = currentWorkArea?.start ?? 0;
+    const sortedSeqs = [...sequences].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+    for (const seq of sortedSeqs) {
+      const seqPlans = plans.filter(p => p.sequence_id === seq.id);
+      const seqDuration = seqPlans.reduce((sum, p) => sum + (p.duration || 0), 0) || 5;
+      nextStart += seqDuration;
+    }
+
+    // Check if there's room for a new sequence
+    const maxEnd = currentWorkArea?.end ?? Infinity;
+    if (nextStart >= maxEnd) {
+      toast.error('Plus de place dans la zone de travail');
+      return;
+    }
+
+    // Default duration for new sequence (will be adjusted when plans are added)
+    const defaultDuration = Math.min(10, maxEnd - nextStart);
+
+    console.log('[ClipPage] Creating sequence:', {
+      nextStart,
+      defaultDuration,
+      currentWorkArea,
+    });
+
     try {
       const res = await fetch(`/api/projects/${projectId}/clip/sequences`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          startTime: startTime ?? 0,
-          endTime: endTime ?? 10,
+          startTime: nextStart,
+          endTime: nextStart + defaultDuration,
         }),
       });
       if (res.ok) {
@@ -311,11 +397,11 @@ export default function ClipPage() {
           ...data.sequence,
           project_id: projectId,
           scene_id: null,
-          start_time: startTime ?? 0,
-          end_time: endTime ?? 10,
+          start_time: nextStart,
+          end_time: nextStart + defaultDuration,
         };
         setSequences(prev => [...prev, newSeq].sort((a, b) =>
-          (a.start_time || 0) - (b.start_time || 0)
+          (a.sort_order ?? 0) - (b.sort_order ?? 0)
         ));
         toast.success('Séquence créée');
       }
@@ -323,7 +409,7 @@ export default function ClipPage() {
       console.error('Error creating sequence:', error);
       toast.error('Erreur lors de la création');
     }
-  }, [projectId]);
+  }, [projectId, sequences, plans]);
 
   const handleAddPlan = useCallback(async () => {
     // Add to first sequence or create one
@@ -487,6 +573,31 @@ export default function ClipPage() {
       console.error('Error moving plan:', error);
     }
   }, [projectId]);
+
+  // Update work area and persist to audio asset
+  const handleWorkAreaChange = useCallback(async (newWorkArea: WorkArea) => {
+    if (!masterAudio) return;
+
+    // Optimistic update
+    setWorkArea(newWorkArea);
+
+    try {
+      await fetch(`/api/projects/${projectId}/assets`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          assetId: masterAudio.id,
+          data: {
+            workAreaStart: newWorkArea.start,
+            workAreaEnd: newWorkArea.end,
+          },
+        }),
+      });
+    } catch (error) {
+      console.error('Error saving work area:', error);
+      toast.error('Erreur lors de la sauvegarde de la zone de travail');
+    }
+  }, [projectId, masterAudio]);
 
   const handleGenerateVideo = useCallback(async (
     planId: string,
@@ -706,7 +817,7 @@ export default function ClipPage() {
       {signedAudioUrl && (
         <WaveformHeader
           audioUrl={signedAudioUrl}
-          sequences={sequences.map(s => ({
+          sequences={computedSequences.map(s => ({
             id: s.id,
             title: s.title,
             start_time: s.start_time ?? null,
@@ -721,7 +832,9 @@ export default function ClipPage() {
               return next;
             });
           }}
-          onCreateSequence={(startTime, endTime) => handleCreateSequence(startTime, endTime)}
+          onCreateSequence={() => handleCreateSequence()}
+          workArea={workArea}
+          onWorkAreaChange={handleWorkAreaChange}
         />
       )}
     </div>
@@ -730,11 +843,12 @@ export default function ClipPage() {
   return (
     <>
       <VideoEditorLayout
-        sequences={sequences}
+        sequences={computedSequences}
         plans={plans}
         aspectRatio={aspectRatio}
         projectId={projectId}
         entityId={projectId}
+        entityType="clip"
         selectedPlanId={selectedPlanId}
         collapsedSequences={collapsedSequences}
         generationProgress={generationProgress}
@@ -800,7 +914,7 @@ export default function ClipPage() {
             setIsWizardOpen(open);
             if (!open) setWizardSequenceId(null);
           }}
-          value={sequences.find((s) => s.id === wizardSequenceId)?.cinematic_header || null}
+          value={computedSequences.find((s) => s.id === wizardSequenceId)?.cinematic_header || null}
           onChange={(config: CinematicHeaderConfig) => {
             handleUpdateSequence(wizardSequenceId, { cinematic_header: config });
             setIsWizardOpen(false);

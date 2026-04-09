@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { StorageImg } from '@/components/ui/storage-image';
 import { Lightbox, type LightboxImage } from '@/components/ui/lightbox';
-import { Loader2, Grid3X3, Trash2, Maximize2 } from 'lucide-react';
+import { ImageEditor } from '@/components/ui/image-editor';
+import { Loader2, Grid3X3, Undo2, Maximize2, Pencil } from 'lucide-react';
 import { toast } from 'sonner';
 import type { GalleryImage } from '@/app/api/gallery/route';
 
@@ -17,6 +18,10 @@ export default function GalleryPage() {
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
   const [hoveredImage, setHoveredImage] = useState<string | null>(null);
+
+  // Image editor state
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingImage, setEditingImage] = useState<GalleryImage | null>(null);
 
   const fetchImages = useCallback(async () => {
     try {
@@ -56,46 +61,97 @@ export default function GalleryPage() {
     setLightboxOpen(true);
   };
 
-  const handleDelete = async (imageId: string) => {
-    if (!confirm('Supprimer cette image ?')) return;
+  // Open image editor
+  const handleEdit = (image: GalleryImage) => {
+    setEditingImage(image);
+    setEditorOpen(true);
+    setLightboxOpen(false);
+  };
 
+  // Regenerate image with new prompt
+  const handleRegenerate = async (newPrompt: string, options?: Record<string, unknown>) => {
+    if (!editingImage) return;
+
+    const count = (options?.count as number) || 1;
+
+    try {
+      // Determine if it's a rush image or shot image
+      if (editingImage.id.startsWith('rush-')) {
+        // Queue a new rush generation with the prompt
+        const res = await fetch(`/api/projects/${projectId}/queue-rush`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: newPrompt,
+            count,
+          }),
+        });
+        if (!res.ok) throw new Error('Failed to queue regeneration');
+        toast.success(`${count} régénération${count > 1 ? 's' : ''} lancée${count > 1 ? 's' : ''}`);
+      } else {
+        // For shot images, use quick-shot endpoint
+        const res = await fetch(`/api/projects/${projectId}/queue-quick-shot`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            prompt: newPrompt,
+            count,
+          }),
+        });
+        if (!res.ok) throw new Error('Failed to queue regeneration');
+        toast.success(`${count} régénération${count > 1 ? 's' : ''} lancée${count > 1 ? 's' : ''}`);
+      }
+    } catch (error) {
+      console.error('Failed to regenerate:', error);
+      toast.error('Erreur lors de la régénération');
+      throw error;
+    }
+  };
+
+  const handleMoveToRush = async (imageId: string) => {
     try {
       // Parse the image ID to determine type and actual ID
       // Formats: 'rush-{id}', '{shotId}-storyboard', '{shotId}-first', '{shotId}-last'
       let endpoint: string;
+      let body: Record<string, unknown>;
 
       if (imageId.startsWith('rush-')) {
-        // Rush image
+        // Rush image - change status back to pending
         const actualId = imageId.replace('rush-', '');
-        endpoint = `/api/projects/${projectId}/rush?id=${actualId}`;
+        endpoint = `/api/projects/${projectId}/rush`;
+        body = { imageIds: [actualId], status: 'pending' };
       } else if (imageId.endsWith('-storyboard') || imageId.endsWith('-first') || imageId.endsWith('-last')) {
-        // Shot image - extract the shot ID
+        // Shot image - change status to rush
         const shotId = imageId.replace(/-storyboard$|-first$|-last$/, '');
         endpoint = `/api/projects/${projectId}/shots/${shotId}`;
+        body = { status: 'rush' };
       } else {
-        // Unknown format, try as direct ID
+        // Unknown format, try as shot ID
         endpoint = `/api/projects/${projectId}/shots/${imageId}`;
+        body = { status: 'rush' };
       }
 
       const res = await fetch(endpoint, {
-        method: 'DELETE',
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
       });
 
       if (res.ok) {
         setImages((prev) => prev.filter((img) => img.id !== imageId));
-        toast.success('Image supprimee');
+        toast.success('Image déplacée vers Rush');
         // If no more images, close lightbox
         if (images.length <= 1) {
           setLightboxOpen(false);
         }
       } else {
         const errorData = await res.json().catch(() => ({}));
-        console.error('Delete failed:', res.status, errorData);
+        console.error('Move to rush failed:', res.status, errorData);
         toast.error(`Erreur: ${errorData.error || res.statusText}`);
       }
     } catch (error) {
-      console.error('Failed to delete image:', error);
-      toast.error('Erreur de suppression');
+      console.error('Failed to move image to rush:', error);
+      toast.error('Erreur lors du déplacement');
     }
   };
 
@@ -159,17 +215,29 @@ export default function GalleryPage() {
                     <button
                       onClick={() => openLightbox(index)}
                       className="w-10 h-10 rounded-full bg-white/20 backdrop-blur flex items-center justify-center hover:bg-white/30 transition-colors"
+                      title="Agrandir"
                     >
                       <Maximize2 className="w-5 h-5 text-white" />
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleDelete(image.id);
+                        handleEdit(image);
                       }}
-                      className="w-10 h-10 rounded-full bg-red-500/20 backdrop-blur flex items-center justify-center hover:bg-red-500/40 transition-colors"
+                      className="w-10 h-10 rounded-full bg-blue-500/20 backdrop-blur flex items-center justify-center hover:bg-blue-500/40 transition-colors"
+                      title="Éditer l'image"
                     >
-                      <Trash2 className="w-5 h-5 text-red-400" />
+                      <Pencil className="w-5 h-5 text-blue-400" />
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleMoveToRush(image.id);
+                      }}
+                      className="w-10 h-10 rounded-full bg-orange-500/20 backdrop-blur flex items-center justify-center hover:bg-orange-500/40 transition-colors"
+                      title="Déplacer vers Rush"
+                    >
+                      <Undo2 className="w-5 h-5 text-orange-400" />
                     </button>
                   </div>
                 )}
@@ -192,8 +260,38 @@ export default function GalleryPage() {
             initialIndex={lightboxIndex}
             isOpen={lightboxOpen}
             onClose={() => setLightboxOpen(false)}
-            onDelete={handleDelete}
+            onMoveToRushes={handleMoveToRush}
+            onEdit={(id) => {
+              const img = images.find((i) => i.id === id);
+              if (img) handleEdit(img);
+            }}
           />
+
+          {/* Image Editor */}
+          {editingImage && (
+            <ImageEditor
+              isOpen={editorOpen}
+              onClose={() => {
+                setEditorOpen(false);
+                setEditingImage(null);
+              }}
+              imageUrl={editingImage.url}
+              imageId={editingImage.id}
+              description={editingImage.description}
+              prompt={editingImage.prompt}
+              projectId={projectId}
+              onRegenerate={handleRegenerate}
+              onSave={(newUrl) => {
+                // Update the image in the list with the new cropped URL
+                setImages((prev) =>
+                  prev.map((img) =>
+                    img.id === editingImage.id ? { ...img, url: newUrl } : img
+                  )
+                );
+                toast.success('Image modifiée');
+              }}
+            />
+          )}
         </>
       )}
     </div>

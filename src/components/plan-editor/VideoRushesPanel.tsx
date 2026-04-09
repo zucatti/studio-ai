@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { StorageVideo } from '@/components/ui/storage-video';
 import type { VideoRush } from '@/types/shot';
 
 interface VideoRushesPanelProps {
@@ -52,7 +53,7 @@ async function signUrl(url: string): Promise<string> {
   }
 }
 
-// Video thumbnail component with URL signing
+// Video thumbnail component with play overlay
 function VideoThumbnail({
   url,
   className,
@@ -62,20 +63,10 @@ function VideoThumbnail({
   className?: string;
   onClick?: () => void;
 }) {
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    signUrl(url).then(setSignedUrl);
-  }, [url]);
-
-  if (!signedUrl) {
-    return <div className={cn('bg-slate-800 animate-pulse', className)} />;
-  }
-
   return (
     <div className={cn('relative cursor-pointer group', className)} onClick={onClick}>
-      <video
-        src={signedUrl}
+      <StorageVideo
+        src={url}
         className="w-full h-full object-cover rounded-t-lg"
         muted
         preload="metadata"
@@ -84,38 +75,6 @@ function VideoThumbnail({
         <Play className="w-8 h-8 text-white drop-shadow-lg" />
       </div>
     </div>
-  );
-}
-
-// Video player component with URL signing
-function VideoPlayer({
-  url,
-  className,
-  controls = true,
-  autoPlay = false,
-}: {
-  url: string;
-  className?: string;
-  controls?: boolean;
-  autoPlay?: boolean;
-}) {
-  const [signedUrl, setSignedUrl] = useState<string | null>(null);
-
-  useEffect(() => {
-    signUrl(url).then(setSignedUrl);
-  }, [url]);
-
-  if (!signedUrl) {
-    return <div className={cn('bg-slate-800 animate-pulse', className)} />;
-  }
-
-  return (
-    <video
-      src={signedUrl}
-      className={className}
-      controls={controls}
-      autoPlay={autoPlay}
-    />
   );
 }
 
@@ -398,8 +357,8 @@ export function VideoRushesPanel({
           </DialogHeader>
           {previewRush && (
             <div className="relative">
-              <VideoPlayer
-                url={previewRush.url}
+              <StorageVideo
+                src={previewRush.url}
                 className="w-full aspect-video"
                 controls
                 autoPlay

@@ -13,6 +13,7 @@ import {
   VolumeX,
   Plus,
   Loader2,
+  Scissors,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -26,6 +27,11 @@ interface Sequence {
   color?: string;
 }
 
+interface WorkArea {
+  start: number;
+  end: number;
+}
+
 interface WaveformHeaderProps {
   audioUrl: string;
   sequences: Sequence[];
@@ -33,6 +39,9 @@ interface WaveformHeaderProps {
   onSequenceSelect?: (sequence: Sequence | null) => void;
   selectedSequenceId?: string | null;
   className?: string;
+  // Work area bounds
+  workArea?: WorkArea | null;
+  onWorkAreaChange?: (workArea: WorkArea) => void;
 }
 
 export function WaveformHeader({
@@ -42,6 +51,8 @@ export function WaveformHeader({
   onSequenceSelect,
   selectedSequenceId,
   className,
+  workArea,
+  onWorkAreaChange,
 }: WaveformHeaderProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wavesurferRef = useRef<WaveSurfer | null>(null);
@@ -58,6 +69,15 @@ export function WaveformHeader({
   const [isSelecting, setIsSelecting] = useState(false);
   const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
   const [isCreating, setIsCreating] = useState(false);
+
+  // Work area editing state
+  const [isEditingWorkArea, setIsEditingWorkArea] = useState(false);
+  const [localWorkArea, setLocalWorkArea] = useState<WorkArea | null>(workArea || null);
+
+  // Sync local work area with prop (always sync, not just when truthy)
+  useEffect(() => {
+    setLocalWorkArea(workArea || null);
+  }, [workArea]);
 
   // Format time helper
   const formatTime = useCallback((seconds: number) => {
@@ -131,12 +151,209 @@ export function WaveformHeader({
     };
   }, [audioUrl]);
 
+  // Stop playback when reaching work area end
+  useEffect(() => {
+    if (!isPlaying || !localWorkArea) return;
+
+    const ws = wavesurferRef.current;
+    if (!ws) return;
+
+    if (currentTime >= localWorkArea.end) {
+      ws.pause();
+      // Optionally seek back to work area start for next play
+      ws.seekTo(localWorkArea.start / duration);
+    }
+  }, [currentTime, isPlaying, localWorkArea, duration]);
+
   // Update regions when sequences change
   useEffect(() => {
     if (!regionsRef.current || isLoading) return;
 
     // Clear existing regions
     regionsRef.current.clearRegions();
+
+    // Get effective work area (use full duration if not set)
+    const effectiveWorkArea = localWorkArea || { start: 0, end: duration };
+
+    // Add work area boundary regions (visual overlays for excluded areas)
+    if (localWorkArea && duration > 0) {
+      // LEFT BRACKET [ at localWorkArea.start position
+      // We create this as a thin region that sits at the boundary
+      if (localWorkArea.start > 0 || isEditingWorkArea) {
+        // Dark overlay for excluded area (from 0 to start)
+        const leftOverlay = document.createElement('div');
+        leftOverlay.style.cssText = `
+          position: absolute;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+        `;
+
+        regionsRef.current.addRegion({
+          id: 'work-area-left-overlay',
+          start: 0,
+          end: Math.max(0.01, localWorkArea.start - 0.1),
+          color: 'transparent',
+          content: leftOverlay,
+          drag: false,
+          resize: false,
+        });
+
+        // Bracket handle region [ at the start boundary
+        const bracketEl = document.createElement('div');
+        bracketEl.style.cssText = `
+          position: absolute;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          align-items: flex-start;
+          pointer-events: ${isEditingWorkArea ? 'auto' : 'none'};
+          cursor: ${isEditingWorkArea ? 'ew-resize' : 'default'};
+        `;
+
+        // Vertical bar
+        const verticalBar = document.createElement('div');
+        verticalBar.style.cssText = `
+          position: absolute;
+          left: 0;
+          top: 0;
+          bottom: 0;
+          width: 4px;
+          background: #22c55e;
+        `;
+
+        // Top arm of [
+        const topArm = document.createElement('div');
+        topArm.style.cssText = `
+          position: absolute;
+          top: 0;
+          left: 0;
+          width: 16px;
+          height: 4px;
+          background: #22c55e;
+        `;
+
+        // Bottom arm of [
+        const bottomArm = document.createElement('div');
+        bottomArm.style.cssText = `
+          position: absolute;
+          bottom: 0;
+          left: 0;
+          width: 16px;
+          height: 4px;
+          background: #22c55e;
+        `;
+
+        bracketEl.appendChild(verticalBar);
+        bracketEl.appendChild(topArm);
+        bracketEl.appendChild(bottomArm);
+
+        const bracketRegion = regionsRef.current.addRegion({
+          id: 'work-area-start-bracket',
+          start: Math.max(0, localWorkArea.start - 0.5),
+          end: localWorkArea.start + 0.5,
+          color: 'transparent',
+          content: bracketEl,
+          drag: isEditingWorkArea,
+          resize: false,
+        });
+
+        if (isEditingWorkArea) {
+          bracketRegion.on('update-end', () => {
+            const newStart = Math.max(0, Math.min(bracketRegion.start + 0.5, (localWorkArea?.end || duration) - 1));
+            setLocalWorkArea(prev => prev ? { ...prev, start: newStart } : { start: newStart, end: duration });
+          });
+        }
+      }
+
+      // RIGHT BRACKET ] at localWorkArea.end position
+      if (localWorkArea.end < duration || isEditingWorkArea) {
+        // Dark overlay for excluded area (from end to duration)
+        const rightOverlay = document.createElement('div');
+        rightOverlay.style.cssText = `
+          position: absolute;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+        `;
+
+        regionsRef.current.addRegion({
+          id: 'work-area-right-overlay',
+          start: localWorkArea.end + 0.1,
+          end: duration,
+          color: 'transparent',
+          content: rightOverlay,
+          drag: false,
+          resize: false,
+        });
+
+        // Bracket handle region ] at the end boundary
+        const bracketEl = document.createElement('div');
+        bracketEl.style.cssText = `
+          position: absolute;
+          inset: 0;
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          align-items: flex-end;
+          pointer-events: ${isEditingWorkArea ? 'auto' : 'none'};
+          cursor: ${isEditingWorkArea ? 'ew-resize' : 'default'};
+        `;
+
+        // Vertical bar
+        const verticalBar = document.createElement('div');
+        verticalBar.style.cssText = `
+          position: absolute;
+          right: 0;
+          top: 0;
+          bottom: 0;
+          width: 4px;
+          background: #ef4444;
+        `;
+
+        // Top arm of ]
+        const topArm = document.createElement('div');
+        topArm.style.cssText = `
+          position: absolute;
+          top: 0;
+          right: 0;
+          width: 16px;
+          height: 4px;
+          background: #ef4444;
+        `;
+
+        // Bottom arm of ]
+        const bottomArm = document.createElement('div');
+        bottomArm.style.cssText = `
+          position: absolute;
+          bottom: 0;
+          right: 0;
+          width: 16px;
+          height: 4px;
+          background: #ef4444;
+        `;
+
+        bracketEl.appendChild(verticalBar);
+        bracketEl.appendChild(topArm);
+        bracketEl.appendChild(bottomArm);
+
+        const bracketRegion = regionsRef.current.addRegion({
+          id: 'work-area-end-bracket',
+          start: localWorkArea.end - 0.5,
+          end: Math.min(duration, localWorkArea.end + 0.5),
+          color: 'transparent',
+          content: bracketEl,
+          drag: isEditingWorkArea,
+          resize: false,
+        });
+
+        if (isEditingWorkArea) {
+          bracketRegion.on('update-end', () => {
+            const newEnd = Math.min(duration, Math.max(bracketRegion.end - 0.5, (localWorkArea?.start || 0) + 1));
+            setLocalWorkArea(prev => prev ? { ...prev, end: newEnd } : { start: 0, end: newEnd });
+          });
+        }
+      }
+    }
 
     // Add sequence regions
     sequences.forEach((seq) => {
@@ -188,10 +405,14 @@ export function WaveformHeader({
 
     // Add selection region if active
     if (selectionRange && isSelecting) {
+      // Clamp selection to work area
+      const clampedStart = Math.max(effectiveWorkArea.start, selectionRange.start);
+      const clampedEnd = Math.min(effectiveWorkArea.end, selectionRange.end);
+
       const selectionRegion = regionsRef.current.addRegion({
         id: 'selection',
-        start: selectionRange.start,
-        end: selectionRange.end,
+        start: clampedStart,
+        end: clampedEnd,
         color: 'rgba(34, 197, 94, 0.3)',
         drag: true,
         resize: true,
@@ -199,13 +420,13 @@ export function WaveformHeader({
       });
 
       selectionRegion.on('update-end', () => {
-        setSelectionRange({
-          start: Math.max(0, selectionRegion.start),
-          end: Math.min(duration, selectionRegion.end),
-        });
+        // Clamp to work area bounds
+        const newStart = Math.max(effectiveWorkArea.start, selectionRegion.start);
+        const newEnd = Math.min(effectiveWorkArea.end, selectionRegion.end);
+        setSelectionRange({ start: newStart, end: newEnd });
       });
     }
-  }, [sequences, isLoading, selectedSequenceId, selectionRange, isSelecting, duration, formatTime, onSequenceSelect]);
+  }, [sequences, isLoading, selectedSequenceId, selectionRange, isSelecting, duration, formatTime, onSequenceSelect, localWorkArea, isEditingWorkArea]);
 
   // Playback controls
   const togglePlayPause = useCallback(() => {
@@ -215,13 +436,22 @@ export function WaveformHeader({
     if (ws.isPlaying()) {
       ws.pause();
     } else {
+      // If current position is before work area start, seek to work area start
+      const currentTime = ws.getCurrentTime();
+      const workAreaStart = localWorkArea?.start ?? 0;
+      const workAreaEnd = localWorkArea?.end ?? ws.getDuration();
+
+      if (currentTime < workAreaStart || currentTime >= workAreaEnd) {
+        ws.seekTo(workAreaStart / ws.getDuration());
+      }
+
       ws.play().catch((err: Error) => {
         if (err.name !== 'AbortError') {
           console.error('Playback error:', err);
         }
       });
     }
-  }, []);
+  }, [localWorkArea]);
 
   const skipBackward = useCallback(() => {
     const ws = wavesurferRef.current;
@@ -259,29 +489,74 @@ export function WaveformHeader({
       setIsSelecting(false);
       setSelectionRange(null);
     } else {
-      // Find first gap or use end of last sequence
-      const sortedSequences = [...sequences]
-        .filter(s => s.start_time !== null && s.end_time !== null)
-        .sort((a, b) => (a.start_time || 0) - (b.start_time || 0));
+      // Get effective work area (use prop directly to ensure we have the latest)
+      const effectiveWorkArea = localWorkArea || workArea || { start: 0, end: duration };
 
-      let startTime = 0;
-      if (sortedSequences.length > 0) {
-        const lastSeq = sortedSequences[sortedSequences.length - 1];
-        startTime = lastSeq.end_time || 0;
+      // Filter sequences that are within the work area
+      const sequencesInWorkArea = sequences
+        .filter(s => {
+          if (s.start_time === null || s.end_time === null) return false;
+          // Sequence is in work area if it overlaps with it
+          return s.end_time > effectiveWorkArea.start && s.start_time < effectiveWorkArea.end;
+        })
+        .sort((a, b) => (a.end_time || 0) - (b.end_time || 0));
+
+      // Start from work area start, or after last sequence in work area
+      let startTime = effectiveWorkArea.start;
+
+      if (sequencesInWorkArea.length > 0) {
+        // Use the end of the last sequence that's within work area
+        const lastSeq = sequencesInWorkArea[sequencesInWorkArea.length - 1];
+        const lastEnd = lastSeq.end_time || 0;
+        // Make sure we don't go before the work area start
+        startTime = Math.max(effectiveWorkArea.start, lastEnd);
       }
 
-      // Suggest 10 seconds or until end
-      const endTime = Math.min(startTime + 10, duration);
+      // Suggest 10 seconds or until work area end
+      const endTime = Math.min(startTime + 10, effectiveWorkArea.end);
 
       if (endTime <= startTime) {
-        toast.error('Plus de place disponible');
+        toast.error('Plus de place disponible dans la zone de travail');
         return;
       }
+
+      console.log('[WaveformHeader] Creating selection:', {
+        workArea: effectiveWorkArea,
+        startTime,
+        endTime,
+        sequencesInWorkArea: sequencesInWorkArea.length,
+      });
 
       setSelectionRange({ start: startTime, end: endTime });
       setIsSelecting(true);
     }
-  }, [isSelecting, sequences, duration]);
+  }, [isSelecting, sequences, duration, localWorkArea, workArea]);
+
+  // Toggle work area editing mode
+  const toggleWorkAreaEdit = useCallback(() => {
+    if (isEditingWorkArea) {
+      // Save changes
+      if (localWorkArea && onWorkAreaChange) {
+        onWorkAreaChange(localWorkArea);
+        toast.success('Zone de travail sauvegardée');
+      }
+      setIsEditingWorkArea(false);
+    } else {
+      // Start editing - initialize work area if not set
+      if (!localWorkArea && duration > 0) {
+        setLocalWorkArea({ start: 0, end: duration });
+      }
+      setIsEditingWorkArea(true);
+      // Cancel any selection
+      setIsSelecting(false);
+      setSelectionRange(null);
+    }
+  }, [isEditingWorkArea, localWorkArea, duration, onWorkAreaChange]);
+
+  // Reset work area to full duration
+  const resetWorkArea = useCallback(() => {
+    setLocalWorkArea({ start: 0, end: duration });
+  }, [duration]);
 
   // Create sequence from selection
   const createSequenceFromSelection = useCallback(async () => {
@@ -362,8 +637,54 @@ export function WaveformHeader({
           </span>
         </div>
 
-        {/* Right: Selection controls */}
+        {/* Center: Work area info */}
         <div className="flex items-center gap-2">
+          {localWorkArea && !isEditingWorkArea && (
+            <span className="text-xs text-slate-500 bg-slate-800 px-2 py-1 rounded">
+              Zone: {formatTime(localWorkArea.start)} → {formatTime(localWorkArea.end)}
+            </span>
+          )}
+          {isEditingWorkArea && localWorkArea && (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-green-400">
+                Début: {formatTime(localWorkArea.start)}
+              </span>
+              <span className="text-xs text-slate-500">→</span>
+              <span className="text-xs text-red-400">
+                Fin: {formatTime(localWorkArea.end)}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={resetWorkArea}
+                className="h-6 text-xs text-slate-400 hover:text-white"
+              >
+                Reset
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Right: Selection and work area controls */}
+        <div className="flex items-center gap-2">
+          {/* Work area edit button */}
+          <Button
+            variant={isEditingWorkArea ? 'default' : 'outline'}
+            size="sm"
+            onClick={toggleWorkAreaEdit}
+            className={cn(
+              'gap-1',
+              isEditingWorkArea
+                ? 'bg-green-600 hover:bg-green-700'
+                : 'border-slate-600 text-slate-300 hover:bg-slate-800'
+            )}
+            disabled={isSelecting}
+          >
+            <Scissors className="w-4 h-4" />
+            {isEditingWorkArea ? 'Valider' : 'Zone'}
+          </Button>
+
+          {/* Selection controls */}
           {isSelecting && selectionRange && (
             <>
               <span className="text-sm text-slate-400">
@@ -386,6 +707,7 @@ export function WaveformHeader({
             variant={isSelecting ? 'outline' : 'default'}
             size="sm"
             onClick={startSelection}
+            disabled={isEditingWorkArea}
             className={isSelecting ? 'border-red-500 text-red-500' : 'bg-purple-600 hover:bg-purple-700'}
           >
             <Plus className="w-4 h-4 mr-1" />

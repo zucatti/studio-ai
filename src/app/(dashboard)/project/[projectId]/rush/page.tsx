@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams } from 'next/navigation';
 import { StorageImg } from '@/components/ui/storage-image';
 import { Lightbox, type LightboxImage } from '@/components/ui/lightbox';
+import { ImageEditor } from '@/components/ui/image-editor';
 import { Button } from '@/components/ui/button';
 import {
   Loader2,
@@ -13,6 +14,7 @@ import {
   Check,
   ImageIcon,
   Film,
+  Pencil,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -40,6 +42,10 @@ export default function RushPage() {
   const [hoveredImage, setHoveredImage] = useState<string | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
+
+  // Image editor state
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editingImage, setEditingImage] = useState<RushImage | null>(null);
 
   // Fetch rejected rush images
   const fetchImages = useCallback(async () => {
@@ -104,6 +110,35 @@ export default function RushPage() {
       toast.error('Erreur de connexion');
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  // Open image editor
+  const handleEdit = (image: RushImage) => {
+    setEditingImage(image);
+    setEditorOpen(true);
+    setLightboxOpen(false);
+  };
+
+  // Regenerate image with new prompt
+  const handleRegenerate = async (newPrompt: string, options?: Record<string, unknown>) => {
+    const count = (options?.count as number) || 1;
+
+    try {
+      const res = await fetch(`/api/projects/${projectId}/queue-rush`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prompt: newPrompt,
+          count,
+        }),
+      });
+      if (!res.ok) throw new Error('Failed to queue regeneration');
+      toast.success(`${count} régénération${count > 1 ? 's' : ''} lancée${count > 1 ? 's' : ''}`);
+    } catch (error) {
+      console.error('Failed to regenerate:', error);
+      toast.error('Erreur lors de la régénération');
+      throw error;
     }
   };
 
@@ -310,6 +345,16 @@ export default function RushPage() {
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
+                          handleEdit(image);
+                        }}
+                        className="w-10 h-10 rounded-full bg-blue-500/20 backdrop-blur flex items-center justify-center hover:bg-blue-500/40 transition-colors"
+                        title="Éditer l'image"
+                      >
+                        <Pencil className="w-5 h-5 text-blue-400" />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
                           handleDelete(image.id);
                         }}
                         className="w-10 h-10 rounded-full bg-red-500/20 backdrop-blur flex items-center justify-center hover:bg-red-500/40 transition-colors"
@@ -340,7 +385,36 @@ export default function RushPage() {
             isOpen={lightboxOpen}
             onClose={() => setLightboxOpen(false)}
             onDelete={handleDelete}
+            onEdit={(id) => {
+              const img = images.find((i) => i.id === id);
+              if (img) handleEdit(img);
+            }}
           />
+
+          {/* Image Editor */}
+          {editingImage && (
+            <ImageEditor
+              isOpen={editorOpen}
+              onClose={() => {
+                setEditorOpen(false);
+                setEditingImage(null);
+              }}
+              imageUrl={editingImage.url}
+              imageId={editingImage.id}
+              prompt={editingImage.prompt || undefined}
+              projectId={projectId}
+              onRegenerate={handleRegenerate}
+              onSave={(newUrl) => {
+                // Update the image in the list with the new cropped URL
+                setImages((prev) =>
+                  prev.map((img) =>
+                    img.id === editingImage.id ? { ...img, url: newUrl } : img
+                  )
+                );
+                toast.success('Image modifiée');
+              }}
+            />
+          )}
         </div>
       )}
     </div>

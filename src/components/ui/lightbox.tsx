@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronLeft, ChevronRight, X, Download, Trash2, ArrowLeft, Info, Copy, Check } from 'lucide-react';
+import { ChevronLeft, ChevronRight, X, Download, Trash2, ArrowLeft, Info, Copy, Check, Pencil } from 'lucide-react';
 import { StorageMedia } from '@/components/ui/storage-image';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -48,6 +48,7 @@ interface LightboxProps {
   onMoveToRushes?: (id: string) => void;
   onMoveToGallery?: (id: string) => void;
   onDownload?: (id: string) => void;
+  onEdit?: (id: string, prompt: string) => void;
 }
 
 export function Lightbox({
@@ -59,6 +60,7 @@ export function Lightbox({
   onMoveToRushes,
   onMoveToGallery,
   onDownload,
+  onEdit,
 }: LightboxProps) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [showInfo, setShowInfo] = useState(false);
@@ -160,6 +162,17 @@ export function Lightbox({
               )}
             >
               <Info className="w-4 h-4" />
+            </Button>
+          )}
+          {onEdit && (metadata?.original_prompt || currentImage.description) && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onEdit(currentImage.id, metadata?.original_prompt || currentImage.description || '')}
+              className="text-blue-400/70 hover:text-blue-400 hover:bg-blue-500/10"
+              title="Modifier et régénérer"
+            >
+              <Pencil className="w-4 h-4" />
             </Button>
           )}
           {onDownload && (

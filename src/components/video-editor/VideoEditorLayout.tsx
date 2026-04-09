@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { PlanCard } from '@/components/shorts/PlanCard';
 import { SequenceCard } from '@/components/shorts/SequenceCard';
 import { SequenceClip } from '@/components/shorts/SequenceClip';
+import { SequenceGalleryViewer } from '@/components/shorts/SequenceGalleryViewer';
 import {
   DndContext,
   DragOverlay,
@@ -198,6 +199,7 @@ export interface VideoEditorLayoutProps {
   aspectRatio: AspectRatio;
   projectId: string;
   entityId: string; // shortId or projectId for clips
+  entityType?: 'short' | 'clip'; // Determines API routes to use
 
   // State
   selectedPlanId: string | null;
@@ -234,6 +236,7 @@ export function VideoEditorLayout({
   aspectRatio,
   projectId,
   entityId,
+  entityType = 'short',
   selectedPlanId,
   collapsedSequences,
   generationProgress,
@@ -253,6 +256,10 @@ export function VideoEditorLayout({
 }: VideoEditorLayoutProps) {
   // DnD state
   const [activeDragPlan, setActiveDragPlan] = useState<Plan | null>(null);
+
+  // Gallery viewer state
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryInitialIndex, setGalleryInitialIndex] = useState(0);
 
   // DnD sensors
   const sensors = useSensors(
@@ -274,6 +281,33 @@ export function VideoEditorLayout({
       .filter((p) => !p.sequence_id)
       .sort((a, b) => a.sort_order - b.sort_order);
   }, [plans]);
+
+  // Sequences with plans for gallery viewer
+  const sequencesForGallery = useMemo(() => {
+    return sequences.map((sequence) => {
+      const sequencePlans = plans
+        .filter((p) => p.sequence_id === sequence.id)
+        .sort((a, b) => a.sort_order - b.sort_order);
+      const assemblyState = sequenceAssemblyStates.get(sequence.id);
+      const assembledUrl = assemblyState?.status === 'completed'
+        ? assemblyState.assembledVideoUrl || null
+        : sequence.assembled_video_url || null;
+      return {
+        sequence,
+        plans: sequencePlans,
+        assembledVideoUrl: assembledUrl,
+      };
+    }).filter(s => s.plans.length > 0); // Only sequences with plans
+  }, [sequences, plans, sequenceAssemblyStates]);
+
+  // Open gallery at a specific sequence
+  const handleOpenGallery = useCallback((sequenceId: string) => {
+    const index = sequencesForGallery.findIndex(s => s.sequence.id === sequenceId);
+    if (index >= 0) {
+      setGalleryInitialIndex(index);
+      setGalleryOpen(true);
+    }
+  }, [sequencesForGallery]);
 
   // DnD handlers
   const handleDragStart = useCallback((event: DragStartEvent) => {
@@ -397,6 +431,7 @@ export function VideoEditorLayout({
                         selectedPlanId={selectedPlanId || undefined}
                         projectId={projectId}
                         shortId={entityId}
+                        entityType={entityType}
                       />
                     </DroppableSequence>
                   );
@@ -466,7 +501,7 @@ export function VideoEditorLayout({
                         aspectRatio={aspectRatio}
                         assembledVideoUrl={assembledUrl || null}
                         assemblyProgress={isCompiling ? (assemblyState?.progress || 0) : undefined}
-                        onExpand={() => {}}
+                        onOpenGallery={() => handleOpenGallery(sequence.id)}
                       />
                     );
                   })}
@@ -528,6 +563,14 @@ export function VideoEditorLayout({
           )}
         </DragOverlay>
       </DndContext>
+
+      {/* Gallery viewer for sequence videos */}
+      <SequenceGalleryViewer
+        isOpen={galleryOpen}
+        onClose={() => setGalleryOpen(false)}
+        sequences={sequencesForGallery}
+        initialIndex={galleryInitialIndex}
+      />
     </div>
   );
 }

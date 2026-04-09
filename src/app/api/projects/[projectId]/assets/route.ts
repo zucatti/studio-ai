@@ -142,6 +142,69 @@ export async function POST(request: Request, { params }: RouteParams) {
   }
 }
 
+// PATCH /api/projects/[projectId]/assets/[id] - Update a global asset's data
+export async function PATCH(request: Request, { params }: RouteParams) {
+  try {
+    const session = await auth0.getSession();
+    if (!session?.user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const { projectId } = await params;
+    const body = await request.json();
+    const { assetId, data } = body;
+
+    if (!assetId) {
+      return NextResponse.json({ error: 'assetId is required' }, { status: 400 });
+    }
+
+    const supabase = createServerSupabaseClient();
+
+    // Verify project ownership
+    const { data: project } = await supabase
+      .from('projects')
+      .select('id')
+      .eq('id', projectId)
+      .eq('user_id', session.user.sub)
+      .single();
+
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    // Verify global asset belongs to user
+    const { data: globalAsset } = await supabase
+      .from('global_assets')
+      .select('id, data')
+      .eq('id', assetId)
+      .eq('user_id', session.user.sub)
+      .single();
+
+    if (!globalAsset) {
+      return NextResponse.json({ error: 'Asset not found' }, { status: 404 });
+    }
+
+    // Merge existing data with new data
+    const mergedData = { ...(globalAsset.data || {}), ...(data || {}) };
+
+    // Update the global asset
+    const { error } = await supabase
+      .from('global_assets')
+      .update({ data: mergedData })
+      .eq('id', assetId);
+
+    if (error) {
+      console.error('Error updating asset:', error);
+      return NextResponse.json({ error: 'Failed to update asset' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true, data: mergedData });
+  } catch (error) {
+    console.error('Error:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
 // DELETE /api/projects/[projectId]/assets?id=xxx - Remove an asset from a project
 export async function DELETE(request: Request, { params }: RouteParams) {
   try {

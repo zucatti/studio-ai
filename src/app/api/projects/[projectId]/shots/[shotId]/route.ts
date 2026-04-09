@@ -86,6 +86,7 @@ export async function PATCH(request: Request, { params }: RouteParams) {
       'first_frame_prompt',
       'last_frame_prompt',
       'storyboard_image_url',
+      'storyboard_prompt',
       'suggested_duration',
       'duration',
       'video_provider',

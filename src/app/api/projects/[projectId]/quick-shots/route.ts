@@ -1139,6 +1139,7 @@ export async function POST(request: Request, { params }: RouteParams) {
             shot_number: shotNumber,
             description: descriptionWithMeta,
             storyboard_image_url: b2Url,
+            storyboard_prompt: prompt, // Save the generation prompt
             generation_status: 'completed',
             status: 'draft',
             sort_order: shotNumber,

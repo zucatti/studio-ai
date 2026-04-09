@@ -176,6 +176,7 @@ export async function processQuickShotGenJob(job: Job<QuickShotGenJobData>): Pro
         .from('shots')
         .update({
           storyboard_image_url: b2Url,
+          storyboard_prompt: prompt, // Save the generation prompt
           first_frame_url: b2Url,
         })
         .eq('id', shotId);

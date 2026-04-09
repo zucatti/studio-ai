@@ -29,8 +29,11 @@ export interface Plan {
 
   // Reference frames
   storyboard_image_url: string | null; // Frame In (first frame)
+  storyboard_prompt: string | null; // Prompt used to generate the storyboard
   first_frame_url: string | null; // Alias for storyboard_image_url
+  first_frame_prompt: string | null;
   last_frame_url: string | null; // Frame Out (last frame)
+  last_frame_prompt: string | null;
 
   // Segments (shots within this plan) - NEW
   segments: Segment[];
@@ -328,8 +331,11 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
           sequence_id: data.plan.sequence_id ?? null,
           // Reference frames
           storyboard_image_url: data.plan.storyboard_image_url || data.plan.first_frame_url,
+          storyboard_prompt: data.plan.storyboard_prompt ?? null,
           first_frame_url: data.plan.first_frame_url || data.plan.storyboard_image_url,
+          first_frame_prompt: data.plan.first_frame_prompt ?? null,
           last_frame_url: data.plan.last_frame_url,
+          last_frame_prompt: data.plan.last_frame_prompt ?? null,
           // Segments (shots within this plan)
           segments: data.plan.segments ?? [],
           // Translations (language versions)

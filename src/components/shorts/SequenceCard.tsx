@@ -12,9 +12,16 @@ import {
   Film,
   Loader2,
   Check,
+  Play,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -31,6 +38,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { StorageVideo } from '@/components/ui/storage-video';
 import { cn } from '@/lib/utils';
 import type { Sequence, CinematicHeaderConfig } from '@/types/cinematic';
 import { CINEMATIC_STYLE_OPTIONS } from '@/types/cinematic';
@@ -63,6 +71,8 @@ interface SequenceCardProps {
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
   projectId: string;
   shortId: string;
+  /** Entity type: 'short' (default) or 'clip' - determines which API route to use */
+  entityType?: 'short' | 'clip';
 }
 
 export function SequenceCard({
@@ -80,11 +90,18 @@ export function SequenceCard({
   dragHandleProps,
   projectId,
   shortId,
+  entityType = 'short',
 }: SequenceCardProps) {
+  // Build the correct API URL based on entity type
+  const assembleUrl = entityType === 'clip'
+    ? `/api/projects/${projectId}/clip/sequences/${sequence.id}/assemble`
+    : `/api/projects/${projectId}/shorts/${shortId}/sequences/${sequence.id}/assemble`;
+
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [editTitle, setEditTitle] = useState(sequence.title || '');
   const [assembly, setAssembly] = useState<AssemblyState>({ status: 'idle' });
+  const [showVideoPreview, setShowVideoPreview] = useState(false);
 
   // Count plans with generated videos
   const plansWithVideos = plans.filter(p => p.generated_video_url);
@@ -108,7 +125,7 @@ export function SequenceCard({
       try {
         setAssembly(prev => ({ ...prev, status: 'checking' }));
         const res = await fetch(
-          `/api/projects/${projectId}/shorts/${shortId}/sequences/${sequence.id}/assemble`
+          assembleUrl
         );
         if (!res.ok) throw new Error('Failed to check');
         const data = await res.json();
@@ -188,7 +205,7 @@ export function SequenceCard({
       // If a sequence assembly job completed, re-check our status
       if (assetType === 'sequence' && jobSubtype === 'sequence-assembly') {
         // Re-check assembly status
-        fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences/${sequence.id}/assemble`)
+        fetch(assembleUrl)
           .then(res => res.json())
           .then(data => {
             if (data.assembledVideoUrl && !data.needsAssembly) {
@@ -206,7 +223,7 @@ export function SequenceCard({
       if (assetType === 'shot' && jobSubtype !== 'sequence-assembly') {
         // Small delay to let the data propagate
         setTimeout(() => {
-          fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences/${sequence.id}/assemble`)
+          fetch(assembleUrl)
             .then(res => res.json())
             .then(data => {
               if (data.needsAssembly) {
@@ -235,7 +252,7 @@ export function SequenceCard({
       setAssembly({ status: 'queued', message: 'Mise en file...' });
 
       const res = await fetch(
-        `/api/projects/${projectId}/shorts/${shortId}/sequences/${sequence.id}/assemble`,
+        assembleUrl,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -253,7 +270,7 @@ export function SequenceCard({
       if (data.status === 'already_assembled') {
         // Re-check to get the video URL
         const checkRes = await fetch(
-          `/api/projects/${projectId}/shorts/${shortId}/sequences/${sequence.id}/assemble`
+          assembleUrl
         );
         const checkData = await checkRes.json();
         setAssembly({
@@ -273,6 +290,13 @@ export function SequenceCard({
         status: 'failed',
         message: error instanceof Error ? error.message : 'Erreur',
       });
+    }
+  };
+
+  // Play assembled video
+  const handlePlayVideo = () => {
+    if (assembly.videoUrl) {
+      setShowVideoPreview(true);
     }
   };
 
@@ -464,6 +488,17 @@ export function SequenceCard({
               </span>
             )}
 
+            {/* Play button - show when video is available */}
+            {assembly.videoUrl && (
+              <button
+                onClick={handlePlayVideo}
+                className="p-1 rounded transition-all text-green-500 hover:text-green-400 hover:bg-green-500/10"
+                title="Lire la séquence assemblée"
+              >
+                <Play className="w-3 h-3" />
+              </button>
+            )}
+
             {/* Assemble button - minimal */}
             <button
                 onClick={handleAssemble}
@@ -525,6 +560,36 @@ export function SequenceCard({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Video Preview Dialog */}
+      <Dialog open={showVideoPreview} onOpenChange={setShowVideoPreview}>
+        <DialogContent
+          className="max-w-4xl bg-slate-900 border-slate-700 p-0"
+          aria-describedby={undefined}
+          onPointerDownOutside={(e) => e.preventDefault()}
+          onInteractOutside={(e) => e.preventDefault()}
+        >
+          <DialogHeader className="sr-only">
+            <DialogTitle>{sequence.title || `Séquence ${sequence.sort_order + 1}`}</DialogTitle>
+          </DialogHeader>
+          {assembly.videoUrl && (
+            <div className="relative" onPointerDown={(e) => e.stopPropagation()}>
+              <StorageVideo
+                src={assembly.videoUrl}
+                className="w-full aspect-video bg-black"
+                controls
+                autoPlay
+                playsInline
+              />
+              <div className="p-3 border-t border-slate-700">
+                <p className="text-sm text-slate-300">
+                  {sequence.title || `Séquence ${sequence.sort_order + 1}`}
+                </p>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

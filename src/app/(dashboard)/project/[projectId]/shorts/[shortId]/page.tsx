@@ -1579,7 +1579,7 @@ export default function ShortDetailPage() {
                       aspectRatio={aspectRatio}
                       assembledVideoUrl={assembledUrl}
                       assemblyProgress={isCompiling ? assemblyState?.progress : undefined}
-                      onExpand={assembledUrl ? () => openGallery(sequence) : undefined}
+                      onOpenGallery={assembledUrl ? () => openGallery(sequence) : undefined}
                     />
                     {/* Compile overlay - show when not assembled and has videos */}
                     {!assembledUrl && !isCompiling && videoCount > 0 && (

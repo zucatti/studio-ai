@@ -9,6 +9,7 @@ export interface GalleryImage {
   shotNumber: number;
   sceneNumber: number | null;
   description: string;
+  prompt?: string; // Generation prompt (different from description)
   projectId: string;
   projectName: string;
   createdAt: string;
@@ -33,11 +34,15 @@ interface ShotRow {
   shot_number: number;
   description: string;
   storyboard_image_url: string | null;
+  storyboard_prompt: string | null;
   first_frame_url: string | null;
   last_frame_url: string | null;
+  first_frame_prompt: string | null;
+  last_frame_prompt: string | null;
   created_at: string;
   project_id: string;
   scene_id: string | null;
+  status: string | null;
   scenes: { scene_number: number }[] | { scene_number: number } | null;
 }
 
@@ -75,7 +80,7 @@ export async function GET() {
       });
     }
 
-    // Fetch shots with scene info
+    // Fetch shots with scene info (exclude shots moved to rush)
     const { data: shots, error: shotsError } = await supabase
       .from('shots')
       .select(`
@@ -83,17 +88,22 @@ export async function GET() {
         shot_number,
         description,
         storyboard_image_url,
+        storyboard_prompt,
         first_frame_url,
         last_frame_url,
+        first_frame_prompt,
+        last_frame_prompt,
         created_at,
         project_id,
         scene_id,
+        status,
         scenes (
           scene_number
         )
       `)
       .in('project_id', projectIds)
       .or('storyboard_image_url.neq.null,first_frame_url.neq.null,last_frame_url.neq.null')
+      .neq('status', 'rush')
       .order('created_at', { ascending: false });
 
     if (shotsError) {
@@ -147,6 +157,7 @@ export async function GET() {
           shotNumber: shot.shot_number,
           sceneNumber,
           description: shot.description,
+          prompt: shot.storyboard_prompt || shot.description, // Use dedicated prompt field
           projectId: shot.project_id,
           projectName: project.name,
           createdAt: shot.created_at,
@@ -164,6 +175,7 @@ export async function GET() {
           shotNumber: shot.shot_number,
           sceneNumber,
           description: shot.description,
+          prompt: shot.first_frame_prompt || shot.description,
           projectId: shot.project_id,
           projectName: project.name,
           createdAt: shot.created_at,
@@ -181,6 +193,7 @@ export async function GET() {
           shotNumber: shot.shot_number,
           sceneNumber,
           description: shot.description,
+          prompt: shot.last_frame_prompt || shot.description,
           projectId: shot.project_id,
           projectName: project.name,
           createdAt: shot.created_at,
@@ -215,6 +228,7 @@ export async function GET() {
           shotNumber: 0,
           sceneNumber: null,
           description: rush.prompt || '',
+          prompt: rush.prompt || '',
           projectId: rush.project_id,
           projectName: project.name,
           createdAt: rush.created_at,
