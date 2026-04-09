@@ -188,10 +188,10 @@ export async function POST(request: Request, { params }: RouteParams) {
     }
 
     // Determine provider and model
-    const videoProvider = (requestedProvider && ['fal', 'runway'].includes(requestedProvider))
+    const resolvedProvider = (requestedProvider && ['fal', 'runway'].includes(requestedProvider))
       ? requestedProvider
       : 'fal';
-    const videoModel = requestedModel || (videoProvider === 'runway' ? 'gen4' : 'kling-omni');
+    const resolvedModel = requestedModel || (resolvedProvider === 'runway' ? 'gen4' : 'kling-omni');
     const videoDuration = duration || shot.suggested_duration || 5;
 
     // Map aspect ratio
@@ -386,7 +386,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         animation_prompt: shot.animation_prompt,
       };
 
-      prompt = buildCinematicPrompt(mockShort as never, [mockPlan] as never, characterMap, hasFrameIn, videoModel as VideoModelType);
+      prompt = buildCinematicPrompt(mockShort as never, [mockPlan] as never, characterMap, hasFrameIn, resolvedModel as VideoModelType);
 
       console.log('[QueueVideo] Cinematic prompt built:');
       console.log('--- START PROMPT ---');
@@ -412,15 +412,15 @@ export async function POST(request: Request, { params }: RouteParams) {
         asset_type: 'shot',
         asset_name: `Plan ${shot.shot_number || 1}`,
         job_type: 'video',
-        job_subtype: videoModel,
+        job_subtype: resolvedModel,
         status: 'queued',
         progress: 0,
         message: 'En file d\'attente...',
-        fal_endpoint: videoProvider,
+        fal_endpoint: resolvedProvider,
         input_data: {
           projectId,
           shotId,
-          videoModel,
+          videoModel: resolvedModel,
           duration: videoDuration,
           aspectRatio,
           prompt,
@@ -478,7 +478,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
       // Analyze characters to determine Stars vs Figurants and image budget
       // Pass videoModel so it uses the correct config (Seedance vs Kling)
-      const analysis = analyzeCharacters(characterMap, hasFrameIn, videoModel as VideoModelType);
+      const analysis = analyzeCharacters(characterMap, hasFrameIn, resolvedModel as VideoModelType);
 
       console.log('[QueueVideo] Character analysis:');
       console.log(`[QueueVideo] - Stars (with images): ${analysis.stars.length}`);
@@ -509,13 +509,13 @@ export async function POST(request: Request, { params }: RouteParams) {
         console.log(`[QueueVideo] - character_matrix_url: ${characterMatrixUrl || 'none'}`);
         console.log(`[QueueVideo] - reference_images available: ${refImages.length}`);
         console.log(`[QueueVideo] - images to use: ${analysis.imagesPerStar}`);
-        console.log(`[QueueVideo] - video model: ${videoModel}`);
+        console.log(`[QueueVideo] - video model: ${resolvedModel}`);
 
         let frontalImage: string;
         let additionalImages: string[] = [];
 
-        const isKling = videoModel.startsWith('kling');
-        const isGrokOrSeedance = videoModel.startsWith('grok') || videoModel.startsWith('seedance');
+        const isKling = resolvedModel.startsWith('kling');
+        const isGrokOrSeedance = resolvedModel.startsWith('grok') || resolvedModel.startsWith('seedance');
 
         if (isKling && refImagesMetadata.length > 0) {
           // Kling: use smart view selection based on context
@@ -609,7 +609,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       // assignment in the prompt builder (analysis.stars order with audioIndex set).
       // This ensures @Audio1 in the prompt corresponds to the first audio file.
       // =====================================================================
-      const isSeedance = videoModel.startsWith('seedance-2');
+      const isSeedance = resolvedModel.startsWith('seedance-2');
       if (isSeedance && analysis.stars.length > 0 && segments) {
         console.log('[QueueVideo] Seedance 2.0: Checking for star dialogues to generate TTS...');
 
@@ -751,8 +751,8 @@ export async function POST(request: Request, { params }: RouteParams) {
       projectId,
       shotId,
       shotNumber: shot.shot_number || 1,
-      model: videoModel as VideoGenJobData['model'],
-      provider: videoProvider as VideoGenJobData['provider'],
+      model: resolvedModel as VideoGenJobData['model'],
+      provider: resolvedProvider as VideoGenJobData['provider'],
       duration: videoDuration,
       aspectRatio: aspectRatio as VideoGenJobData['aspectRatio'],
       prompt,
@@ -810,7 +810,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       .from('shots')
       .update({
         generation_status: 'queued',
-        video_provider: videoModel,
+        video_provider: resolvedModel,
         video_duration: videoDuration,
       })
       .eq('id', shotId);
