@@ -675,8 +675,10 @@ export function MentionInput({
 
   // Handle blur to clean up orphan triggers
   const handleBlur = useCallback(() => {
+    // Skip cleanup if styles modal is open (the / is intentional)
+    if (isStylesModalOpen) return;
     cleanupOrphanTriggers();
-  }, [cleanupOrphanTriggers]);
+  }, [cleanupOrphanTriggers, isStylesModalOpen]);
 
   // Auto-resize textarea and overlay (only if not using fixedHeight or flexLayout)
   useEffect(() => {
@@ -760,8 +762,8 @@ export function MentionInput({
         />
       </div>
 
-      {/* Dropdown Portal */}
-      {isOpen && typeof document !== 'undefined' && createPortal(
+      {/* Dropdown Portal - don't render when styles modal is open */}
+      {isOpen && !isStylesModalOpen && typeof document !== 'undefined' && createPortal(
         <div
           ref={dropdownRef}
           className="fixed z-[99999] w-72 max-h-64 flex flex-col bg-[#1a2433] border border-white/10 rounded-lg shadow-xl"
@@ -770,6 +772,7 @@ export function MentionInput({
             left: dropdownPosition.left,
             pointerEvents: 'auto',
           }}
+          data-mention-dropdown
         >
           {/* Header - sticky */}
           {config && (

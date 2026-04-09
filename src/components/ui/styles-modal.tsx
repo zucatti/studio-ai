@@ -119,17 +119,16 @@ export function StylesModal({ isOpen, onClose, onSelect, mediaType }: StylesModa
     [onSelect, onClose]
   );
 
-  // Always render portal to preserve state, but hide when closed
+  // Don't render if not open
+  if (!isOpen) return null;
+
   return createPortal(
-    <div
-      className={cn(
-        "fixed inset-0 z-[99999] flex items-center justify-center transition-opacity duration-150",
-        isOpen ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
-      )}
-      aria-hidden={!isOpen}
-    >
+    <div className="fixed inset-0 z-[99999] flex items-center justify-center" data-styles-modal>
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
+      <div
+        className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+        onClick={onClose}
+      />
 
       {/* Modal */}
       <div className="relative w-[90vw] max-w-5xl h-[85vh] max-h-[800px] bg-[#0f1419] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden">

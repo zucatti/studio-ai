@@ -975,7 +975,28 @@ export function SegmentEditor({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[90vw] max-w-[1600px] h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0 [&>button]:hidden">
+      <DialogContent
+        className="w-[90vw] max-w-[1600px] h-[90vh] overflow-hidden bg-slate-900 border-white/10 p-0 [&>button]:hidden"
+        // Allow interaction with portals rendered outside dialog (StylesModal, MentionInput dropdown)
+        onInteractOutside={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('[data-styles-modal]') || target.closest('[data-mention-dropdown]')) {
+            e.preventDefault();
+          }
+        }}
+        onFocusOutside={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('[data-styles-modal]') || target.closest('[data-mention-dropdown]')) {
+            e.preventDefault();
+          }
+        }}
+        onPointerDownOutside={(e) => {
+          const target = e.target as HTMLElement;
+          if (target.closest('[data-styles-modal]') || target.closest('[data-mention-dropdown]')) {
+            e.preventDefault();
+          }
+        }}
+      >
         <div className="flex flex-col h-full">
           {/* Header */}
           <DialogHeader className="px-6 py-4 border-b border-white/10 flex-shrink-0">

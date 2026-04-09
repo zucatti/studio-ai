@@ -125,7 +125,10 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const { projectId, shotId } = await params;
     const body = await request.json();
-    const { duration, model: requestedModel, provider: requestedProvider, dryRun } = body;
+    // Support both naming conventions: videoModel/videoProvider (PlanEditor) and model/provider (legacy)
+    const { duration, model, videoModel, provider, videoProvider: reqVideoProvider, dryRun } = body;
+    const requestedModel = videoModel || model;
+    const requestedProvider = reqVideoProvider || provider;
 
     const supabase = createServerSupabaseClient();
 
