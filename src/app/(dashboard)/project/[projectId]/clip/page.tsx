@@ -600,6 +600,34 @@ export default function ClipPage() {
     return () => window.removeEventListener('job-completed', handleJobCompleted);
   }, [plans, projectId]);
 
+  // Listen for job failures
+  useEffect(() => {
+    const handleJobFailed = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        assetType: string;
+        jobType: string;
+        shotId?: string;
+        error?: string;
+      }>;
+      const { assetType, jobType, shotId, error } = customEvent.detail;
+
+      if (assetType === 'shot' && jobType === 'video' && shotId) {
+        // Clear generation progress for this plan
+        setGenerationProgress(prev => {
+          const newMap = new Map(prev);
+          newMap.delete(shotId);
+          return newMap;
+        });
+
+        // Show error toast
+        toast.error(error || 'Échec de la génération vidéo');
+      }
+    };
+
+    window.addEventListener('job-failed', handleJobFailed);
+    return () => window.removeEventListener('job-failed', handleJobFailed);
+  }, []);
+
   // === RENDER ===
 
   if (projectLoading || audioLoading || isLoadingData) {
