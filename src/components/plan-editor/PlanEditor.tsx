@@ -851,37 +851,8 @@ export function PlanEditor({
                 <div />
               )}
 
-              {/* Model selector + Generate button */}
+              {/* Generate button */}
               <div className="flex items-center gap-2">
-                {/* Model toggle - only show when no dialogue (dialogue forces OmniHuman) */}
-                {config.showVideoGeneration && !hasDialogue && (
-                  <div className="inline-flex rounded-lg bg-white/5 p-0.5">
-                    <button
-                      onClick={() => setSelectedVideoModel('seedance-2')}
-                      className={cn(
-                        'px-2.5 py-1 rounded-md text-xs font-medium transition-all',
-                        selectedVideoModel === 'seedance-2'
-                          ? 'bg-purple-600 text-white'
-                          : 'text-slate-400 hover:text-white'
-                      )}
-                      title="Seedance 2.0 - $0.30/s - Audio natif"
-                    >
-                      Seedance 2
-                    </button>
-                    <button
-                      onClick={() => setSelectedVideoModel('kling-omni')}
-                      className={cn(
-                        'px-2.5 py-1 rounded-md text-xs font-medium transition-all',
-                        selectedVideoModel === 'kling-omni'
-                          ? 'bg-blue-600 text-white'
-                          : 'text-slate-400 hover:text-white'
-                      )}
-                      title="Kling Omni - $0.34/s - Elements, Voices"
-                    >
-                      Kling Omni
-                    </button>
-                  </div>
-                )}
 
                 {/* Generate button */}
                 {config.showVideoGeneration && (

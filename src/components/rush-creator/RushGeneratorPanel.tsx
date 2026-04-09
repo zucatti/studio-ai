@@ -28,7 +28,6 @@ const IMAGE_MODEL_OPTIONS = [
 const VIDEO_MODEL_OPTIONS = [
   { value: 'kling-omni', label: 'Kling Omni' },
   { value: 'veo-3', label: 'Veo 3.1' },
-  { value: 'seedance-2', label: 'Seedance 2' },
   { value: 'grok-720p', label: 'Grok' },
 ] as const;
 
@@ -36,7 +35,6 @@ const VIDEO_MODEL_OPTIONS = [
 const VIDEO_DURATION_LIMITS: Record<string, { min: number; max: number }> = {
   'kling-omni': { min: 3, max: 15 },
   'veo-3': { min: 4, max: 8 },
-  'seedance-2': { min: 3, max: 15 },
   'grok-720p': { min: 3, max: 10 },
 };
 
