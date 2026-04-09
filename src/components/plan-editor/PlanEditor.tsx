@@ -423,10 +423,13 @@ export function PlanEditor({
 
   // Handle frame selection from the modal
   const handleFrameSelected = useCallback((frameUrl: string) => {
+    console.log('[PlanEditor] Frame selected:', frameUrl, 'target:', frameSelectorTarget);
     if (frameSelectorTarget === 'in') {
       onUpdate({ storyboard_image_url: frameUrl, first_frame_url: frameUrl });
+      toast.success('Frame In mise à jour');
     } else {
       onUpdate({ last_frame_url: frameUrl });
+      toast.success('Frame Out mise à jour');
     }
   }, [frameSelectorTarget, onUpdate]);
 
