@@ -105,6 +105,16 @@ export interface PlanEditorProps {
   // Plan précédent (pour lier Frame In)
   previousPlan?: PlanData | null;
 
+  // Tous les plans de la séquence (pour le sélecteur de frame)
+  sequencePlans?: Array<{
+    id: string;
+    number?: number;
+    generated_video_url?: string | null;
+    storyboard_image_url?: string | null;
+    first_frame_url?: string | null;
+    last_frame_url?: string | null;
+  }>;
+
   // Contexte projet
   projectId: string;
   aspectRatio: AspectRatio;

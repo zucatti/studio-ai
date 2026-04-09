@@ -93,6 +93,7 @@ export function PlanEditor({
   locations = [],
   sequenceCinematicHeader,
   sequenceTitle,
+  sequencePlans = [],
 }: PlanEditorModalProps) {
   const config = MODE_CONFIG[mode];
   const ratioConfig = ASPECT_RATIO_CONFIG[aspectRatio] || ASPECT_RATIO_CONFIG['16:9'];
@@ -312,6 +313,13 @@ export function PlanEditor({
   const hasPreviousFrame = !!previousVideoUrl || !!previousLastFrameUrl || !!previousFirstFrameUrl;
   const willExtractFromVideo = !!previousVideoUrl;
 
+  // Any plan in sequence with a video (for frame selector)
+  const plansWithVideo = useMemo(() => {
+    return sequencePlans.filter(p => p.generated_video_url && p.id !== plan.id);
+  }, [sequencePlans, plan.id]);
+  const hasAnyVideoInSequence = plansWithVideo.length > 0;
+  const firstVideoUrl = previousVideoUrl || plansWithVideo[0]?.generated_video_url;
+
   // Frame dimensions - adapted for top/bottom layout
   const frameStyle = useMemo(() => {
     // Larger frames that work for any aspect ratio
@@ -395,9 +403,10 @@ export function PlanEditor({
     }
   }, [pickingFrame, onUpdate]);
 
-  // Open frame selector to pick a frame from previous video
+  // Open frame selector to pick a frame from any video in sequence
   const openFrameSelector = useCallback((target: 'in' | 'out' = 'in') => {
-    if (previousVideoUrl) {
+    if (firstVideoUrl) {
+      // Open modal to select from any video in sequence
       setFrameSelectorTarget(target);
       setShowFrameSelector(true);
     } else if (previousLastFrameUrl) {
@@ -419,7 +428,7 @@ export function PlanEditor({
     } else {
       toast.error('Aucune frame disponible');
     }
-  }, [previousVideoUrl, previousLastFrameUrl, previousFirstFrameUrl, onUpdate]);
+  }, [firstVideoUrl, previousLastFrameUrl, previousFirstFrameUrl, onUpdate]);
 
   // Handle frame selection from the modal
   const handleFrameSelected = useCallback((frameUrl: string) => {
@@ -1359,14 +1368,16 @@ export function PlanEditor({
     )}
 
     {/* Frame Selector Modal */}
-    {previousVideoUrl && (
+    {firstVideoUrl && (
       <FrameSelectorModal
         isOpen={showFrameSelector}
         onClose={() => setShowFrameSelector(false)}
         onSelect={handleFrameSelected}
-        videoUrl={previousVideoUrl}
+        videoUrl={firstVideoUrl}
         projectId={projectId}
         title={frameSelectorTarget === 'in' ? 'Sélectionner Frame In' : 'Sélectionner Frame Out'}
+        currentPlanId={plan.id}
+        sequencePlans={sequencePlans}
       />
     )}
   </>

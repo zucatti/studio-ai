@@ -774,6 +774,17 @@ export default function ClipPage() {
           sequenceCinematicHeader={selectedSequence?.cinematic_header || null}
           sequenceTitle={selectedSequence?.title || undefined}
           locations={locations}
+          sequencePlans={plans
+            .filter(p => p.sequence_id === selectedPlan.sequence_id)
+            .sort((a, b) => a.sort_order - b.sort_order)
+            .map(p => ({
+              id: p.id,
+              number: p.shot_number,
+              generated_video_url: p.generated_video_url,
+              storyboard_image_url: p.storyboard_image_url,
+              first_frame_url: p.first_frame_url,
+              last_frame_url: p.last_frame_url,
+            }))}
           onUpdate={(updates) => handleUpdatePlan(selectedPlan.id, updates as Partial<Plan>)}
           onGenerateVideo={handleGenerateVideo}
           isGeneratingVideo={generationProgress.has(selectedPlan.id) && generationProgress.get(selectedPlan.id)?.status === 'generating'}

@@ -1,11 +1,21 @@
 'use client';
 
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Loader2, SkipBack, SkipForward, ChevronLeft, ChevronRight, Check } from 'lucide-react';
+import { X, Loader2, SkipBack, SkipForward, ChevronLeft, ChevronRight, Check, Film } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { StorageImg } from '@/components/ui/storage-image';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+
+export interface SequencePlanThumbnail {
+  id: string;
+  number?: number;
+  generated_video_url?: string | null;
+  storyboard_image_url?: string | null;
+  first_frame_url?: string | null;
+  last_frame_url?: string | null;
+}
 
 interface FrameSelectorModalProps {
   isOpen: boolean;
@@ -14,15 +24,21 @@ interface FrameSelectorModalProps {
   videoUrl: string;
   projectId: string;
   title?: string;
+  /** Current plan ID (to highlight in thumbnail strip) */
+  currentPlanId?: string;
+  /** All plans in the sequence for thumbnail selection */
+  sequencePlans?: SequencePlanThumbnail[];
 }
 
 export function FrameSelectorModal({
   isOpen,
   onClose,
   onSelect,
-  videoUrl,
+  videoUrl: initialVideoUrl,
   projectId,
   title = 'Sélectionner une frame',
+  currentPlanId,
+  sequencePlans = [],
 }: FrameSelectorModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -31,41 +47,70 @@ export function FrameSelectorModal({
   const [currentTime, setCurrentTime] = useState(0);
   const [signedUrl, setSignedUrl] = useState<string | null>(null);
 
-  // Sign video URL on mount
+  // Track which plan's video is currently loaded
+  const [activeVideoUrl, setActiveVideoUrl] = useState(initialVideoUrl);
+  const [activePlanId, setActivePlanId] = useState<string | null>(null);
+
+  // Filter plans that have a video
+  const plansWithVideo = useMemo(() => {
+    return sequencePlans.filter(p => p.generated_video_url && p.id !== currentPlanId);
+  }, [sequencePlans, currentPlanId]);
+
+  // Get thumbnail URL for a plan
+  const getThumbnail = useCallback((plan: SequencePlanThumbnail) => {
+    return plan.last_frame_url || plan.first_frame_url || plan.storyboard_image_url;
+  }, []);
+
+  // Sign video URL when it changes
   useEffect(() => {
-    if (!isOpen || !videoUrl) return;
+    if (!isOpen || !activeVideoUrl) return;
 
     const signUrl = async () => {
       setIsLoading(true);
+      setSignedUrl(null);
       try {
-        if (videoUrl.startsWith('b2://')) {
+        if (activeVideoUrl.startsWith('b2://')) {
           const res = await fetch('/api/storage/sign', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ urls: [videoUrl] }),
+            body: JSON.stringify({ urls: [activeVideoUrl] }),
           });
           if (res.ok) {
             const { signedUrls } = await res.json();
-            setSignedUrl(signedUrls[videoUrl] || videoUrl);
+            setSignedUrl(signedUrls[activeVideoUrl] || activeVideoUrl);
           } else {
-            setSignedUrl(videoUrl);
+            setSignedUrl(activeVideoUrl);
           }
         } else {
-          setSignedUrl(videoUrl);
+          setSignedUrl(activeVideoUrl);
         }
       } catch {
-        setSignedUrl(videoUrl);
+        setSignedUrl(activeVideoUrl);
       }
     };
 
     signUrl();
-  }, [isOpen, videoUrl]);
+  }, [isOpen, activeVideoUrl]);
+
+  // Reset when modal opens
+  useEffect(() => {
+    if (isOpen) {
+      setActiveVideoUrl(initialVideoUrl);
+      setActivePlanId(null);
+      setCurrentTime(0);
+      setDuration(0);
+    }
+  }, [isOpen, initialVideoUrl]);
 
   // Handle video metadata loaded
   const handleLoadedMetadata = useCallback(() => {
     if (videoRef.current) {
       setDuration(videoRef.current.duration);
       setIsLoading(false);
+      // Seek to last frame by default
+      const lastFrameTime = Math.max(0, videoRef.current.duration - 0.1);
+      videoRef.current.currentTime = lastFrameTime;
+      setCurrentTime(lastFrameTime);
     }
   }, []);
 
@@ -86,17 +131,17 @@ export function FrameSelectorModal({
 
   // Go to first frame
   const goToFirst = useCallback(() => {
-    seekTo(0.1); // Slightly after 0 to avoid black frames
+    seekTo(0.1);
   }, [seekTo]);
 
   // Go to last frame
   const goToLast = useCallback(() => {
-    seekTo(Math.max(0, duration - 0.1)); // Slightly before end
+    seekTo(Math.max(0, duration - 0.1));
   }, [seekTo, duration]);
 
   // Step forward/backward by one frame (~30fps = 0.033s)
   const stepFrame = useCallback((direction: 'forward' | 'backward') => {
-    const frameTime = 1 / 30; // Assuming 30fps
+    const frameTime = 1 / 30;
     const newTime = direction === 'forward'
       ? currentTime + frameTime
       : currentTime - frameTime;
@@ -109,6 +154,16 @@ export function FrameSelectorModal({
     seekTo(time);
   }, [seekTo]);
 
+  // Switch to a different plan's video
+  const switchToPlan = useCallback((plan: SequencePlanThumbnail) => {
+    if (plan.generated_video_url) {
+      setActiveVideoUrl(plan.generated_video_url);
+      setActivePlanId(plan.id);
+      setCurrentTime(0);
+      setDuration(0);
+    }
+  }, []);
+
   // Extract and select frame
   const handleSelectFrame = useCallback(async () => {
     setIsExtracting(true);
@@ -119,7 +174,7 @@ export function FrameSelectorModal({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          videoUrl,
+          videoUrl: activeVideoUrl,
           position: currentTime,
           outputFormat: 'png',
         }),
@@ -140,7 +195,7 @@ export function FrameSelectorModal({
     } finally {
       setIsExtracting(false);
     }
-  }, [projectId, videoUrl, currentTime, onSelect, onClose]);
+  }, [projectId, activeVideoUrl, currentTime, onSelect, onClose]);
 
   // Format time as MM:SS.ms
   const formatTime = (time: number) => {
@@ -190,10 +245,17 @@ export function FrameSelectorModal({
       />
 
       {/* Modal */}
-      <div className="relative w-[90vw] max-w-4xl bg-[#0f1419] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden">
-        {/* Header */}
+      <div className="relative w-[90vw] max-w-5xl bg-[#0f1419] border border-white/10 rounded-xl shadow-2xl flex flex-col overflow-hidden">
+        {/* Header with title and plan thumbnails */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
-          <h2 className="text-base font-semibold text-white">{title}</h2>
+          <div className="flex items-center gap-3">
+            <h2 className="text-base font-semibold text-white">{title}</h2>
+            {activePlanId && (
+              <span className="text-xs text-slate-400 bg-white/5 px-2 py-0.5 rounded">
+                Plan {sequencePlans.find(p => p.id === activePlanId)?.number || '?'}
+              </span>
+            )}
+          </div>
           <button
             onClick={onClose}
             className="p-1.5 rounded-lg hover:bg-white/10 transition-colors"
@@ -201,6 +263,50 @@ export function FrameSelectorModal({
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
+
+        {/* Plan thumbnails strip */}
+        {plansWithVideo.length > 0 && (
+          <div className="px-4 py-2 border-b border-white/10 bg-black/30">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500 mr-2">Autres plans:</span>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                {plansWithVideo.map((plan) => {
+                  const thumbnail = getThumbnail(plan);
+                  const isActive = activePlanId === plan.id;
+
+                  return (
+                    <button
+                      key={plan.id}
+                      onClick={() => switchToPlan(plan)}
+                      className={cn(
+                        'relative flex-shrink-0 w-16 h-10 rounded overflow-hidden border-2 transition-all',
+                        isActive
+                          ? 'border-blue-500 ring-2 ring-blue-500/30'
+                          : 'border-white/10 hover:border-white/30'
+                      )}
+                      title={`Plan ${plan.number || '?'}`}
+                    >
+                      {thumbnail ? (
+                        <StorageImg
+                          src={thumbnail}
+                          alt={`Plan ${plan.number}`}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full h-full bg-slate-800 flex items-center justify-center">
+                          <Film className="w-4 h-4 text-slate-600" />
+                        </div>
+                      )}
+                      <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-[9px] text-white text-center py-0.5">
+                        {plan.number || '?'}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Video preview */}
         <div className="relative aspect-video bg-black flex items-center justify-center">
