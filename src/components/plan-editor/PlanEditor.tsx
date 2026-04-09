@@ -23,6 +23,7 @@ import { ProjectBiblePicker } from '@/components/clip/ProjectBiblePicker';
 import { useRushCreatorStore } from '@/store/rush-creator-store';
 import { StorageImg } from '@/components/ui/storage-image';
 import { FrameEditor } from './FrameEditor';
+import { FrameSelectorModal } from '@/components/ui/frame-selector-modal';
 import { VideoRushesPanel } from './VideoRushesPanel';
 import { History } from 'lucide-react';
 import {
@@ -140,6 +141,8 @@ export function PlanEditor({
 
   // Frame linking state
   const [isExtractingFrame, setIsExtractingFrame] = useState(false);
+  const [showFrameSelector, setShowFrameSelector] = useState(false);
+  const [frameSelectorTarget, setFrameSelectorTarget] = useState<'in' | 'out'>('in');
 
   // Prompt display state
   const [showVideoPrompt, setShowVideoPrompt] = useState(false);
@@ -392,55 +395,45 @@ export function PlanEditor({
     }
   }, [pickingFrame, onUpdate]);
 
-  // Link previous plan's last frame
-  const copyFromPreviousPlan = useCallback(async () => {
+  // Open frame selector to pick a frame from previous video
+  const openFrameSelector = useCallback((target: 'in' | 'out' = 'in') => {
     if (previousVideoUrl) {
-      setIsExtractingFrame(true);
-      try {
-        toast.loading('Extraction de la dernière frame (FFmpeg)...', { id: 'extract-frame' });
-
-        const response = await fetch(`/api/projects/${projectId}/extract-frame`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            videoUrl: previousVideoUrl,
-            position: 'last',
-            outputFormat: 'png',
-          }),
-        });
-
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || 'Failed to extract frame');
-        }
-
-        const { frameUrl } = await response.json();
-        onUpdate({ storyboard_image_url: frameUrl, first_frame_url: frameUrl });
-        toast.success('Dernière frame extraite!', { id: 'extract-frame' });
-        return;
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : 'Unknown error';
-        console.error('FFmpeg frame extraction failed:', errorMsg);
-        toast.error(`Extraction échouée: ${errorMsg}`, { id: 'extract-frame' });
-      } finally {
-        setIsExtractingFrame(false);
+      setFrameSelectorTarget(target);
+      setShowFrameSelector(true);
+    } else if (previousLastFrameUrl) {
+      // No video, use cached last frame directly
+      if (target === 'in') {
+        onUpdate({ storyboard_image_url: previousLastFrameUrl, first_frame_url: previousLastFrameUrl });
+      } else {
+        onUpdate({ last_frame_url: previousLastFrameUrl });
       }
+      toast.success('Frame liée!');
+    } else if (previousFirstFrameUrl) {
+      // Fallback to first frame
+      if (target === 'in') {
+        onUpdate({ storyboard_image_url: previousFirstFrameUrl, first_frame_url: previousFirstFrameUrl });
+      } else {
+        onUpdate({ last_frame_url: previousFirstFrameUrl });
+      }
+      toast.warning('Première frame utilisée (pas de vidéo disponible)');
+    } else {
+      toast.error('Aucune frame disponible');
     }
+  }, [previousVideoUrl, previousLastFrameUrl, previousFirstFrameUrl, onUpdate]);
 
-    if (previousLastFrameUrl) {
-      onUpdate({ storyboard_image_url: previousLastFrameUrl, first_frame_url: previousLastFrameUrl });
-      toast.success('Dernière frame liée!');
-      return;
+  // Handle frame selection from the modal
+  const handleFrameSelected = useCallback((frameUrl: string) => {
+    if (frameSelectorTarget === 'in') {
+      onUpdate({ storyboard_image_url: frameUrl, first_frame_url: frameUrl });
+    } else {
+      onUpdate({ last_frame_url: frameUrl });
     }
+  }, [frameSelectorTarget, onUpdate]);
 
-    if (previousFirstFrameUrl) {
-      onUpdate({ storyboard_image_url: previousFirstFrameUrl, first_frame_url: previousFirstFrameUrl });
-      toast.warning('Première frame utilisée (pas de dernière frame)');
-      return;
-    }
-
-    toast.error('Aucune frame disponible');
-  }, [previousVideoUrl, previousLastFrameUrl, previousFirstFrameUrl, projectId, onUpdate]);
+  // Legacy: Link previous plan's last frame (kept for backward compatibility)
+  const copyFromPreviousPlan = useCallback(async () => {
+    openFrameSelector('in');
+  }, [openFrameSelector]);
 
   // Video generation
   const handleGenerateVideo = useCallback(async () => {
@@ -1359,6 +1352,18 @@ export function PlanEditor({
         hasStartFrame={hasFrameIn}
         defaultViewMode="prompt"
         readOnly
+      />
+    )}
+
+    {/* Frame Selector Modal */}
+    {previousVideoUrl && (
+      <FrameSelectorModal
+        isOpen={showFrameSelector}
+        onClose={() => setShowFrameSelector(false)}
+        onSelect={handleFrameSelected}
+        videoUrl={previousVideoUrl}
+        projectId={projectId}
+        title={frameSelectorTarget === 'in' ? 'Sélectionner Frame In' : 'Sélectionner Frame Out'}
       />
     )}
   </>
