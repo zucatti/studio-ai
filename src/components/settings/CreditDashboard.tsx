@@ -347,12 +347,23 @@ interface CreditDashboardProps {
   isActive?: boolean;
 }
 
+interface SnapshotDetails {
+  [provider: string]: {
+    success: boolean;
+    balance?: number;
+    cumulativeCost?: number;
+    cumulativeUsage?: number;
+    error?: string;
+  };
+}
+
 export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
   const [data, setData] = useState<SpendingResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [hasFetched, setHasFetched] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const [snapshotDetails, setSnapshotDetails] = useState<SnapshotDetails | null>(null);
 
   const fetchData = useCallback(async (signal?: AbortSignal) => {
     try {
@@ -370,12 +381,17 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
 
   const takeSnapshot = useCallback(async () => {
     setRefreshing(true);
+    setSnapshotDetails(null);
     try {
-      await fetch('/api/settings/spending-snapshots', {
+      const res = await fetch('/api/settings/spending-snapshots', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'manual' }),
       });
+      const json = await res.json();
+      if (json.details) {
+        setSnapshotDetails(json.details);
+      }
       await fetchData();
     } catch (e) {
       console.error('Error taking snapshot:', e);
@@ -625,6 +641,32 @@ export function CreditDashboard({ isActive = true }: CreditDashboardProps) {
       <p className="text-xs text-slate-600">
         Les dépenses sont calculées par diff entre snapshots. Le worker prend automatiquement des snapshots toutes les 30 minutes et un snapshot daily_start à minuit.
       </p>
+
+      {/* Snapshot Details (debug) */}
+      {snapshotDetails && (
+        <div className="mt-4 p-3 bg-slate-800/50 border border-white/10 rounded-lg">
+          <div className="text-xs text-slate-400 uppercase tracking-wide mb-2">Dernier snapshot</div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            {Object.entries(snapshotDetails).map(([provider, detail]) => (
+              <div
+                key={provider}
+                className={`p-2 rounded ${detail.success ? 'bg-emerald-500/10' : 'bg-red-500/10'}`}
+              >
+                <div className="font-medium text-white">{provider}</div>
+                {detail.success ? (
+                  <div className="text-slate-400">
+                    {detail.balance !== undefined && <div>balance: ${detail.balance}</div>}
+                    {detail.cumulativeCost !== undefined && <div>cost: ${detail.cumulativeCost}</div>}
+                    {detail.cumulativeUsage !== undefined && <div>usage: {detail.cumulativeUsage}</div>}
+                  </div>
+                ) : (
+                  <div className="text-red-400">{detail.error}</div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

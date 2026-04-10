@@ -83,8 +83,13 @@ async function fetchFalUsage(): Promise<ProviderSnapshot | null> {
   if (!adminKey) return null;
 
   try {
+    // Use Jan 1st of current year as start date for cumulative tracking
+    // This gives us a stable reference point unaffected by auto-recharges
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
+    const now = new Date().toISOString();
+
     const [usageRes, billingRes] = await Promise.all([
-      fetch(`https://api.fal.ai/v1/models/usage?expand=summary&start=${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()}&end=${new Date().toISOString()}`, {
+      fetch(`https://api.fal.ai/v1/models/usage?expand=summary&start=${yearStart}&end=${now}`, {
         headers: { Authorization: `Key ${adminKey}` },
       }),
       fetch('https://api.fal.ai/v1/account/billing?expand=credits', {
@@ -184,13 +189,27 @@ export async function POST(request: Request) {
     const supabase = createServerSupabaseClient();
     const userId = session.user.sub;
 
-    // Fetch all provider data in parallel
-    const [claude, fal, runway, elevenlabs] = await Promise.all([
+    // Track results for each provider
+    const results: Record<string, { success: boolean; data?: ProviderSnapshot; error?: string }> = {};
+
+    // Fetch all provider data in parallel with error tracking
+    const [claudeResult, falResult, runwayResult, elevenlabsResult] = await Promise.allSettled([
       fetchClaudeUsage(),
       fetchFalUsage(),
       fetchRunwayUsage(),
       fetchElevenLabsUsage(),
     ]);
+
+    // Process results
+    const claude = claudeResult.status === 'fulfilled' ? claudeResult.value : null;
+    const fal = falResult.status === 'fulfilled' ? falResult.value : null;
+    const runway = runwayResult.status === 'fulfilled' ? runwayResult.value : null;
+    const elevenlabs = elevenlabsResult.status === 'fulfilled' ? elevenlabsResult.value : null;
+
+    results.claude = claude ? { success: true, data: claude } : { success: false, error: claudeResult.status === 'rejected' ? String(claudeResult.reason) : 'No data returned' };
+    results.fal = fal ? { success: true, data: fal } : { success: false, error: falResult.status === 'rejected' ? String(falResult.reason) : 'No data returned' };
+    results.runway = runway ? { success: true, data: runway } : { success: false, error: runwayResult.status === 'rejected' ? String(runwayResult.reason) : 'No data returned' };
+    results.elevenlabs = elevenlabs ? { success: true, data: elevenlabs } : { success: false, error: elevenlabsResult.status === 'rejected' ? String(elevenlabsResult.reason) : 'No data returned' };
 
     const snapshots: ProviderSnapshot[] = [claude, fal, runway, elevenlabs].filter(
       (s): s is ProviderSnapshot => s !== null
@@ -215,10 +234,20 @@ export async function POST(request: Request) {
       }
     }
 
+    console.log(`[Snapshots] Saved: ${snapshots.map(s => s.provider).join(', ') || 'none'}`);
+
     return NextResponse.json({
       success: true,
       snapshotType,
       providers: snapshots.map((s) => s.provider),
+      details: Object.fromEntries(
+        Object.entries(results).map(([k, v]) => [
+          k,
+          v.success
+            ? { success: true, balance: v.data?.balance, cumulativeCost: v.data?.cumulativeCost, cumulativeUsage: v.data?.cumulativeUsage }
+            : { success: false, error: v.error }
+        ])
+      ),
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -297,9 +326,13 @@ export async function GET() {
       const weekSnap = findClosestSnapshot(provider, weekStart);
       const monthSnap = findClosestSnapshot(provider, monthStart);
 
-      // For balance-based providers (fal, runway): spending = old - new
-      // For cumulative providers (claude cost, elevenlabs chars): spending = new - old
-      const isBalanceBased = provider === 'fal' || provider === 'runway';
+      // Provider categories:
+      // - fal: uses cumulative_cost from API (unaffected by auto-recharges)
+      // - runway: uses balance (no auto-recharge mechanism)
+      // - claude: uses cumulative_cost
+      // - elevenlabs: uses cumulative_usage (characters)
+      const isBalanceBased = provider === 'runway'; // Only runway uses balance now
+      const usesCumulativeCost = provider === 'fal' || provider === 'claude';
 
       let currentValue = 0;
       let todayRef = 0;
@@ -324,7 +357,25 @@ export async function GET() {
           characterLimit: (data.rawData as { characterLimit?: number })?.characterLimit,
           status: 'connected',
         };
+      } else if (usesCumulativeCost) {
+        // fal.ai and Claude use cumulative cost (increases with usage)
+        // This approach is immune to auto-recharges for fal.ai
+        currentValue = data.cumulativeCost || 0;
+        todayRef = todaySnap?.cumulative_cost || 0;
+        weekRef = weekSnap?.cumulative_cost || 0;
+        monthRef = monthSnap?.cumulative_cost || 0;
+
+        spending[provider] = {
+          current: currentValue,
+          today: Math.max(0, currentValue - todayRef),
+          thisWeek: Math.max(0, currentValue - weekRef),
+          thisMonth: Math.max(0, currentValue - monthRef),
+          unit,
+          balance: data.balance, // Still include balance for display
+          status: 'connected',
+        };
       } else if (isBalanceBased) {
+        // Runway uses balance (no auto-recharge)
         currentValue = data.balance || 0;
         todayRef = todaySnap?.balance ?? currentValue;
         weekRef = weekSnap?.balance ?? currentValue;
@@ -337,21 +388,6 @@ export async function GET() {
           thisMonth: Math.max(0, monthRef - currentValue),
           unit,
           balance: data.balance,
-          status: 'connected',
-        };
-      } else {
-        // Claude - cumulative cost
-        currentValue = data.cumulativeCost || 0;
-        todayRef = todaySnap?.cumulative_cost || 0;
-        weekRef = weekSnap?.cumulative_cost || 0;
-        monthRef = monthSnap?.cumulative_cost || 0;
-
-        spending[provider] = {
-          current: currentValue,
-          today: Math.max(0, currentValue - todayRef),
-          thisWeek: Math.max(0, currentValue - weekRef),
-          thisMonth: Math.max(0, currentValue - monthRef),
-          unit,
           status: 'connected',
         };
       }
@@ -399,11 +435,11 @@ export async function GET() {
             const first = providerSnaps[0];
             const last = providerSnaps[providerSnaps.length - 1];
 
-            if (provider === 'claude') {
-              // Cumulative cost: last - first
+            if (provider === 'claude' || provider === 'fal') {
+              // Cumulative cost: last - first (fal now uses cumulative_cost too)
               providers[provider] = Math.max(0, (last.cumulative_cost || 0) - (first.cumulative_cost || 0));
             } else {
-              // Balance-based: first - last
+              // Balance-based (runway): first - last
               providers[provider] = Math.max(0, (first.balance || 0) - (last.balance || 0));
             }
           }

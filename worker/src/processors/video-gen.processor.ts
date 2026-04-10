@@ -9,6 +9,7 @@ import { uploadFile, getPublicUrl, generateStorageKey } from '../storage.js';
 import { startJob, updateJobProgress, completeJob, failJob } from '../utils/job-status.js';
 import { enqueueFFmpegJob } from '../config.js';
 import { videoProviders, type VideoGenerationRequest, type AspectRatio } from '../providers/video/index.js';
+import { logFalUsage } from '../utils/api-usage-logger.js';
 
 // Job data type
 export interface VideoGenJobData {
@@ -327,6 +328,15 @@ export async function processVideoGenJob(job: Job<VideoGenJobData>): Promise<voi
     const b2Url = await uploadFile(storageKey, Buffer.from(videoBuffer), contentType);
 
     console.log(`[VideoGen] Uploaded to B2: ${b2Url}`);
+
+    // Log API usage for fal.ai
+    await logFalUsage(userId, {
+      operation: 'video-generation',
+      model: model,
+      projectId,
+      videoDuration: result.duration || duration,
+      estimatedCost: result.cost,
+    });
 
     // Preview mode: don't update shot, just complete the job with video URL
     if (data.isPreview) {

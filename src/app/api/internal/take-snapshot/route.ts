@@ -31,7 +31,10 @@ interface ProviderSnapshot {
 }
 
 async function fetchClaudeUsage(): Promise<ProviderSnapshot | null> {
-  if (!process.env.AI_CLAUDE_ADMIN_KEY) return null;
+  if (!process.env.AI_CLAUDE_ADMIN_KEY) {
+    console.log('[Snapshot:claude] No admin key configured');
+    return null;
+  }
 
   try {
     const startingAt = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -50,7 +53,10 @@ async function fetchClaudeUsage(): Promise<ProviderSnapshot | null> {
       },
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[Snapshot:claude] API error: ${res.status}`);
+      return null;
+    }
 
     const data = await res.json();
     let totalCost = 0;
@@ -65,22 +71,33 @@ async function fetchClaudeUsage(): Promise<ProviderSnapshot | null> {
       }
     }
 
+    console.log(`[Snapshot:claude] cost=${totalCost}`);
+
     return {
       provider: 'claude',
       cumulativeCost: Math.round(totalCost * 10000) / 10000,
     };
-  } catch {
+  } catch (err) {
+    console.error('[Snapshot:claude] Error:', err);
     return null;
   }
 }
 
 async function fetchFalUsage(): Promise<ProviderSnapshot | null> {
   const adminKey = process.env.AI_FAL_ADMIN_KEY || process.env.AI_FAL_KEY;
-  if (!adminKey) return null;
+  if (!adminKey) {
+    console.log('[Snapshot:fal] No API key configured');
+    return null;
+  }
 
   try {
+    // Use Jan 1st of current year as start date for cumulative tracking
+    // This gives us a stable reference point unaffected by auto-recharges
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).toISOString();
+    const now = new Date().toISOString();
+
     const [usageRes, billingRes] = await Promise.all([
-      fetch(`https://api.fal.ai/v1/models/usage?expand=summary&start=${new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()}&end=${new Date().toISOString()}`, {
+      fetch(`https://api.fal.ai/v1/models/usage?expand=summary&start=${yearStart}&end=${now}`, {
         headers: { Authorization: `Key ${adminKey}` },
       }),
       fetch('https://api.fal.ai/v1/account/billing?expand=credits', {
@@ -94,6 +111,8 @@ async function fetchFalUsage(): Promise<ProviderSnapshot | null> {
     if (billingRes.ok) {
       const billingData = await billingRes.json();
       balance = billingData.credits?.current_balance;
+    } else {
+      console.warn(`[Snapshot:fal] Billing API error: ${billingRes.status}`);
     }
 
     if (usageRes.ok) {
@@ -101,20 +120,28 @@ async function fetchFalUsage(): Promise<ProviderSnapshot | null> {
       for (const item of usageData.summary || []) {
         cumulativeCost += parseFloat(item.cost) || 0;
       }
+    } else {
+      console.warn(`[Snapshot:fal] Usage API error: ${usageRes.status}`);
     }
+
+    console.log(`[Snapshot:fal] balance=${balance}, cumulativeCost=${cumulativeCost}`);
 
     return {
       provider: 'fal',
       balance,
       cumulativeCost: Math.round(cumulativeCost * 10000) / 10000,
     };
-  } catch {
+  } catch (err) {
+    console.error('[Snapshot:fal] Error:', err);
     return null;
   }
 }
 
 async function fetchRunwayUsage(): Promise<ProviderSnapshot | null> {
-  if (!process.env.AI_RUNWAY_ML) return null;
+  if (!process.env.AI_RUNWAY_ML) {
+    console.log('[Snapshot:runway] No API key configured');
+    return null;
+  }
 
   try {
     const res = await fetch('https://api.dev.runwayml.com/v1/organization', {
@@ -124,42 +151,57 @@ async function fetchRunwayUsage(): Promise<ProviderSnapshot | null> {
       },
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[Snapshot:runway] API error: ${res.status}`);
+      return null;
+    }
 
     const data = await res.json();
     const creditBalance = data.creditBalance;
     const balanceInDollars = typeof creditBalance === 'number' ? creditBalance * 0.01 : undefined;
+
+    console.log(`[Snapshot:runway] balance=${balanceInDollars}`);
 
     return {
       provider: 'runway',
       balance: balanceInDollars !== undefined ? Math.round(balanceInDollars * 100) / 100 : undefined,
       rawData: data,
     };
-  } catch {
+  } catch (err) {
+    console.error('[Snapshot:runway] Error:', err);
     return null;
   }
 }
 
 async function fetchElevenLabsUsage(): Promise<ProviderSnapshot | null> {
-  if (!process.env.AI_ELEVEN_LABS) return null;
+  if (!process.env.AI_ELEVEN_LABS) {
+    console.log('[Snapshot:elevenlabs] No API key configured');
+    return null;
+  }
 
   try {
     const res = await fetch('https://api.elevenlabs.io/v1/user/subscription', {
       headers: { 'xi-api-key': process.env.AI_ELEVEN_LABS },
     });
 
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.warn(`[Snapshot:elevenlabs] API error: ${res.status}`);
+      return null;
+    }
 
     const data = await res.json();
     const characterCount = data.character_count || 0;
     const characterLimit = data.character_limit || 0;
+
+    console.log(`[Snapshot:elevenlabs] chars=${characterCount}/${characterLimit}`);
 
     return {
       provider: 'elevenlabs',
       cumulativeUsage: characterCount,
       rawData: { characterCount, characterLimit },
     };
-  } catch {
+  } catch (err) {
+    console.error('[Snapshot:elevenlabs] Error:', err);
     return null;
   }
 }

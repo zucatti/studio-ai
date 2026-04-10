@@ -8,6 +8,7 @@ import { getSupabase } from '../supabase.js';
 import { uploadFile } from '../storage.js';
 import { startJob, updateJobProgress, completeJob, failJob } from '../utils/job-status.js';
 import { generateImage, type ReferenceImage, type AspectRatio } from '../services/image-generation.js';
+import { logFalUsage } from '../utils/api-usage-logger.js';
 
 // Job data type - matches QuickShotGenJobData from src/lib/bullmq/types.ts
 export interface QuickShotGenJobData {
@@ -181,6 +182,15 @@ export async function processQuickShotGenJob(job: Job<QuickShotGenJobData>): Pro
         })
         .eq('id', shotId);
     }
+
+    // Log API usage for fal.ai
+    await logFalUsage(userId, {
+      operation: storyboardFrameId ? 'storyboard-frame' : 'quick-shot',
+      model: result.model,
+      projectId,
+      imagesCount: 1,
+      estimatedCost: 0.02,
+    });
 
     // Complete the job
     await completeJob(jobId, {

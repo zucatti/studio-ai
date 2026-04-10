@@ -83,6 +83,52 @@ export async function logApiUsage(params: LogApiUsageParams): Promise<void> {
   }
 }
 
+/**
+ * Log API usage from worker context (no Auth0 session)
+ * Use this in BullMQ processors where userId is passed in job data
+ */
+export async function logApiUsageFromWorker(
+  userId: string,
+  params: Omit<LogApiUsageParams, 'projectId'> & { projectId?: string }
+): Promise<void> {
+  try {
+    const supabase = createServerSupabaseClient();
+
+    // Calculate cost if not provided
+    let estimatedCost = params.estimatedCost;
+    if (estimatedCost === undefined) {
+      estimatedCost = calculateCostForProvider(params);
+    }
+
+    console.log('[logApiUsageWorker] Logging:', params.provider, params.operation, 'cost:', estimatedCost);
+
+    const { data, error } = await supabase.from('api_usage_logs').insert({
+      user_id: userId,
+      project_id: params.projectId || null,
+      provider: params.provider,
+      model: params.model || null,
+      endpoint: params.endpoint || null,
+      operation: params.operation,
+      input_tokens: params.inputTokens || null,
+      output_tokens: params.outputTokens || null,
+      characters: params.characters || null,
+      images_count: params.imagesCount || null,
+      video_duration: params.videoDuration || null,
+      estimated_cost: estimatedCost,
+      status: params.status || 'success',
+      error_message: params.errorMessage || null,
+    }).select();
+
+    if (error) {
+      console.error('[logApiUsageWorker] Failed:', error.message, error.details, error.hint);
+    } else {
+      console.log('[logApiUsageWorker] OK, id:', data?.[0]?.id);
+    }
+  } catch (error) {
+    console.error('[logApiUsageWorker] Error:', error);
+  }
+}
+
 function calculateCostForProvider(params: LogApiUsageParams): number {
   const model = params.model || params.endpoint || 'default';
 

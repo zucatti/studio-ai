@@ -4,12 +4,9 @@ import { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   Settings,
-  Camera,
-  ChevronRight,
   CreditCard,
   History,
 } from 'lucide-react';
-import Link from 'next/link';
 import { CreditDashboard, UsageHistory } from '@/components/settings';
 
 export default function SettingsPage() {
@@ -48,29 +45,6 @@ export default function SettingsPage() {
           <UsageHistory />
         </TabsContent>
       </Tabs>
-
-      {/* Camera Movements - Temporary section at bottom */}
-      <div className="mt-8 pt-6 border-t border-white/10">
-        <Link
-          href="/settings/camera-movements"
-          className="flex items-center justify-between p-4 bg-slate-800/40 hover:bg-slate-800/60 border border-white/5 hover:border-white/10 rounded-xl transition-all group"
-        >
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-cyan-500/10">
-              <Camera className="w-5 h-5 text-cyan-400" />
-            </div>
-            <div>
-              <div className="font-medium text-white group-hover:text-cyan-300 transition-colors">
-                Mouvements de Caméra
-              </div>
-              <div className="text-sm text-slate-500">
-                38 mouvements professionnels avec aperçus vidéo
-              </div>
-            </div>
-          </div>
-          <ChevronRight className="w-5 h-5 text-slate-500 group-hover:text-cyan-400 transition-colors" />
-        </Link>
-      </div>
     </div>
   );
 }

@@ -9,6 +9,7 @@ import { getSupabase } from '../supabase.js';
 import { uploadFile, getPublicUrl } from '../storage.js';
 import { startJob, updateJobProgress, completeJob, failJob } from '../utils/job-status.js';
 import { aiConfig, storageConfig } from '../config.js';
+import { logFalUsage } from '../utils/api-usage-logger.js';
 
 // Configure fal.ai
 fal.config({
@@ -397,6 +398,14 @@ export async function processImageGenJob(job: Job<ImageGenJobData>): Promise<voi
         console.log(`[ImageGen] Saved ${newRushes.length - limitedRushes.length > 0 ? `${limitedRushes.length} rushes (pruned ${newRushes.length - limitedRushes.length} old)` : `${limitedRushes.length} rushes`}`);
       }
     }
+
+    // Log API usage for fal.ai
+    await logFalUsage(userId, {
+      operation: mode,
+      model: falEndpoint,
+      imagesCount: generatedImages.length,
+      estimatedCost: totalCost,
+    });
 
     // Complete the job
     await completeJob(jobId, {

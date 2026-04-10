@@ -12,6 +12,7 @@ import { getSupabase } from '../supabase.js';
 import { uploadFile, generateStorageKey, getPublicUrl } from '../storage.js';
 import { startJob, updateJobProgress, completeJob, failJob } from '../utils/job-status.js';
 import { aiConfig } from '../config.js';
+import { logElevenLabsUsage } from '../utils/api-usage-logger.js';
 
 const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
 
@@ -156,6 +157,15 @@ export async function processAudioGenJob(job: Job<AudioGenJobData>): Promise<voi
 
     // Estimate cost based on character count
     const characterCost = cleanedText.length * 0.00003; // ~$0.03 per 1000 chars
+
+    // Log API usage for ElevenLabs
+    await logElevenLabsUsage(userId, {
+      operation: 'text-to-speech',
+      model: modelId,
+      projectId,
+      characters: cleanedText.length,
+      estimatedCost: characterCost,
+    });
 
     // Complete the job
     await completeJob(jobId, {
