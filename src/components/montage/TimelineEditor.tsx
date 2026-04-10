@@ -14,7 +14,7 @@ import { Download } from 'lucide-react';
 
 interface TimelineEditorProps {
   projectId: string;
-  shortId: string;
+  shortId?: string;  // Optional - if not provided, uses project-level timeline
   aspectRatio?: string;
   className?: string;
 }
@@ -25,6 +25,11 @@ export function TimelineEditor({
   aspectRatio = '9:16',
   className,
 }: TimelineEditorProps) {
+  // API endpoints based on whether we're in short mode or project mode
+  const apiBase = shortId
+    ? `/api/projects/${projectId}/shorts/${shortId}/montage`
+    : `/api/projects/${projectId}/timeline`;
+  const entityId = shortId || projectId;
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isRendering, setIsRendering] = useState(false);
@@ -52,7 +57,7 @@ export function TimelineEditor({
     const loadMontage = async () => {
       try {
         setIsLoading(true);
-        const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/montage`);
+        const res = await fetch(apiBase);
 
         if (res.ok) {
           const data = await res.json();
@@ -86,14 +91,14 @@ export function TimelineEditor({
             });
           } else {
             // No saved data - create default tracks
-            setProject(projectId, shortId, aspectRatio);
+            setProject(projectId, entityId, aspectRatio);
             addTrack('video', 'Video 1');
             addTrack('video', 'Video 2');
             addTrack('audio', 'Audio 1');
           }
         } else {
           // API error - create default tracks
-          setProject(projectId, shortId, aspectRatio);
+          setProject(projectId, entityId, aspectRatio);
           addTrack('video', 'Video 1');
           addTrack('video', 'Video 2');
           addTrack('audio', 'Audio 1');
@@ -101,7 +106,7 @@ export function TimelineEditor({
       } catch (error) {
         console.error('Failed to load montage:', error);
         // Create default tracks on error
-        setProject(projectId, shortId, aspectRatio);
+        setProject(projectId, entityId, aspectRatio);
         addTrack('video', 'Video 1');
         addTrack('video', 'Video 2');
         addTrack('audio', 'Audio 1');
@@ -111,7 +116,7 @@ export function TimelineEditor({
     };
 
     loadMontage();
-  }, [projectId, shortId, aspectRatio, setProject, addTrack, importFromJSON]);
+  }, [projectId, entityId, apiBase, aspectRatio, setProject, addTrack, importFromJSON]);
 
   // Save montage to API
   const handleSave = useCallback(async () => {
@@ -119,7 +124,7 @@ export function TimelineEditor({
       setIsSaving(true);
       const montageData = exportToJSON();
 
-      const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/montage`, {
+      const res = await fetch(apiBase, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ montageData }),
@@ -137,14 +142,14 @@ export function TimelineEditor({
     } finally {
       setIsSaving(false);
     }
-  }, [projectId, shortId, exportToJSON]);
+  }, [apiBase, exportToJSON]);
 
   // Render montage to MP4
   const handleRender = useCallback(async () => {
     try {
       // First save the current state
       const montageData = exportToJSON();
-      await fetch(`/api/projects/${projectId}/shorts/${shortId}/montage`, {
+      await fetch(apiBase, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ montageData }),
@@ -155,7 +160,7 @@ export function TimelineEditor({
       setRenderProgress(0);
       setRenderedVideoUrl(null);
 
-      const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/montage/render`, {
+      const res = await fetch(`${apiBase}/render`, {
         method: 'POST',
       });
 
@@ -173,7 +178,7 @@ export function TimelineEditor({
       toast.error(error instanceof Error ? error.message : 'Erreur de rendu');
       setIsRendering(false);
     }
-  }, [projectId, shortId, exportToJSON]);
+  }, [apiBase, exportToJSON]);
 
   // Poll render job status
   useEffect(() => {
@@ -206,10 +211,13 @@ export function TimelineEditor({
               },
             });
             // Update store immediately (optimistic) so the video appears in the gallery
-            const duration = job.result_data?.duration as number | undefined;
-            setAssembledVideoUrl(shortId, videoUrl, duration);
-            // Also fetch to ensure full data consistency
-            fetchShorts(projectId);
+            // Only update shorts store if we're in short mode
+            if (shortId) {
+              const duration = job.result_data?.duration as number | undefined;
+              setAssembledVideoUrl(shortId, videoUrl, duration);
+              // Also fetch to ensure full data consistency
+              fetchShorts(projectId);
+            }
           }
           clearInterval(pollInterval);
         } else if (job.status === 'failed') {
@@ -316,7 +324,7 @@ export function TimelineEditor({
         {/* Sidebar - Asset browser */}
         <MontageSidebar
           projectId={projectId}
-          shortId={shortId}
+          shortId={shortId || ''}
           className="w-64 flex-shrink-0 border-r border-white/10"
         />
 

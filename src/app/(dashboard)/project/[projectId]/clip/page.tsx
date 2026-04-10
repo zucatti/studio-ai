@@ -7,6 +7,7 @@ import { PlanEditor, type VideoGenerationOptions, type PlanData } from '@/compon
 import { type VideoGenerationProgress } from '@/components/shorts/VideoGenerationCard';
 import { VideoEditorLayout } from '@/components/video-editor';
 import { WaveformHeader } from '@/components/clip/WaveformHeader';
+import { TimelineEditor } from '@/components/montage/TimelineEditor';
 import { CinematicHeaderWizard, type PromptCharacterData } from '@/components/shorts/CinematicHeaderWizard';
 import { useJobsStore } from '@/store/jobs-store';
 import { useBibleStore } from '@/store/bible-store';
@@ -23,6 +24,7 @@ import {
   Music,
   Sparkles,
   Pencil,
+  Layers,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -73,6 +75,7 @@ export default function ClipPage() {
   const [isLoadingData, setIsLoadingData] = useState(true);
 
   // UI state
+  const [viewMode, setViewMode] = useState<'edition' | 'montage'>('edition');
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null);
   const [isPlanEditorOpen, setIsPlanEditorOpen] = useState(false);
   const [collapsedSequences, setCollapsedSequences] = useState<Set<string>>(new Set());
@@ -807,9 +810,31 @@ export default function ClipPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-400 text-xs font-medium">
-          <Sparkles className="w-3 h-3" />
-          Clip
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setViewMode('edition')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-l-md text-xs font-medium transition-colors',
+              viewMode === 'edition'
+                ? 'bg-purple-500/20 text-purple-400'
+                : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+            )}
+          >
+            <Pencil className="w-3 h-3" />
+            Édition
+          </button>
+          <button
+            onClick={() => setViewMode('montage')}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-r-md text-xs font-medium transition-colors',
+              viewMode === 'montage'
+                ? 'bg-purple-500/20 text-purple-400'
+                : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
+            )}
+          >
+            <Layers className="w-3 h-3" />
+            Montage
+          </button>
         </div>
       </div>
 
@@ -842,28 +867,79 @@ export default function ClipPage() {
 
   return (
     <>
-      <VideoEditorLayout
-        sequences={computedSequences}
-        plans={plans}
-        aspectRatio={aspectRatio}
-        projectId={projectId}
-        entityId={projectId}
-        entityType="clip"
-        selectedPlanId={selectedPlanId}
-        collapsedSequences={collapsedSequences}
-        generationProgress={generationProgress}
-        headerContent={headerContent}
-        onCreateSequence={() => handleCreateSequence()}
-        onAddPlan={handleAddPlan}
-        onSelectPlan={handleSelectPlan}
-        onDeletePlan={handleDeletePlan}
-        onUpdateSequence={handleUpdateSequence}
-        onDeleteSequence={handleDeleteSequence}
-        onToggleSequenceCollapse={handleToggleSequenceCollapse}
-        onOpenCinematicWizard={handleOpenCinematicWizard}
-        onReorderPlans={handleReorderPlans}
-        onMovePlanToSequence={handleMovePlanToSequence}
-      />
+      {viewMode === 'edition' ? (
+        <VideoEditorLayout
+          sequences={computedSequences}
+          plans={plans}
+          aspectRatio={aspectRatio}
+          projectId={projectId}
+          entityId={projectId}
+          entityType="clip"
+          selectedPlanId={selectedPlanId}
+          collapsedSequences={collapsedSequences}
+          generationProgress={generationProgress}
+          headerContent={headerContent}
+          onCreateSequence={() => handleCreateSequence()}
+          onAddPlan={handleAddPlan}
+          onSelectPlan={handleSelectPlan}
+          onDeletePlan={handleDeletePlan}
+          onUpdateSequence={handleUpdateSequence}
+          onDeleteSequence={handleDeleteSequence}
+          onToggleSequenceCollapse={handleToggleSequenceCollapse}
+          onOpenCinematicWizard={handleOpenCinematicWizard}
+          onReorderPlans={handleReorderPlans}
+          onMovePlanToSequence={handleMovePlanToSequence}
+        />
+      ) : (
+        <div className="flex flex-col h-full">
+          {/* Header for montage mode */}
+          <div className="flex-shrink-0 border-b border-white/10">
+            <div className="flex items-center justify-between px-3 py-2">
+              <div className="flex items-center gap-3">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => router.push(`/project/${projectId}`)}
+                  className="text-slate-400 hover:text-white h-8 w-8"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                </Button>
+
+                <div className="flex items-center gap-2">
+                  <Music className="w-4 h-4 text-purple-400" />
+                  <h1 className="text-base font-medium text-white">
+                    {masterAudio.data.title || masterAudio.name}
+                  </h1>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => setViewMode('edition')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-l-md text-xs font-medium transition-colors bg-white/5 text-slate-400 hover:text-white hover:bg-white/10"
+                >
+                  <Pencil className="w-3 h-3" />
+                  Édition
+                </button>
+                <button
+                  onClick={() => setViewMode('montage')}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-r-md text-xs font-medium transition-colors bg-purple-500/20 text-purple-400"
+                >
+                  <Layers className="w-3 h-3" />
+                  Montage
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Timeline Editor */}
+          <TimelineEditor
+            projectId={projectId}
+            aspectRatio={aspectRatio}
+            className="flex-1"
+          />
+        </div>
+      )}
 
       {/* Plan Editor Dialog */}
       {selectedPlan && (
