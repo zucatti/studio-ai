@@ -987,6 +987,50 @@ function findTransitionBetweenClips(
 }
 
 /**
+ * Find transition at the start of timeline (fade in from black)
+ */
+function findTransitionAtStart(
+  firstClip: { start: number },
+  transitions: Array<{ start: number; duration: number; transitionType?: string }>
+): { type: string; duration: number } | null {
+  const tolerance = 0.5;
+
+  for (const t of transitions) {
+    // Transition is at start if it's before or at the beginning of first clip
+    if (t.start <= tolerance && t.start + t.duration <= firstClip.start + t.duration + tolerance) {
+      return {
+        type: t.transitionType || 'fade',
+        duration: t.duration,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Find transition at the end of timeline (fade out to black)
+ */
+function findTransitionAtEnd(
+  lastClip: { start: number; duration: number },
+  totalDuration: number,
+  transitions: Array<{ start: number; duration: number; transitionType?: string }>
+): { type: string; duration: number } | null {
+  const tolerance = 0.5;
+  const lastClipEnd = lastClip.start + lastClip.duration;
+
+  for (const t of transitions) {
+    // Transition is at end if it starts near or after the last clip ends
+    if (t.start >= lastClipEnd - tolerance || t.start + t.duration >= totalDuration - tolerance) {
+      return {
+        type: t.transitionType || 'fade',
+        duration: t.duration,
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Process montage timeline render to MP4
  */
 async function processMontageRender(data: FFmpegJobData): Promise<void> {
@@ -1167,7 +1211,7 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
         }
       }
 
-      const overlayLabel = i === sortedVideoClips.length - 1 ? 'vout' : `overlay${i}`;
+      const overlayLabel = `overlay${i}`;
 
       if (useTransition && i > 0) {
         // Use xfade transition
@@ -1192,6 +1236,43 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
 
       // Next iteration uses this overlay's output (store WITHOUT brackets)
       lastVideoLabel = overlayLabel;
+    }
+
+    // Apply fade in at start if there's a transition at the beginning
+    const fadeInTransition = findTransitionAtStart(sortedVideoClips[0], transitionClips);
+    if (fadeInTransition) {
+      const fadeLabel = 'fadein';
+      const xfadeType = mapTransitionToXfade(fadeInTransition.type);
+      console.log(`[FFmpeg] Applying fade in (${xfadeType}, ${fadeInTransition.duration}s) at start`);
+
+      // Use fade filter for fade in from black
+      filterParts.push(
+        `[${lastVideoLabel}]fade=t=in:st=0:d=${fadeInTransition.duration}[${fadeLabel}]`
+      );
+      lastVideoLabel = fadeLabel;
+    }
+
+    // Apply fade out at end if there's a transition at the end
+    const fadeOutTransition = findTransitionAtEnd(
+      sortedVideoClips[sortedVideoClips.length - 1],
+      totalDuration,
+      transitionClips
+    );
+    if (fadeOutTransition) {
+      const fadeLabel = 'fadeout';
+      const fadeStart = totalDuration - fadeOutTransition.duration;
+      console.log(`[FFmpeg] Applying fade out (${fadeOutTransition.duration}s) at ${fadeStart}s`);
+
+      // Use fade filter for fade out to black
+      filterParts.push(
+        `[${lastVideoLabel}]fade=t=out:st=${fadeStart}:d=${fadeOutTransition.duration}[${fadeLabel}]`
+      );
+      lastVideoLabel = fadeLabel;
+    }
+
+    // Rename final video output to [vout] if not already
+    if (lastVideoLabel !== 'vout') {
+      filterParts.push(`[${lastVideoLabel}]copy[vout]`);
     }
 
     // Process ALL audio sources: audio clips + audio from video clips
