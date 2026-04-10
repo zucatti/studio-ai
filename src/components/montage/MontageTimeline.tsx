@@ -814,7 +814,12 @@ function AudioWaveform({
 
     const loadAudio = async () => {
       try {
-        const response = await fetch(audioUrl);
+        // Use proxy to avoid CORS issues with B2 signed URLs
+        const proxyUrl = `/api/storage/proxy?url=${encodeURIComponent(audioUrl)}`;
+        const response = await fetch(proxyUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch audio: ${response.status}`);
+        }
         const arrayBuffer = await response.arrayBuffer();
         const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
 
