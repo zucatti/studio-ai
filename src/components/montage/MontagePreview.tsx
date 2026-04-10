@@ -4,7 +4,18 @@ import { useRef, useEffect, useMemo, useCallback, useState } from 'react';
 import { useMontageStore, MontageClip } from '@/store/montage-store';
 import { useSignedUrl } from '@/hooks/use-signed-url';
 import { cn } from '@/lib/utils';
-import { Film, Play, Pause } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Slider } from '@/components/ui/slider';
+import {
+  Film,
+  Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  SkipBack,
+  SkipForward,
+} from 'lucide-react';
 
 interface MontagePreviewProps {
   aspectRatio: string;
@@ -36,17 +47,20 @@ function isVideoFile(url: string | null | undefined): boolean {
   return videoExtensions.some(ext => lowerUrl.includes(ext)) || lowerUrl.includes('/videos/');
 }
 
-// Find clip at a given time
+// Find clip at a given time (with small tolerance for clips that start very close to current time)
 function findClipAtTime(
   time: number,
   clips: Record<string, MontageClip>,
   videoTrackIds: string[]
 ): MontageClip | null {
+  // Small tolerance to handle clips that don't start exactly at 0
+  const tolerance = 0.5;
+
   for (const trackId of videoTrackIds) {
     const clip = Object.values(clips).find(
       (c) =>
         c.trackId === trackId &&
-        time >= c.start &&
+        time >= c.start - tolerance &&
         time < c.start + c.duration
     );
     if (clip) return clip;
@@ -64,6 +78,9 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
   const [currentClipId, setCurrentClipId] = useState<string | null>(null);
   // Track if video is ready to display (has loaded enough data)
   const [isVideoReady, setIsVideoReady] = useState(false);
+  // Volume state
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
 
   // Get static values from store
   const clips = useMontageStore((state) => state.clips);
@@ -101,21 +118,8 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
   // Get signed URL for thumbnail (shown when not playing)
   const { signedUrl: thumbnailUrl } = useSignedUrl(currentClip?.thumbnailUrl || null);
 
-  // Debug logging
-  useEffect(() => {
-    const time = useMontageStore.getState().currentTime;
-    const allClips = useMontageStore.getState().clips;
-    console.log('[MontagePreview] State:',
-      'time:', time.toFixed(2),
-      'clipType:', currentClip?.type || 'n/a',
-      'currentClip:', currentClip ? currentClip.id : 'null',
-      'assetUrl:', currentClip?.assetUrl?.substring(0, 60) || 'null',
-      'signedUrl:', signedUrl?.substring(0, 60) || 'null',
-      'shouldRenderVideo:', !!(currentClip && signedUrl && currentClip.type === 'video')
-    );
-  }, [currentClip, signedUrl, isLoadingVideo, videoError, videoTrackIds]);
-
-  // Update current clip when not playing (based on store currentTime)
+  // Update current clip when timeline position changes (scrubbing or initial load)
+  // DON'T update during playback - let the video play naturally until it ends
   useEffect(() => {
     if (isPlaying) return;
 
@@ -135,83 +139,56 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
     }
   }, [storeCurrentTime, isPlaying, clips, videoTrackIds, duration]);
 
-  // Playback loop - updates store and DOM directly, no React re-renders
-  useEffect(() => {
-    if (!isPlaying) return;
-
-    let lastTime = performance.now();
-    let rafId: number;
-    let lastClipId: string | null = currentClipId;
-
-    const tick = (now: number) => {
-      const delta = (now - lastTime) / 1000;
-      lastTime = now;
-
-      const store = useMontageStore.getState();
-      const newTime = store.currentTime + delta;
-
-      if (newTime >= store.duration) {
-        store.pause();
-        store.setCurrentTime(0);
-        return;
-      }
-
-      // Update store (this updates the timeline playhead via subscription)
-      store.setCurrentTime(newTime);
-
-      // Update time display directly (no React)
-      if (timeDisplayRef.current) {
-        timeDisplayRef.current.textContent = `${formatTime(newTime)} / ${formatTime(store.duration)}`;
-      }
-
-      // Check if we need to switch clips
-      const clip = findClipAtTime(newTime, store.clips, videoTrackIds);
-      const newClipId = clip?.id || null;
-
-      if (newClipId !== lastClipId) {
-        lastClipId = newClipId;
-        setCurrentClipId(newClipId); // This triggers a re-render to load new clip
-
-        // Update clip info
-        if (clipInfoRef.current) {
-          clipInfoRef.current.textContent = clip?.name || '';
-          clipInfoRef.current.style.display = clip ? 'block' : 'none';
-        }
-      }
-
-      rafId = requestAnimationFrame(tick);
-    };
-
-    rafId = requestAnimationFrame(tick);
-
-    return () => cancelAnimationFrame(rafId);
-  }, [isPlaying, videoTrackIds, currentClipId]);
-
   // Reset video ready state when clip changes
   useEffect(() => {
     setIsVideoReady(false);
   }, [currentClipId, signedUrl]);
 
-  // Sync video element when clip changes or when seeking (not playing)
+  // Seek video when timeline position changes (while paused)
   useEffect(() => {
-    if (!videoRef.current || !currentClip || !signedUrl) return;
+    if (!videoRef.current || !currentClip || !signedUrl || isPlaying) return;
 
-    const time = useMontageStore.getState().currentTime;
+    const time = storeCurrentTime ?? useMontageStore.getState().currentTime;
     const clipTime = time - currentClip.start;
     const sourceTime = (currentClip.sourceStart || 0) + clipTime;
 
     videoRef.current.currentTime = sourceTime;
+  }, [storeCurrentTime, currentClip, signedUrl, isPlaying]);
 
-    if (isPlaying) {
-      videoRef.current.play().catch(() => {});
+  // Handle video timeupdate - VIDEO drives the timeline, not the other way around
+  const handleVideoTimeUpdate = useCallback(() => {
+    if (!videoRef.current || !currentClip || !isPlaying) return;
+
+    const videoTime = videoRef.current.currentTime;
+    const timelineTime = currentClip.start + videoTime - (currentClip.sourceStart || 0);
+
+    // Update store (this moves the timeline playhead)
+    useMontageStore.getState().setCurrentTime(timelineTime);
+
+    // Update time display directly (no React re-render)
+    if (timeDisplayRef.current) {
+      const store = useMontageStore.getState();
+      timeDisplayRef.current.textContent = `${formatTime(timelineTime)} / ${formatTime(store.duration)}`;
     }
-  }, [currentClip, signedUrl, isPlaying]);
+  }, [currentClip, isPlaying]);
+
+  // Handle video ended
+  const handleVideoEnded = useCallback(() => {
+    const store = useMontageStore.getState();
+    store.pause();
+    store.setCurrentTime(0);
+  }, []);
 
   // Play/pause video element
   useEffect(() => {
     if (!videoRef.current) return;
 
     if (isPlaying && currentClip && signedUrl) {
+      // Seek to correct position before playing
+      const time = useMontageStore.getState().currentTime;
+      const clipTime = time - currentClip.start;
+      const sourceTime = (currentClip.sourceStart || 0) + clipTime;
+      videoRef.current.currentTime = sourceTime;
       videoRef.current.play().catch(() => {});
     } else {
       videoRef.current.pause();
@@ -221,26 +198,66 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
   // Sync video muted state
   useEffect(() => {
     if (!videoRef.current) return;
-    videoRef.current.muted = isVideoTrackMuted;
-  }, [isVideoTrackMuted]);
+    videoRef.current.muted = isVideoTrackMuted || isMuted;
+  }, [isVideoTrackMuted, isMuted]);
+
+  // Handle volume change
+  const handleVolumeChange = useCallback((value: number[]) => {
+    if (!videoRef.current) return;
+    const newVolume = value[0];
+    videoRef.current.volume = newVolume;
+    setVolume(newVolume);
+    setIsMuted(newVolume === 0);
+  }, []);
+
+  // Toggle mute
+  const toggleMute = useCallback(() => {
+    if (!videoRef.current) return;
+    const newMuted = !isMuted;
+    videoRef.current.muted = newMuted || isVideoTrackMuted;
+    setIsMuted(newMuted);
+  }, [isMuted, isVideoTrackMuted]);
+
+  // Skip forward/backward
+  const skip = useCallback((seconds: number) => {
+    const store = useMontageStore.getState();
+    const newTime = Math.max(0, Math.min(store.duration, store.currentTime + seconds));
+    store.setCurrentTime(newTime);
+  }, []);
+
+  // Handle seek from slider
+  const handleSeek = useCallback((value: number[]) => {
+    const store = useMontageStore.getState();
+    store.setCurrentTime(value[0]);
+  }, []);
+
+  // Fullscreen
+  const handleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      containerRef.current.requestFullscreen();
+    }
+  }, []);
 
   return (
     <div
       ref={containerRef}
       className={cn(
-        'flex flex-col items-center justify-center',
+        'flex items-center justify-center p-4',
         className
       )}
     >
-      {/* Preview container */}
+      {/* Preview container with fixed aspect ratio */}
       <div
-        className="relative bg-black/20 rounded-lg overflow-hidden border border-white/10"
+        className="relative group bg-black rounded-lg overflow-hidden"
         style={{
           aspectRatio: ratio,
-          maxHeight: '100%',
-          maxWidth: '100%',
           width: ratio >= 1 ? 'auto' : '100%',
           height: ratio >= 1 ? '100%' : 'auto',
+          maxWidth: '100%',
+          maxHeight: '100%',
         }}
       >
         {currentClip && signedUrl ? (
@@ -254,20 +271,19 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
                   className="absolute inset-0 w-full h-full object-contain z-10"
                 />
               )}
-              {/* Video - always visible, no opacity hiding since thumbnail might be a video URL */}
+              {/* Video - plays naturally, drives the timeline */}
               <video
                 ref={videoRef}
+                key={currentClip.id}
                 src={signedUrl}
                 className="w-full h-full object-contain"
                 playsInline
                 preload="auto"
-                muted={isVideoTrackMuted}
+                muted={isVideoTrackMuted || isMuted}
                 onPlaying={() => setIsVideoReady(true)}
-                onCanPlay={() => {
-                  console.log('[MontagePreview] Video canPlay event fired');
-                  setIsVideoReady(true);
-                }}
-                onLoadedData={() => console.log('[MontagePreview] Video loadedData event fired')}
+                onCanPlay={() => setIsVideoReady(true)}
+                onTimeUpdate={handleVideoTimeUpdate}
+                onEnded={handleVideoEnded}
                 onError={(e) => console.error('[MontagePreview] Video error:', e.currentTarget.error?.message || 'unknown error')}
               />
             </>
@@ -285,39 +301,127 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
           </div>
         )}
 
-        {/* Play button overlay */}
-        <button
-          onClick={togglePlayback}
-          className={cn(
-            'absolute inset-0 flex items-center justify-center',
-            'bg-black/20 opacity-0 hover:opacity-100 transition-opacity',
-            isPlaying && 'opacity-0'
-          )}
-        >
-          <div className="w-16 h-16 rounded-full bg-white/20 backdrop-blur flex items-center justify-center">
-            {isPlaying ? (
-              <Pause className="w-8 h-8 text-white" />
-            ) : (
-              <Play className="w-8 h-8 text-white ml-1" fill="white" />
-            )}
-          </div>
-        </button>
-
-        {/* Time display - updated via ref during playback */}
-        <div
-          ref={timeDisplayRef}
-          className="absolute bottom-3 left-3 px-2 py-1 bg-black/70 rounded text-xs text-white/90 font-mono"
-        >
-          {formatTime(storeCurrentTime ?? 0)} / {formatTime(duration)}
-        </div>
-
-        {/* Clip info - updated via ref during playback */}
+        {/* Clip info - top left */}
         <div
           ref={clipInfoRef}
-          className="absolute top-3 left-3 px-2 py-1 bg-black/70 rounded text-xs text-white/80"
+          className="absolute top-3 left-3 px-2 py-1 bg-black/70 rounded text-xs text-white/80 opacity-0 group-hover:opacity-100 transition-opacity"
           style={{ display: currentClip ? 'block' : 'none' }}
         >
           {currentClip?.name || ''}
+        </div>
+
+        {/* Fullscreen button - top right, always visible on hover */}
+        <button
+          onClick={handleFullscreen}
+          className="absolute top-3 right-3 p-2 rounded-lg bg-black/50 hover:bg-black/70 text-white opacity-0 group-hover:opacity-100 transition-opacity"
+          title="Plein écran"
+        >
+          <Maximize className="w-4 h-4" />
+        </button>
+
+        {/* Center play button (only when paused) */}
+        {!isPlaying && (
+          <button
+            onClick={togglePlayback}
+            className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur flex items-center justify-center">
+              <Play className="w-8 h-8 text-white ml-1" fill="white" />
+            </div>
+          </button>
+        )}
+
+        {/* Custom controls overlay - hover only */}
+        <div
+          className={cn(
+            'absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-3 transition-opacity',
+            'opacity-0 group-hover:opacity-100'
+          )}
+        >
+          {/* Progress bar */}
+          <Slider
+            value={[storeCurrentTime ?? 0]}
+            max={duration || 1}
+            step={0.1}
+            onValueChange={handleSeek}
+            className="mb-3"
+          />
+
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white hover:bg-white/20"
+                onClick={() => skip(-5)}
+              >
+                <SkipBack className="h-4 w-4" />
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white hover:bg-white/20"
+                onClick={togglePlayback}
+              >
+                {isPlaying ? (
+                  <Pause className="h-5 w-5" />
+                ) : (
+                  <Play className="h-5 w-5" />
+                )}
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white hover:bg-white/20"
+                onClick={() => skip(5)}
+              >
+                <SkipForward className="h-4 w-4" />
+              </Button>
+
+              {/* Time display */}
+              <span
+                ref={timeDisplayRef}
+                className="text-white text-xs ml-2 font-mono"
+              >
+                {formatTime(storeCurrentTime ?? 0)} / {formatTime(duration)}
+              </span>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white hover:bg-white/20"
+                onClick={toggleMute}
+              >
+                {isMuted || isVideoTrackMuted ? (
+                  <VolumeX className="h-4 w-4" />
+                ) : (
+                  <Volume2 className="h-4 w-4" />
+                )}
+              </Button>
+
+              <div className="w-20">
+                <Slider
+                  value={[isMuted ? 0 : volume]}
+                  max={1}
+                  step={0.1}
+                  onValueChange={handleVolumeChange}
+                />
+              </div>
+
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 text-white hover:bg-white/20"
+                onClick={handleFullscreen}
+              >
+                <Maximize className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
         </div>
       </div>
     </div>

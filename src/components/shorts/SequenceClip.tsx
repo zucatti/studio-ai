@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useCallback } from 'react';
-import { Layers, Loader2, Download, Maximize2 } from 'lucide-react';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { Layers, Loader2, Download, Maximize2, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useSignedUrl, isB2Url } from '@/hooks/use-signed-url';
+import { Slider } from '@/components/ui/slider';
 import type { Sequence } from '@/types/cinematic';
 import type { Plan } from '@/store/shorts-store';
 
@@ -30,21 +31,40 @@ export function SequenceClip({
   onOpenGallery,
   isDragging,
 }: SequenceClipProps) {
-  // Calculate dimensions based on aspect ratio - BIGGER sizes for better viewing
-  const getClipDimensions = () => {
+  // Calculate width based on aspect ratio - height will be determined by aspect-ratio CSS
+  const getClipWidth = () => {
     switch (aspectRatio) {
       case '16:9':
-        return { width: 320, height: 180 }; // 16:9 - bigger
+        return 320;
       case '1:1':
-        return { width: 240, height: 240 }; // 1:1 - bigger
+        return 240;
       case '9:16':
       default:
-        return { width: 180, height: 320 }; // 9:16 - bigger
+        return 180;
     }
   };
-  const clipDimensions = getClipDimensions();
+  const clipWidth = getClipWidth();
+
+  // Parse aspect ratio for CSS
+  const getAspectRatioValue = () => {
+    switch (aspectRatio) {
+      case '16:9':
+        return '16 / 9';
+      case '1:1':
+        return '1 / 1';
+      case '9:16':
+      default:
+        return '9 / 16';
+    }
+  };
+  const aspectRatioValue = getAspectRatioValue();
 
   const [isHovered, setIsHovered] = useState(false);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
 
   // Sign B2 URL if needed
   const { signedUrl } = useSignedUrl(assembledVideoUrl || null);
@@ -81,6 +101,49 @@ export function SequenceClip({
     setTimeout(() => document.body.removeChild(link), 100);
   }, [assembledVideoUrl, sequence.title]);
 
+  // Video controls
+  const togglePlay = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play();
+    }
+  }, [isPlaying]);
+
+  const toggleMute = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!videoRef.current) return;
+    videoRef.current.muted = !isMuted;
+    setIsMuted(!isMuted);
+  }, [isMuted]);
+
+  const handleSeek = useCallback((value: number[]) => {
+    if (!videoRef.current) return;
+    videoRef.current.currentTime = value[0];
+    setCurrentTime(value[0]);
+  }, []);
+
+  // Format time for display
+  const formatVideoTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Auto-play video on hover
+  useEffect(() => {
+    if (!videoRef.current || !hasAssembledVideo) return;
+
+    if (isHovered) {
+      videoRef.current.play().catch(() => {});
+    } else {
+      videoRef.current.pause();
+      videoRef.current.currentTime = 0; // Reset to start when leaving
+    }
+  }, [isHovered, hasAssembledVideo]);
+
   return (
     <div
       className={cn(
@@ -92,53 +155,108 @@ export function SequenceClip({
           isDragging && "opacity-50 scale-95"
         )}
         style={{
-          width: `${clipDimensions.width}px`,
-          height: `${clipDimensions.height}px`,
+          width: `${clipWidth}px`,
         }}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        {/* Video/Thumbnail area */}
-        <div className="relative bg-black flex-1 min-h-0">
+        {/* Video/Thumbnail area with correct aspect ratio */}
+        <div
+          className="relative bg-black overflow-hidden"
+          style={{ aspectRatio: aspectRatioValue }}
+        >
           {hasAssembledVideo ? (
             <>
-              {/* Video with NATIVE controls */}
+              {/* Video without native controls - auto-plays on hover */}
               <video
+                ref={videoRef}
                 key={assembledVideoUrl}
                 src={finalVideoUrl}
-                className="w-full h-full object-cover"
-                controls
-                muted
+                className="w-full h-full object-cover bg-black"
+                muted={isMuted}
                 loop
                 playsInline
-                onClick={(e) => e.stopPropagation()}
+                onPlay={() => setIsPlaying(true)}
+                onPause={() => setIsPlaying(false)}
+                onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
+                onLoadedMetadata={() => setVideoDuration(videoRef.current?.duration || 0)}
               />
 
-              {/* Top controls - Download, Fullscreen */}
-              {isHovered && (
-                <div className="absolute top-2 right-2 flex items-center gap-1.5 z-30">
-                  {/* Download button */}
-                  {assembledVideoUrl && (
-                    <button
-                      onClick={handleDownload}
-                      className="w-7 h-7 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"
-                      title="Télécharger"
-                    >
-                      <Download className="w-3.5 h-3.5 text-white" />
-                    </button>
-                  )}
-                  {/* Gallery button */}
-                  {onOpenGallery && (
-                    <button
-                      onClick={handleOpenGallery}
-                      className="w-7 h-7 rounded-full bg-black/50 backdrop-blur flex items-center justify-center hover:bg-black/70 transition-colors"
-                      title="Agrandir"
-                    >
-                      <Maximize2 className="w-3.5 h-3.5 text-white" />
-                    </button>
-                  )}
+              {/* Center play button when paused and not hovered */}
+              {!isPlaying && !isHovered && (
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-12 h-12 rounded-full bg-black/50 backdrop-blur flex items-center justify-center">
+                    <Play className="w-6 h-6 text-white ml-0.5" fill="white" />
+                  </div>
                 </div>
               )}
+
+              {/* Custom controls overlay - hover only */}
+              <div
+                className={cn(
+                  'absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-2 transition-opacity',
+                  isHovered ? 'opacity-100' : 'opacity-0'
+                )}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {/* Progress bar */}
+                <Slider
+                  value={[currentTime]}
+                  max={videoDuration || 1}
+                  step={0.1}
+                  onValueChange={handleSeek}
+                  className="mb-2"
+                />
+
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={togglePlay}
+                      className="w-6 h-6 flex items-center justify-center text-white hover:bg-white/20 rounded"
+                    >
+                      {isPlaying ? (
+                        <Pause className="w-4 h-4" />
+                      ) : (
+                        <Play className="w-4 h-4" />
+                      )}
+                    </button>
+                    <button
+                      onClick={toggleMute}
+                      className="w-6 h-6 flex items-center justify-center text-white hover:bg-white/20 rounded"
+                    >
+                      {isMuted ? (
+                        <VolumeX className="w-4 h-4" />
+                      ) : (
+                        <Volume2 className="w-4 h-4" />
+                      )}
+                    </button>
+                    <span className="text-[10px] text-white/80 ml-1">
+                      {formatVideoTime(currentTime)} / {formatVideoTime(videoDuration)}
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1">
+                    {assembledVideoUrl && (
+                      <button
+                        onClick={handleDownload}
+                        className="w-6 h-6 flex items-center justify-center text-white hover:bg-white/20 rounded"
+                        title="Télécharger"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {onOpenGallery && (
+                      <button
+                        onClick={handleOpenGallery}
+                        className="w-6 h-6 flex items-center justify-center text-white hover:bg-white/20 rounded"
+                        title="Agrandir"
+                      >
+                        <Maximize2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
             </>
           ) : isAssembling ? (
             /* Assembling state */

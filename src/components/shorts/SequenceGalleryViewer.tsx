@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, ChevronLeft, ChevronRight, Download, Layers } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, Download, Layers, Play, Pause, Volume2, VolumeX } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { StorageVideo } from '@/components/ui/storage-video';
+import { useSignedUrl, isB2Url } from '@/hooks/use-signed-url';
+import { Slider } from '@/components/ui/slider';
 import type { Sequence } from '@/types/cinematic';
 import type { Plan } from '@/store/shorts-store';
 
@@ -30,20 +31,69 @@ export function SequenceGalleryViewer({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [isAnimating, setIsAnimating] = useState(false);
 
+  // Video controls state
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [isHovered, setIsHovered] = useState(false);
+
   // Reset to initial index when opening
   useEffect(() => {
     if (isOpen) {
       setCurrentIndex(initialIndex);
       setIsAnimating(true);
+      setIsPlaying(false);
+      setCurrentTime(0);
       // Trigger fade-in
       const timer = setTimeout(() => setIsAnimating(false), 50);
       return () => clearTimeout(timer);
     }
   }, [isOpen, initialIndex]);
 
+  // Reset video state when switching sequences
+  useEffect(() => {
+    setIsPlaying(false);
+    setCurrentTime(0);
+    setVideoDuration(0);
+  }, [currentIndex]);
+
   const currentSequence = sequences[currentIndex];
   const hasNext = currentIndex < sequences.length - 1;
   const hasPrev = currentIndex > 0;
+
+  // Sign B2 URL if needed
+  const { signedUrl } = useSignedUrl(currentSequence?.assembledVideoUrl || null);
+  const finalVideoUrl = signedUrl || (currentSequence?.assembledVideoUrl && !isB2Url(currentSequence.assembledVideoUrl) ? currentSequence.assembledVideoUrl : null);
+
+  // Video controls
+  const togglePlay = useCallback(() => {
+    if (!videoRef.current) return;
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play();
+    }
+  }, [isPlaying]);
+
+  const toggleMute = useCallback(() => {
+    if (!videoRef.current) return;
+    videoRef.current.muted = !isMuted;
+    setIsMuted(!isMuted);
+  }, [isMuted]);
+
+  const handleSeek = useCallback((value: number[]) => {
+    if (!videoRef.current) return;
+    videoRef.current.currentTime = value[0];
+    setCurrentTime(value[0]);
+  }, []);
+
+  const formatVideoTime = (time: number) => {
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
 
   const goNext = useCallback(() => {
     if (hasNext) {
@@ -190,13 +240,89 @@ export function SequenceGalleryViewer({
             </div>
 
             {/* Video */}
-            {currentSequence.assembledVideoUrl ? (
-              <StorageVideo
-                src={currentSequence.assembledVideoUrl}
-                className="w-full aspect-video bg-black"
-                controls
-                autoPlay
-              />
+            {finalVideoUrl ? (
+              <div
+                className="relative w-full bg-black group"
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+              >
+                <video
+                  ref={videoRef}
+                  key={finalVideoUrl}
+                  src={finalVideoUrl}
+                  className="w-full h-auto max-h-[70vh] object-contain bg-black"
+                  muted={isMuted}
+                  playsInline
+                  onClick={togglePlay}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
+                  onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
+                  onLoadedMetadata={() => {
+                    setVideoDuration(videoRef.current?.duration || 0);
+                    // Auto-play when loaded
+                    videoRef.current?.play();
+                  }}
+                />
+
+                {/* Center play button when paused and not hovered */}
+                {!isPlaying && !isHovered && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                    <div className="w-16 h-16 rounded-full bg-black/50 backdrop-blur flex items-center justify-center">
+                      <Play className="w-8 h-8 text-white ml-1" fill="white" />
+                    </div>
+                  </div>
+                )}
+
+                {/* Custom controls overlay - hover only */}
+                <div
+                  className={cn(
+                    'absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 to-transparent p-4 transition-opacity',
+                    isHovered ? 'opacity-100' : 'opacity-0'
+                  )}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Progress bar */}
+                  <Slider
+                    value={[currentTime]}
+                    max={videoDuration || 1}
+                    step={0.1}
+                    onValueChange={handleSeek}
+                    className="mb-3"
+                  />
+
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={togglePlay}
+                        className="w-8 h-8 flex items-center justify-center text-white hover:bg-white/20 rounded"
+                      >
+                        {isPlaying ? (
+                          <Pause className="w-5 h-5" />
+                        ) : (
+                          <Play className="w-5 h-5" />
+                        )}
+                      </button>
+                      <button
+                        onClick={toggleMute}
+                        className="w-8 h-8 flex items-center justify-center text-white hover:bg-white/20 rounded"
+                      >
+                        {isMuted ? (
+                          <VolumeX className="w-5 h-5" />
+                        ) : (
+                          <Volume2 className="w-5 h-5" />
+                        )}
+                      </button>
+                      <span className="text-sm text-white/80 ml-2">
+                        {formatVideoTime(currentTime)} / {formatVideoTime(videoDuration)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : currentSequence.assembledVideoUrl ? (
+              <div className="w-full aspect-video bg-slate-800 flex items-center justify-center">
+                <p className="text-slate-500">Chargement...</p>
+              </div>
             ) : (
               <div className="w-full aspect-video bg-slate-800 flex items-center justify-center">
                 <p className="text-slate-500">Vidéo non assemblée</p>

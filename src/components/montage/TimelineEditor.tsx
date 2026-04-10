@@ -12,11 +12,33 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { Download } from 'lucide-react';
 
+// Sequence/Plan data from Edition mode
+interface SequenceData {
+  id: string;
+  title: string | null;
+  start_time?: number | null;
+  end_time?: number | null;
+  assembled_video_url?: string | null;
+}
+
+interface PlanData {
+  id: string;
+  sequence_id: string | null;
+  sort_order: number;
+  duration: number;
+  generated_video_url?: string | null;
+  storyboard_image_url?: string | null;
+  description?: string;
+}
+
 interface TimelineEditorProps {
   projectId: string;
   shortId?: string;  // Optional - if not provided, uses project-level timeline
   aspectRatio?: string;
   className?: string;
+  // Edition mode data to auto-import
+  sequences?: SequenceData[];
+  plans?: PlanData[];
 }
 
 export function TimelineEditor({
@@ -24,7 +46,18 @@ export function TimelineEditor({
   shortId,
   aspectRatio = '9:16',
   className,
+  sequences = [],
+  plans = [],
 }: TimelineEditorProps) {
+  // Debug: log props on mount/update
+  console.log('[TimelineEditor] Render with props:', {
+    projectId,
+    shortId,
+    sequenceCount: sequences.length,
+    planCount: plans.length,
+    planIds: plans.map(p => p.id).slice(0, 3),
+  });
+
   // API endpoints based on whether we're in short mode or project mode
   const apiBase = shortId
     ? `/api/projects/${projectId}/shorts/${shortId}/montage`
@@ -36,11 +69,11 @@ export function TimelineEditor({
   const [renderProgress, setRenderProgress] = useState<number | undefined>();
   const [renderJobId, setRenderJobId] = useState<string | null>(null);
   const [renderedVideoUrl, setRenderedVideoUrl] = useState<string | null>(null);
-  const hasLoadedRef = useRef(false);
 
   const {
     setProject,
     addTrack,
+    addClip,
     tracks,
     reset,
     exportToJSON,
@@ -49,10 +82,79 @@ export function TimelineEditor({
 
   const { fetchShorts, setAssembledVideoUrl } = useShortsStore();
 
-  // Load montage data from API
+  // Auto-import sequences/plans from Edition mode
+  const importFromEdition = useCallback(() => {
+    if (plans.length === 0) return;
+
+    console.log('[TimelineEditor] Auto-importing from Edition mode:', {
+      sequenceCount: sequences.length,
+      planCount: plans.length,
+      plans: plans.map(p => ({ id: p.id, duration: p.duration, video: !!p.generated_video_url })),
+    });
+
+    // Reset store first to clear existing clips
+    reset();
+
+    // Create default tracks
+    setProject(projectId, entityId, aspectRatio);
+    const videoTrackId = addTrack('video', 'Video 1');
+    addTrack('video', 'Video 2');
+    addTrack('audio', 'Audio 1');
+
+    // Sort plans by sequence order and then by sort_order within sequence
+    const sequenceOrder = new Map(sequences.map((s, i) => [s.id, i]));
+    const sortedPlans = [...plans].sort((a, b) => {
+      const seqOrderA = a.sequence_id ? (sequenceOrder.get(a.sequence_id) ?? 999) : 999;
+      const seqOrderB = b.sequence_id ? (sequenceOrder.get(b.sequence_id) ?? 999) : 999;
+      if (seqOrderA !== seqOrderB) return seqOrderA - seqOrderB;
+      return a.sort_order - b.sort_order;
+    });
+
+    // Add plans as clips on the video track
+    let currentTime = 0;
+    for (const plan of sortedPlans) {
+      const assetUrl = plan.generated_video_url || undefined;
+      const thumbnailUrl = plan.storyboard_image_url || undefined;
+      const clipType = assetUrl ? 'video' : (thumbnailUrl ? 'image' : 'video');
+
+      addClip({
+        type: clipType,
+        trackId: videoTrackId,
+        start: currentTime,
+        duration: plan.duration || 5,
+        assetUrl,
+        thumbnailUrl,
+        name: plan.description || `Plan ${plan.sort_order + 1}`,
+        sourceStart: 0,
+        sourceEnd: plan.duration || 5,
+        sourceDuration: plan.duration || 5,
+      });
+
+      currentTime += plan.duration || 5;
+    }
+
+    console.log('[TimelineEditor] Imported plans as clips:', {
+      clipCount: sortedPlans.length,
+      totalDuration: currentTime,
+    });
+
+    toast.success(`${sortedPlans.length} plans importés`);
+  }, [projectId, entityId, aspectRatio, sequences, plans, reset, setProject, addTrack, addClip]);
+
+  // Track if we've fetched from API
+  const hasFetchedRef = useRef(false);
+  // Track if we've imported from edition
+  const hasImportedFromEditionRef = useRef(false);
+
+  // Load montage data from API (runs once)
   useEffect(() => {
-    if (hasLoadedRef.current) return;
-    hasLoadedRef.current = true;
+    if (hasFetchedRef.current) {
+      console.log('[TimelineEditor] Skipping fetch - already fetched');
+      return;
+    }
+    hasFetchedRef.current = true;
+
+    console.log('[TimelineEditor] Fetching from API...');
 
     const loadMontage = async () => {
       try {
@@ -61,62 +163,73 @@ export function TimelineEditor({
 
         if (res.ok) {
           const data = await res.json();
-          console.log('[TimelineEditor] Loaded montage data:', {
+          console.log('[TimelineEditor] API response:', {
             hasMontageData: !!data.montageData,
             clipCount: data.montageData?.clips?.length || 0,
             trackCount: data.montageData?.tracks?.length || 0,
           });
 
-          if (data.montageData) {
+          if (data.montageData && (data.montageData.clips?.length > 0 || Object.keys(data.montageData.clips || {}).length > 0)) {
             // Import saved montage data
             importFromJSON(data.montageData);
+            hasImportedFromEditionRef.current = true; // Mark as done so we don't re-import
             const storeState = useMontageStore.getState();
-            console.log('[TimelineEditor] Imported to store:', {
+            console.log('[TimelineEditor] Imported saved data to store:', {
               clips: Object.keys(storeState.clips).length,
               tracks: storeState.tracks.length,
-              clipDetails: Object.values(storeState.clips).map(c => ({
-                id: c.id,
-                trackId: c.trackId,
-                type: c.type,
-                start: c.start,
-                duration: c.duration,
-                assetUrl: c.assetUrl?.substring(0, 80),
-                thumbnailUrl: c.thumbnailUrl?.substring(0, 80),
-              })),
-              trackDetails: storeState.tracks.map(t => ({
-                id: t.id,
-                type: t.type,
-                name: t.name,
-              })),
             });
           } else {
-            // No saved data - create default tracks
-            setProject(projectId, entityId, aspectRatio);
-            addTrack('video', 'Video 1');
-            addTrack('video', 'Video 2');
-            addTrack('audio', 'Audio 1');
+            // No saved data - we'll import from Edition in the next effect
+            console.log('[TimelineEditor] No saved data, will check for Edition plans');
           }
-        } else {
-          // API error - create default tracks
-          setProject(projectId, entityId, aspectRatio);
-          addTrack('video', 'Video 1');
-          addTrack('video', 'Video 2');
-          addTrack('audio', 'Audio 1');
         }
       } catch (error) {
-        console.error('Failed to load montage:', error);
-        // Create default tracks on error
-        setProject(projectId, entityId, aspectRatio);
-        addTrack('video', 'Video 1');
-        addTrack('video', 'Video 2');
-        addTrack('audio', 'Audio 1');
+        console.error('[TimelineEditor] Failed to load montage:', error);
       } finally {
         setIsLoading(false);
       }
     };
 
     loadMontage();
-  }, [projectId, entityId, apiBase, aspectRatio, setProject, addTrack, importFromJSON]);
+  }, [apiBase, importFromJSON]);
+
+  // Auto-import from Edition when plans are available and no saved data
+  useEffect(() => {
+    // Wait for API fetch to complete
+    if (isLoading) {
+      console.log('[TimelineEditor] Waiting for API fetch...');
+      return;
+    }
+
+    // Don't re-import if already done
+    if (hasImportedFromEditionRef.current) {
+      console.log('[TimelineEditor] Already imported, skipping');
+      return;
+    }
+
+    // Check if store already has clips (from saved data)
+    const storeState = useMontageStore.getState();
+    if (Object.keys(storeState.clips).length > 0) {
+      console.log('[TimelineEditor] Store already has clips, skipping Edition import');
+      hasImportedFromEditionRef.current = true;
+      return;
+    }
+
+    // Import from Edition if we have plans
+    if (plans.length > 0) {
+      console.log('[TimelineEditor] Importing from Edition:', { planCount: plans.length });
+      hasImportedFromEditionRef.current = true;
+      importFromEdition();
+    } else {
+      // No plans either - create default tracks
+      console.log('[TimelineEditor] No saved data and no plans, creating default tracks');
+      hasImportedFromEditionRef.current = true;
+      setProject(projectId, entityId, aspectRatio);
+      addTrack('video', 'Video 1');
+      addTrack('video', 'Video 2');
+      addTrack('audio', 'Audio 1');
+    }
+  }, [isLoading, plans, importFromEdition, setProject, projectId, entityId, aspectRatio, addTrack]);
 
   // Save montage to API
   const handleSave = useCallback(async () => {
@@ -326,6 +439,8 @@ export function TimelineEditor({
           projectId={projectId}
           shortId={shortId || ''}
           className="w-64 flex-shrink-0 border-r border-white/10"
+          editionSequences={sequences}
+          editionPlans={plans}
         />
 
         {/* Preview area */}

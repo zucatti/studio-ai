@@ -20,10 +20,32 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import type { Sequence } from '@/types/cinematic';
 
+// Edition mode sequence/plan data
+interface EditionSequence {
+  id: string;
+  title: string | null;
+  start_time?: number | null;
+  end_time?: number | null;
+  assembled_video_url?: string | null;
+}
+
+interface EditionPlan {
+  id: string;
+  sequence_id: string | null;
+  sort_order: number;
+  duration: number;
+  generated_video_url?: string | null;
+  storyboard_image_url?: string | null;
+  description?: string;
+}
+
 interface MontageSidebarProps {
   projectId: string;
   shortId: string;
   className?: string;
+  // Edition mode data (for clip page)
+  editionSequences?: EditionSequence[];
+  editionPlans?: EditionPlan[];
 }
 
 type AssetCategory = 'sequences' | 'videos' | 'images' | 'audio';
@@ -42,7 +64,7 @@ const CATEGORY_LABELS: Record<AssetCategory, string> = {
   audio: 'Audio',
 };
 
-export function MontageSidebar({ projectId, shortId, className }: MontageSidebarProps) {
+export function MontageSidebar({ projectId, shortId, className, editionSequences, editionPlans }: MontageSidebarProps) {
   const [activeTab, setActiveTab] = useState<AssetCategory>('sequences');
   const [searchQuery, setSearchQuery] = useState('');
   const { assets, setAssets, setLoadingAssets, isLoadingAssets } = useMontageStore();
@@ -60,21 +82,60 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
   // Sequences state (fetched separately since store might not have them)
   const [sequences, setSequences] = useState<Sequence[]>([]);
 
-  // Fetch sequences from the short
+  // Fetch sequences from the short OR use edition props for clip mode
   useEffect(() => {
-    if (!shortId) return;
-
-    const fetchSequences = async () => {
+    const loadSequences = async () => {
       setIsLoadingSequences(true);
       try {
-        // Fetch sequences
-        const seqRes = await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences`);
-        const seqData = seqRes.ok ? await seqRes.json() : { sequences: [] };
-        const fetchedSequences: Sequence[] = seqData.sequences || [];
-        setSequences(fetchedSequences);
+        let fetchedSequences: Sequence[] = [];
+        let plans: { sequence_id?: string | null; duration?: number; generated_video_url?: string | null; storyboard_image_url?: string | null }[] = [];
 
-        // Get plans from the short in the store
-        const plans = short?.plans || [];
+        if (shortId) {
+          // Short mode: fetch from API
+          const seqRes = await fetch(`/api/projects/${projectId}/shorts/${shortId}/sequences`);
+          const seqData = seqRes.ok ? await seqRes.json() : { sequences: [] };
+          fetchedSequences = seqData.sequences || [];
+          plans = short?.plans || [];
+        } else if (editionSequences && editionSequences.length > 0) {
+          // Clip mode: use props from Edition
+          fetchedSequences = editionSequences.map((s, i) => ({
+            id: s.id,
+            title: s.title,
+            sort_order: i,
+            start_time: s.start_time,
+            end_time: s.end_time,
+            assembled_video_url: s.assembled_video_url,
+          } as Sequence));
+          plans = editionPlans || [];
+          console.log('[MontageSidebar] Using edition sequences:', fetchedSequences.length, 'plans:', plans.length, 'with assembled URLs:', editionSequences.filter(s => s.assembled_video_url).length);
+        } else {
+          // Clip mode but no props: try to fetch from clip API
+          try {
+            const seqRes = await fetch(`/api/projects/${projectId}/clip/sequences`);
+            const seqData = seqRes.ok ? await seqRes.json() : { sequences: [] };
+            fetchedSequences = seqData.sequences || [];
+
+            // Fetch plans for each sequence
+            const allPlans: typeof plans = [];
+            for (const seq of fetchedSequences) {
+              const plansRes = await fetch(`/api/projects/${projectId}/sequences/${seq.id}/shots`);
+              if (plansRes.ok) {
+                const plansData = await plansRes.json();
+                const seqPlans = (plansData.shots || []).map((shot: any) => ({
+                  ...shot,
+                  sequence_id: seq.id,
+                }));
+                allPlans.push(...seqPlans);
+              }
+            }
+            plans = allPlans;
+            console.log('[MontageSidebar] Fetched clip sequences:', fetchedSequences.length, 'plans:', plans.length);
+          } catch (e) {
+            console.error('[MontageSidebar] Failed to fetch clip sequences:', e);
+          }
+        }
+
+        setSequences(fetchedSequences);
 
         // Create sequence assets
         const sequenceAssets: MontageAsset[] = [];
@@ -84,21 +145,21 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
           const seqPlans = plans.filter(p => p.sequence_id === seq.id);
           const totalDuration = seqPlans.reduce((sum, p) => sum + (p.duration || 0), 0);
 
-          // Use assembled video if available, otherwise use first plan's video
-          const videoUrl = seq.assembled_video_url || seqPlans.find(p => p.generated_video_url)?.generated_video_url;
+          // ONLY use assembled video for sequences - don't fallback to individual plans!
+          const assembledVideoUrl = (seq as any).assembled_video_url;
           const thumbnailUrl = seqPlans[0]?.storyboard_image_url || seqPlans[0]?.generated_video_url;
 
-          if (videoUrl || thumbnailUrl || seqPlans.length > 0) {
+          if (assembledVideoUrl || thumbnailUrl || seqPlans.length > 0) {
             sequenceAssets.push({
               id: seq.id,
               type: 'sequence',
-              name: seq.title || `Séquence ${seq.sort_order + 1}`,
-              url: videoUrl || '',
+              name: seq.title || `Séquence ${(seq.sort_order ?? 0) + 1}`,
+              url: assembledVideoUrl || '', // Only assembled video, empty if not assembled
               thumbnailUrl: thumbnailUrl ?? undefined,
               duration: totalDuration,
               metadata: {
                 planCount: seqPlans.length,
-                hasAssembledVideo: !!seq.assembled_video_url,
+                hasAssembledVideo: !!assembledVideoUrl,
               },
             });
           }
@@ -108,6 +169,7 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
         const currentAssets = useMontageStore.getState().assets;
         const filtered = currentAssets.filter(a => a.type !== 'sequence');
         setAssets([...filtered, ...sequenceAssets]);
+        console.log('[MontageSidebar] Loaded sequence assets:', sequenceAssets.length);
       } catch (error) {
         console.error('[MontageSidebar] Failed to fetch sequences:', error);
       } finally {
@@ -115,8 +177,8 @@ export function MontageSidebar({ projectId, shortId, className }: MontageSidebar
       }
     };
 
-    fetchSequences();
-  }, [projectId, shortId, short?.plans, setAssets]);
+    loadSequences();
+  }, [projectId, shortId, short?.plans, editionSequences, editionPlans, setAssets]);
 
   // Helper to check if URL is a video
   const isVideoUrl = (url: string): boolean => {

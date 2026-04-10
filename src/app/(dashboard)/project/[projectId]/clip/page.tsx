@@ -929,9 +929,26 @@ export default function ClipPage() {
 
           {/* Timeline Editor */}
           <TimelineEditor
+            key={`montage-${projectId}`}
             projectId={projectId}
             aspectRatio={aspectRatio}
             className="flex-1"
+            sequences={computedSequences.map(s => ({
+              id: s.id,
+              title: s.title,
+              start_time: s.start_time,
+              end_time: s.end_time,
+              assembled_video_url: s.assembled_video_url,
+            }))}
+            plans={plans.map(p => ({
+              id: p.id,
+              sequence_id: p.sequence_id,
+              sort_order: p.sort_order,
+              duration: p.duration,
+              generated_video_url: p.generated_video_url,
+              storyboard_image_url: p.storyboard_image_url,
+              description: p.description,
+            }))}
           />
         </div>
       )}
