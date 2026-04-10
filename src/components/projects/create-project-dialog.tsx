@@ -35,6 +35,7 @@ const COMPACT_PROJECT_TYPES: { value: ProjectType; label: string; simplified: bo
   { value: 'music_video', label: 'Clip', simplified: false },
   { value: 'shorts_project', label: 'Shorts', simplified: true },
   { value: 'portfolio', label: 'Portfolio', simplified: true },
+  { value: 'book', label: 'Livre', simplified: true },
 ];
 
 // Aspect ratio configuration with SVG icons

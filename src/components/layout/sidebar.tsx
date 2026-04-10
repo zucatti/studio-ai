@@ -24,6 +24,7 @@ import {
   BookOpen,
   Music,
   MessageSquareText,
+  BookText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect } from 'react';
@@ -99,6 +100,15 @@ const musicVideoNavigation: NavSection = {
   ],
 };
 
+// Book/Writing project navigation
+const bookNavigation: NavSection = {
+  title: 'PROJET',
+  items: [
+    { name: 'Mes Livres', href: '/books', icon: BookText },
+    { name: 'Bible', href: '/bible', icon: BookOpen },
+  ],
+};
+
 export function Sidebar() {
   const pathname = usePathname();
   const [searchQuery, setSearchQuery] = useState('');
@@ -149,6 +159,8 @@ export function Sidebar() {
     ? shortsNavigation
     : projectType === 'music_video'
     ? musicVideoNavigation
+    : projectType === 'book'
+    ? bookNavigation
     : projectType && isSimplifiedProject(projectType)
     ? simplifiedNavigation
     : fullPipelineNavigation;

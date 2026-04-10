@@ -51,6 +51,13 @@ export const PROJECT_TYPES: ProjectTypeConfig[] = [
     defaultRatio: '16:9',
     simplified: true,
   },
+  {
+    value: 'book',
+    label: 'Livre',
+    description: 'Roman, nouvelle ou livre non-fiction',
+    defaultRatio: '2:3',
+    simplified: true,
+  },
 ];
 
 export function getProjectTypeConfig(type: ProjectType): ProjectTypeConfig {
@@ -98,9 +105,16 @@ const MUSIC_VIDEO_NAVIGATION: NavigationItem[] = [
   { name: 'Production', href: '/production', icon: 'PlayCircle' },
 ];
 
+// Book/Writing project navigation
+const BOOK_NAVIGATION: NavigationItem[] = [
+  { name: 'Mes Livres', href: '/books', icon: 'BookText' },
+  { name: 'Bible', href: '/bible', icon: 'BookOpen' },
+];
+
 export function getNavigationForType(type: ProjectType): NavigationItem[] {
   if (type === 'shorts_project') return SHORTS_NAVIGATION;
   if (type === 'music_video') return MUSIC_VIDEO_NAVIGATION;
+  if (type === 'book') return BOOK_NAVIGATION;
   return isSimplifiedProject(type) ? SIMPLIFIED_NAVIGATION : FULL_PIPELINE_NAVIGATION;
 }
 
@@ -108,6 +122,7 @@ export function getNavigationForType(type: ProjectType): NavigationItem[] {
 export function getDefaultPageForType(type: ProjectType): string {
   if (type === 'shorts_project') return '/shorts';
   if (type === 'music_video') return '/clip';
+  if (type === 'book') return '/books';
   return isSimplifiedProject(type) ? '/quick-shot' : '/brainstorming';
 }
 

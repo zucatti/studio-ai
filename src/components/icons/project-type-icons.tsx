@@ -59,6 +59,15 @@ const ShortsProjectIcon = ({ className }: IconProps) => (
   </svg>
 );
 
+// Book - Open book with pages
+const BookIcon = ({ className }: IconProps) => (
+  <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20" />
+    <path d="M8 7h6" />
+    <path d="M8 11h8" />
+  </svg>
+);
+
 export const PROJECT_TYPE_ICONS: Record<ProjectType, React.FC<IconProps>> = {
   movie: MovieIcon,
   short: ShortIcon,
@@ -66,6 +75,7 @@ export const PROJECT_TYPE_ICONS: Record<ProjectType, React.FC<IconProps>> = {
   portfolio: PortfolioIcon,
   photo_series: PhotoSeriesIcon,
   shorts_project: ShortsProjectIcon,
+  book: BookIcon,
 };
 
 // Fallback icon for unknown types

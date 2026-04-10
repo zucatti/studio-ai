@@ -14,7 +14,7 @@ export type Json =
 export type ProjectStatus = 'draft' | 'in_progress' | 'completed';
 export type PipelineStep = 'brainstorming' | 'script' | 'decoupage' | 'storyboard' | 'preprod' | 'production';
 export type AspectRatio = '16:9' | '9:16' | '1:1' | '4:5' | '21:9' | '2:3';
-export type ProjectType = 'movie' | 'short' | 'music_video' | 'portfolio' | 'photo_series' | 'shorts_project';
+export type ProjectType = 'movie' | 'short' | 'music_video' | 'portfolio' | 'photo_series' | 'shorts_project' | 'book';
 export type ShotStatus = 'draft' | 'selected' | 'rush' | 'archived';
 export type ScriptElementType = 'action' | 'dialogue' | 'transition' | 'note';
 export type DialogueExtension = 'Voix off' | 'Hors champ' | 'Suite' | 'Voix filtrée' | 'Chevauchement audio';
@@ -948,3 +948,56 @@ export type RushMediaInsert = Omit<RushMedia, 'id' | 'created_at'> & {
 };
 
 export type RushMediaUpdate = Partial<Omit<RushMedia, 'id' | 'project_id' | 'user_id' | 'created_at'>>;
+
+// ============================================================================
+// Books/Writing Module
+// ============================================================================
+
+export type BookStatus = 'draft' | 'in_progress' | 'completed';
+
+export interface Book {
+  id: string;
+  project_id: string;
+  title: string;
+  summary: string | null;
+  cover_image_url: string | null;
+  word_count_goal: number;
+  status: BookStatus;
+  isbn: string | null;
+  year: number | null;
+  mentions: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export type BookInsert = Omit<Book, 'id' | 'created_at' | 'updated_at'> & {
+  id?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type BookUpdate = Partial<Omit<Book, 'id' | 'project_id' | 'created_at' | 'updated_at'>>;
+
+export interface Chapter {
+  id: string;
+  book_id: string;
+  title: string;
+  content: string;
+  word_count: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export type ChapterInsert = Omit<Chapter, 'id' | 'created_at' | 'updated_at'> & {
+  id?: string;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ChapterUpdate = Partial<Omit<Chapter, 'id' | 'book_id' | 'created_at' | 'updated_at'>>;
+
+// Book with chapters included
+export type BookWithChapters = Book & {
+  chapters: Chapter[];
+};
