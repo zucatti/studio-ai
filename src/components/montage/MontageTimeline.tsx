@@ -869,7 +869,7 @@ function AudioWaveform({
     };
   }, [audioUrl, width]);
 
-  // Draw waveform
+  // Draw waveform - vertical bars style (like pro audio editors)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !waveformData) return;
@@ -887,58 +887,22 @@ function AudioWaveform({
     ctx.clearRect(0, 0, width, height);
 
     const centerY = height / 2;
-    const amplitude = height * 0.45; // Leave some margin
-    const stepX = width / waveformData.length;
+    const amplitude = height * 0.45;
+    const barWidth = Math.max(1, width / waveformData.length - 1);
+    const gap = 1;
 
-    // Create gradient for a nicer look
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, color);
-    gradient.addColorStop(0.5, color);
-    gradient.addColorStop(1, color);
+    ctx.fillStyle = color;
 
-    // Draw filled waveform path (mirrored)
-    ctx.beginPath();
-    ctx.moveTo(0, centerY);
+    // Draw vertical bars (mirrored top and bottom)
+    waveformData.forEach((peak, i) => {
+      const x = i * (barWidth + gap);
+      const barHeight = Math.max(1, peak * amplitude);
 
-    // Top half
-    for (let i = 0; i < waveformData.length; i++) {
-      const x = i * stepX;
-      const y = centerY - waveformData[i] * amplitude;
-      if (i === 0) {
-        ctx.lineTo(x, y);
-      } else {
-        // Use quadratic curve for smoothing
-        const prevX = (i - 1) * stepX;
-        const cpX = (prevX + x) / 2;
-        ctx.quadraticCurveTo(prevX, centerY - waveformData[i - 1] * amplitude, cpX, (centerY - waveformData[i - 1] * amplitude + y) / 2);
-      }
-    }
-    ctx.lineTo(width, centerY);
-
-    // Bottom half (mirrored)
-    for (let i = waveformData.length - 1; i >= 0; i--) {
-      const x = i * stepX;
-      const y = centerY + waveformData[i] * amplitude;
-      if (i === waveformData.length - 1) {
-        ctx.lineTo(x, y);
-      } else {
-        const nextX = (i + 1) * stepX;
-        const cpX = (nextX + x) / 2;
-        ctx.quadraticCurveTo(nextX, centerY + waveformData[i + 1] * amplitude, cpX, (centerY + waveformData[i + 1] * amplitude + y) / 2);
-      }
-    }
-
-    ctx.closePath();
-    ctx.fillStyle = gradient;
-    ctx.fill();
-
-    // Add a subtle center line
-    ctx.beginPath();
-    ctx.moveTo(0, centerY);
-    ctx.lineTo(width, centerY);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
+      // Top bar (going up from center)
+      ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
+      // Bottom bar (going down from center, mirrored)
+      ctx.fillRect(x, centerY, barWidth, barHeight);
+    });
 
   }, [waveformData, width, height, color]);
 
