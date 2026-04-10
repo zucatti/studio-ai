@@ -89,7 +89,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       .eq('id', projectId)
       .single();
 
-    if (projectError || !project) {
+    if (projectError) {
+      console.error('[Timeline GET] Project query error:', projectError);
+      return NextResponse.json({ error: `Project error: ${projectError.message}` }, { status: 404 });
+    }
+
+    if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 

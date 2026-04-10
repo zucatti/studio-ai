@@ -581,7 +581,7 @@ export function WaveformHeader({
       <div className="relative overflow-visible">
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
-            <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
+            <Loader2 className="w-6 h-6 animate-spin text-blue-500" />
           </div>
         )}
         <div ref={containerRef} className="w-full [&_.wavesurfer-region]:overflow-visible" />
@@ -707,7 +707,7 @@ export function WaveformHeader({
             size="sm"
             onClick={startSelection}
             disabled={isEditingWorkArea}
-            className={isSelecting ? 'border-red-500 text-red-500' : 'bg-purple-600 hover:bg-purple-700'}
+            className={isSelecting ? 'border-red-500 text-red-500' : 'bg-blue-600 hover:bg-blue-700'}
           >
             <Plus className="w-4 h-4 mr-1" />
             {isSelecting ? 'Annuler' : 'Nouvelle sequence'}

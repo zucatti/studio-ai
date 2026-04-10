@@ -30,11 +30,16 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     // Get project with timeline data
     const { data: project, error: projectError } = await supabase
       .from('projects')
-      .select('id, user_id, title, aspect_ratio, timeline_data')
+      .select('id, user_id, name, aspect_ratio, timeline_data')
       .eq('id', projectId)
       .single();
 
-    if (projectError || !project) {
+    if (projectError) {
+      console.error('[TimelineRender] Project query error:', projectError);
+      return NextResponse.json({ error: `Project error: ${projectError.message}` }, { status: 404 });
+    }
+
+    if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
 
@@ -53,7 +58,7 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       .insert({
         user_id: session.user.sub,
         asset_type: 'project',
-        asset_name: project.title || 'Timeline Render',
+        asset_name: project.name || 'Timeline Render',
         job_type: 'video',
         job_subtype: 'timeline-render',
         status: 'queued',

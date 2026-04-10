@@ -182,14 +182,6 @@ export function SequenceClip({
                 onLoadedMetadata={() => setVideoDuration(videoRef.current?.duration || 0)}
               />
 
-              {/* Center play button when paused and not hovered */}
-              {!isPlaying && !isHovered && (
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-12 h-12 rounded-full bg-black/50 backdrop-blur flex items-center justify-center">
-                    <Play className="w-6 h-6 text-white ml-0.5" fill="white" />
-                  </div>
-                </div>
-              )}
 
               {/* Custom controls overlay - hover only */}
               <div
@@ -293,7 +285,7 @@ export function SequenceClip({
           onClick={onSelect}
         >
           <div className="flex items-center gap-1.5">
-            <Layers className="w-3 h-3 text-purple-400 flex-shrink-0" />
+            <Layers className="w-3 h-3 text-blue-400 flex-shrink-0" />
             <span className="text-xs font-medium text-white truncate flex-1">
               {sequence.title || `Séquence ${sequence.sort_order + 1}`}
             </span>

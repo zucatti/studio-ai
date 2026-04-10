@@ -163,7 +163,7 @@ export function ProjectBiblePicker({
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <DialogTitle className="text-white flex items-center gap-2">
-              <ImageIcon className="w-5 h-5 text-purple-400" />
+              <ImageIcon className="w-5 h-5 text-blue-400" />
               {title}
             </DialogTitle>
             <Button
@@ -193,7 +193,7 @@ export function ProjectBiblePicker({
                 className={cn(
                   'flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-md text-sm transition-colors',
                   activeTab === tab.value
-                    ? 'bg-purple-500/20 text-purple-400'
+                    ? 'bg-blue-500/20 text-blue-400'
                     : 'text-slate-400 hover:text-white hover:bg-white/5'
                 )}
               >
@@ -228,7 +228,7 @@ export function ProjectBiblePicker({
         <div className="flex-1 overflow-y-auto min-h-0">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-8 h-8 text-purple-400 animate-spin" />
+              <Loader2 className="w-8 h-8 text-blue-400 animate-spin" />
             </div>
           ) : filteredAssets.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -283,7 +283,7 @@ export function ProjectBiblePicker({
                         <button
                           key={`${asset.id}-${idx}`}
                           onClick={() => handleSelectImage(img.url, asset)}
-                          className="group relative aspect-square rounded-lg overflow-hidden border border-white/10 hover:border-purple-500/50 transition-colors"
+                          className="group relative aspect-square rounded-lg overflow-hidden border border-white/10 hover:border-blue-500/50 transition-colors"
                         >
                           <StorageImg
                             src={img.url}

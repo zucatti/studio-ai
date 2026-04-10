@@ -26,6 +26,7 @@ import {
   Sparkles,
   Pencil,
   Layers,
+  Film,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -58,7 +59,7 @@ export default function ClipPage() {
   const { projectAssets, projectGenericAssets, fetchProjectAssets, fetchProjectGenericAssets } = useBibleStore();
 
   // Project data
-  const { project, isLoading: projectLoading } = useProject();
+  const { project, isLoading: projectLoading, refetch: refetchProject } = useProject();
   const aspectRatio: AspectRatio = (project?.aspect_ratio as AspectRatio) || '16:9';
 
   // Audio state
@@ -743,12 +744,32 @@ export default function ClipPage() {
     return () => window.removeEventListener('job-failed', handleJobFailed);
   }, []);
 
+  // Listen for timeline render completions to refresh project data
+  useEffect(() => {
+    const handleTimelineRenderComplete = (event: Event) => {
+      const customEvent = event as CustomEvent<{
+        assetType: string;
+        jobType: string;
+        jobSubtype?: string;
+      }>;
+      const { assetType, jobSubtype } = customEvent.detail;
+
+      // Refetch project to get the new rendered_video_url
+      if (assetType === 'project' && jobSubtype === 'timeline-render') {
+        refetchProject();
+      }
+    };
+
+    window.addEventListener('job-completed', handleTimelineRenderComplete);
+    return () => window.removeEventListener('job-completed', handleTimelineRenderComplete);
+  }, [refetchProject]);
+
   // === RENDER ===
 
   if (projectLoading || audioLoading || isLoadingData) {
     return (
       <div className="flex items-center justify-center h-[60vh]">
-        <Loader2 className="w-8 h-8 text-purple-500 animate-spin" />
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
       </div>
     );
   }
@@ -756,8 +777,8 @@ export default function ClipPage() {
   if (!masterAudio) {
     return (
       <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6">
-        <div className="w-16 h-16 rounded-2xl bg-purple-500/10 flex items-center justify-center mb-4">
-          <Music className="w-8 h-8 text-purple-400" />
+        <div className="w-16 h-16 rounded-2xl bg-blue-500/10 flex items-center justify-center mb-4">
+          <Music className="w-8 h-8 text-blue-400" />
         </div>
         <h3 className="text-lg font-semibold text-white mb-2">
           Aucune musique attachée
@@ -769,7 +790,7 @@ export default function ClipPage() {
         <Button
           variant="outline"
           onClick={() => router.push(`/project/${projectId}/bible`)}
-          className="border-purple-500/30 text-purple-300 hover:bg-purple-500/10"
+          className="border-blue-500/30 text-blue-300 hover:bg-blue-500/10"
         >
           Aller à la Bible
         </Button>
@@ -793,7 +814,7 @@ export default function ClipPage() {
           </Button>
 
           <div className="flex items-center gap-2">
-            <Music className="w-4 h-4 text-purple-400" />
+            <Music className="w-4 h-4 text-blue-400" />
             <h1 className="text-base font-medium text-white">
               {masterAudio.data.title || masterAudio.name}
             </h1>
@@ -815,14 +836,14 @@ export default function ClipPage() {
           <TabsList className="bg-white/5 border border-white/10 h-8">
             <TabsTrigger
               value="edition"
-              className="text-xs data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+              className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white"
             >
               <Pencil className="w-3 h-3 mr-1.5" />
               Édition
             </TabsTrigger>
             <TabsTrigger
               value="montage"
-              className="text-xs data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+              className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white"
             >
               <Layers className="w-3 h-3 mr-1.5" />
               Montage
@@ -899,31 +920,46 @@ export default function ClipPage() {
                 </Button>
 
                 <div className="flex items-center gap-2">
-                  <Music className="w-4 h-4 text-purple-400" />
+                  <Music className="w-4 h-4 text-blue-400" />
                   <h1 className="text-base font-medium text-white">
                     {masterAudio.data.title || masterAudio.name}
                   </h1>
                 </div>
               </div>
 
-              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'edition' | 'montage')}>
-                <TabsList className="bg-white/5 border border-white/10 h-8">
-                  <TabsTrigger
-                    value="edition"
-                    className="text-xs data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+              <div className="flex items-center gap-2">
+                {/* Link to Production when rendered video exists */}
+                {(project as { rendered_video_url?: string })?.rendered_video_url && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => router.push(`/project/${projectId}/production`)}
+                    className="h-8 border-green-500/30 text-green-400 hover:bg-green-500/10"
                   >
-                    <Pencil className="w-3 h-3 mr-1.5" />
-                    Édition
-                  </TabsTrigger>
-                  <TabsTrigger
-                    value="montage"
-                    className="text-xs data-[state=active]:bg-purple-600 data-[state=active]:text-white"
-                  >
-                    <Layers className="w-3 h-3 mr-1.5" />
-                    Montage
-                  </TabsTrigger>
-                </TabsList>
-              </Tabs>
+                    <Film className="w-3.5 h-3.5 mr-1.5" />
+                    Voir le rendu
+                  </Button>
+                )}
+
+                <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'edition' | 'montage')}>
+                  <TabsList className="bg-white/5 border border-white/10 h-8">
+                    <TabsTrigger
+                      value="edition"
+                      className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+                    >
+                      <Pencil className="w-3 h-3 mr-1.5" />
+                      Édition
+                    </TabsTrigger>
+                    <TabsTrigger
+                      value="montage"
+                      className="text-xs data-[state=active]:bg-blue-600 data-[state=active]:text-white"
+                    >
+                      <Layers className="w-3 h-3 mr-1.5" />
+                      Montage
+                    </TabsTrigger>
+                  </TabsList>
+                </Tabs>
+              </div>
             </div>
           </div>
 

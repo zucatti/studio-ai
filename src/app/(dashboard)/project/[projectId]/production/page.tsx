@@ -1,253 +1,525 @@
 'use client';
 
-import { useMemo, useState } from 'react';
-import { useParams } from 'next/navigation';
-import { useSceneStore } from '@/store/scene-store';
-import { Shot } from '@/types/shot';
-import { VideoPlayer, GenerationStatus } from '@/components/production';
-import { Card, CardContent } from '@/components/ui/card';
+import { useRef, useState, useEffect, useCallback } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useProject } from '@/hooks/use-project';
+import { useSignedUrl } from '@/hooks/use-signed-url';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
+import { Slider } from '@/components/ui/slider';
+import { cn } from '@/lib/utils';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  Video,
+  Film,
   Play,
+  Pause,
+  Volume2,
+  VolumeX,
+  Maximize,
+  Minimize,
   Download,
-  Check,
-  Clock,
+  SkipBack,
+  SkipForward,
   Loader2,
-  X,
-  Sparkles,
+  Layers,
+  Calendar,
+  Clock,
 } from 'lucide-react';
+
+// Format time as MM:SS
+function formatTime(seconds: number): string {
+  if (!isFinite(seconds) || isNaN(seconds)) return '00:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+// Format date
+function formatDate(dateString: string | null | undefined): string {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleDateString('fr-FR', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
 
 export default function ProductionPage() {
   const params = useParams();
+  const router = useRouter();
   const projectId = params.projectId as string;
-  const { getScenesByProject, updateShot } = useSceneStore();
-  const scenes = getScenesByProject(projectId);
 
-  const [previewShot, setPreviewShot] = useState<Shot | null>(null);
+  const { project, isLoading } = useProject();
 
-  const allShots = useMemo(() => {
-    return scenes.flatMap((scene) =>
-      scene.shots.map((shot) => ({
-        ...shot,
-        sceneName: `${scene.heading.intExt}. ${scene.heading.location}`,
-        sceneId: scene.id,
-      }))
-    );
-  }, [scenes]);
+  // Video element ref
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  const stats = useMemo(() => {
-    const total = allShots.length;
-    const completed = allShots.filter(
-      (s) => s.generationStatus === 'completed'
-    ).length;
-    const generating = allShots.filter(
-      (s) => s.generationStatus === 'generating'
-    ).length;
-    const pending = allShots.filter(
-      (s) => s.generationStatus === 'pending'
-    ).length;
-    const failed = allShots.filter(
-      (s) => s.generationStatus === 'failed'
-    ).length;
-    const ready = allShots.filter(
-      (s) =>
-        s.generationStatus === 'not_started' &&
-        s.firstFrame?.validated &&
-        s.lastFrame?.validated
-    ).length;
+  // Player state
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showControls, setShowControls] = useState(true);
+  const [isVideoLoading, setIsVideoLoading] = useState(true);
 
-    return {
-      total,
-      completed,
-      generating,
-      pending,
-      failed,
-      ready,
-      progress: total > 0 ? Math.round((completed / total) * 100) : 0,
+  // Action indicator (brief play/pause icon shown on click)
+  const [actionIndicator, setActionIndicator] = useState<'play' | 'pause' | null>(null);
+
+  // Get project data with type assertion
+  const projectData = project as {
+    name?: string;
+    rendered_video_url?: string;
+    rendered_video_duration?: number;
+    rendered_at?: string;
+    aspect_ratio?: string;
+  } | null;
+
+  // Sign the video URL
+  const { signedUrl, isLoading: isSigningUrl } = useSignedUrl(
+    projectData?.rendered_video_url || null
+  );
+
+  // Hide controls after inactivity
+  useEffect(() => {
+    if (!isPlaying) {
+      setShowControls(true);
+      return;
+    }
+
+    let timeout: NodeJS.Timeout;
+    const handleMouseMove = () => {
+      setShowControls(true);
+      clearTimeout(timeout);
+      timeout = setTimeout(() => setShowControls(false), 3000);
     };
-  }, [allShots]);
 
-  const handleGenerate = (sceneId: string, shotId: string) => {
-    // Mock: Set to pending, then after delay set to generating, then completed
-    updateShot(sceneId, shotId, { generationStatus: 'pending' });
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('mousemove', handleMouseMove);
+      timeout = setTimeout(() => setShowControls(false), 3000);
+    }
 
-    setTimeout(() => {
-      updateShot(sceneId, shotId, { generationStatus: 'generating' });
-    }, 1000);
+    return () => {
+      if (container) {
+        container.removeEventListener('mousemove', handleMouseMove);
+      }
+      clearTimeout(timeout);
+    };
+  }, [isPlaying]);
 
-    setTimeout(() => {
-      updateShot(sceneId, shotId, {
-        generationStatus: 'completed',
-        generatedVideoUrl: '/mock-video.mp4',
-      });
-    }, 5000);
-  };
+  // Fullscreen change listener
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
 
-  const handleGenerateAll = () => {
-    const readyShots = allShots.filter(
-      (s) =>
-        s.generationStatus === 'not_started' &&
-        s.firstFrame?.validated &&
-        s.lastFrame?.validated
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (e.key) {
+        case ' ':
+        case 'k':
+          e.preventDefault();
+          togglePlayback();
+          break;
+        case 'f':
+          e.preventDefault();
+          toggleFullscreen();
+          break;
+        case 'm':
+          e.preventDefault();
+          toggleMute();
+          break;
+        case 'ArrowLeft':
+          e.preventDefault();
+          skip(-5);
+          break;
+        case 'ArrowRight':
+          e.preventDefault();
+          skip(5);
+          break;
+        case 'ArrowUp':
+          e.preventDefault();
+          handleVolumeChange([Math.min(1, volume + 0.1)]);
+          break;
+        case 'ArrowDown':
+          e.preventDefault();
+          handleVolumeChange([Math.max(0, volume - 0.1)]);
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [volume]);
+
+  // Video event handlers
+  const handleTimeUpdate = useCallback(() => {
+    if (videoRef.current) {
+      setCurrentTime(videoRef.current.currentTime);
+    }
+  }, []);
+
+  const handleLoadedMetadata = useCallback(() => {
+    if (videoRef.current) {
+      setDuration(videoRef.current.duration);
+      setIsVideoLoading(false);
+    }
+  }, []);
+
+  const handleEnded = useCallback(() => {
+    setIsPlaying(false);
+  }, []);
+
+  // Controls
+  const togglePlayback = useCallback(() => {
+    if (!videoRef.current) return;
+
+    // Show action indicator
+    const newAction = isPlaying ? 'pause' : 'play';
+    setActionIndicator(newAction);
+    setTimeout(() => setActionIndicator(null), 500);
+
+    if (isPlaying) {
+      videoRef.current.pause();
+    } else {
+      videoRef.current.play();
+    }
+    setIsPlaying(!isPlaying);
+  }, [isPlaying]);
+
+  const handleSeek = useCallback((value: number[]) => {
+    if (!videoRef.current) return;
+    videoRef.current.currentTime = value[0];
+    setCurrentTime(value[0]);
+  }, []);
+
+  const skip = useCallback((seconds: number) => {
+    if (!videoRef.current) return;
+    const newTime = Math.max(0, Math.min(duration, videoRef.current.currentTime + seconds));
+    videoRef.current.currentTime = newTime;
+    setCurrentTime(newTime);
+  }, [duration]);
+
+  const handleVolumeChange = useCallback((value: number[]) => {
+    if (!videoRef.current) return;
+    const newVolume = value[0];
+    videoRef.current.volume = newVolume;
+    setVolume(newVolume);
+    setIsMuted(newVolume === 0);
+  }, []);
+
+  const toggleMute = useCallback(() => {
+    if (!videoRef.current) return;
+    const newMuted = !isMuted;
+    videoRef.current.muted = newMuted;
+    setIsMuted(newMuted);
+  }, [isMuted]);
+
+  const toggleFullscreen = useCallback(() => {
+    if (!containerRef.current) return;
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else {
+      containerRef.current.requestFullscreen();
+    }
+  }, []);
+
+  const handleDownload = useCallback(() => {
+    if (!projectData?.rendered_video_url) return;
+    const filename = `${projectData.name || 'clip'}_final.mp4`.replace(/[^a-zA-Z0-9._-]/g, '_');
+    window.open(
+      `/api/download?url=${encodeURIComponent(projectData.rendered_video_url)}&filename=${encodeURIComponent(filename)}`,
+      '_blank'
     );
+  }, [projectData]);
 
-    readyShots.forEach((shot, index) => {
-      setTimeout(() => {
-        handleGenerate(shot.sceneId, shot.id);
-      }, index * 2000);
-    });
-  };
-
-  if (allShots.length === 0) {
+  // Loading state
+  if (isLoading) {
     return (
-      <Card>
-        <CardContent className="py-12 text-center text-muted-foreground">
-          <Video className="w-12 h-12 mx-auto mb-4 opacity-50" />
-          <p>Aucun plan à générer.</p>
-          <p className="text-sm mt-1">
-            Créez d&apos;abord des plans dans l&apos;onglet Script.
-          </p>
-        </CardContent>
-      </Card>
+      <div className="flex items-center justify-center h-[60vh]">
+        <Loader2 className="w-8 h-8 text-blue-500 animate-spin" />
+      </div>
+    );
+  }
+
+  // No rendered video
+  if (!projectData?.rendered_video_url) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6">
+        <div className="w-20 h-20 rounded-2xl bg-slate-800 flex items-center justify-center mb-6">
+          <Film className="w-10 h-10 text-slate-500" />
+        </div>
+        <h2 className="text-xl font-semibold text-white mb-2">
+          Aucune vidéo finale
+        </h2>
+        <p className="text-slate-400 max-w-md mb-6">
+          Rendez votre clip dans l&apos;onglet Montage pour le visualiser ici.
+        </p>
+        <Button
+          onClick={() => router.push(`/project/${projectId}/clip`)}
+          className="bg-blue-600 hover:bg-blue-700"
+        >
+          <Layers className="w-4 h-4 mr-2" />
+          Aller au Montage
+        </Button>
+      </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Video className="w-5 h-5" />
-          <h2 className="text-xl font-semibold">Production</h2>
-        </div>
-        <div className="flex items-center gap-2">
-          {stats.ready > 0 && (
-            <Button onClick={handleGenerateAll}>
-              <Sparkles className="w-4 h-4 mr-2" />
-              Générer tout ({stats.ready})
-            </Button>
-          )}
-          {stats.completed === stats.total && stats.total > 0 && (
-            <Button variant="outline">
-              <Download className="w-4 h-4 mr-2" />
-              Exporter
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-        <Card>
-          <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold">{stats.total}</p>
-            <p className="text-xs text-muted-foreground">Total</p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold text-blue-500">{stats.ready}</p>
-            <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-              <Play className="w-3 h-3" />
-              Prêts
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold text-yellow-500">{stats.pending}</p>
-            <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-              <Clock className="w-3 h-3" />
-              En attente
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold text-blue-400">
-              {stats.generating}
-            </p>
-            <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-              <Loader2 className="w-3 h-3" />
-              En cours
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold text-slate-300">{stats.completed}</p>
-            <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-              <Check className="w-3 h-3" />
-              Terminés
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="py-4 text-center">
-            <p className="text-2xl font-bold text-red-500">{stats.failed}</p>
-            <p className="text-xs text-muted-foreground flex items-center justify-center gap-1">
-              <X className="w-3 h-3" />
-              Échecs
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Progress bar */}
-      <Card>
-        <CardContent className="py-4">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium">Progression globale</span>
-            <span className="text-sm text-muted-foreground">
-              {stats.completed}/{stats.total} ({stats.progress}%)
-            </span>
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
+        <div className="flex items-center gap-3">
+          <Film className="w-5 h-5 text-blue-400" />
+          <div>
+            <h1 className="text-lg font-semibold text-white">
+              {projectData.name || 'Clip'} - Version Finale
+            </h1>
+            <div className="flex items-center gap-4 text-xs text-slate-400">
+              {projectData.rendered_at && (
+                <span className="flex items-center gap-1">
+                  <Calendar className="w-3 h-3" />
+                  {formatDate(projectData.rendered_at)}
+                </span>
+              )}
+              {projectData.rendered_video_duration && (
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {formatTime(projectData.rendered_video_duration)}
+                </span>
+              )}
+            </div>
           </div>
-          <Progress value={stats.progress} className="h-3" />
-        </CardContent>
-      </Card>
+        </div>
 
-      {/* Generation list */}
-      <div className="space-y-4">
-        <h3 className="font-medium">Liste des plans</h3>
-        {allShots.map((shot) => (
-          <GenerationStatus
-            key={shot.id}
-            shot={shot}
-            sceneName={shot.sceneName}
-            progress={shot.generationStatus === 'generating' ? 50 : 0}
-            onGenerate={() => handleGenerate(shot.sceneId, shot.id)}
-            onRetry={() => handleGenerate(shot.sceneId, shot.id)}
-            onPreview={() => setPreviewShot(shot)}
-          />
-        ))}
+        <Button
+          variant="outline"
+          onClick={handleDownload}
+          className="border-green-500/30 text-green-400 hover:bg-green-500/10"
+        >
+          <Download className="w-4 h-4 mr-2" />
+          Télécharger MP4
+        </Button>
       </div>
 
-      {/* Preview Dialog */}
-      <Dialog open={!!previewShot} onOpenChange={() => setPreviewShot(null)}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>
-              Plan {previewShot?.shotNumber} - Aperçu
-            </DialogTitle>
-          </DialogHeader>
-          <VideoPlayer
-            src={previewShot?.generatedVideoUrl}
-            title={previewShot?.description}
-          />
-        </DialogContent>
-      </Dialog>
+      {/* Video Player */}
+      <div className="flex-1 flex items-center justify-center p-4 bg-black/50">
+        <div
+          ref={containerRef}
+          className={cn(
+            'relative group bg-black rounded-lg overflow-hidden',
+            isFullscreen ? 'w-full h-full' : 'max-w-5xl w-full'
+          )}
+          style={{
+            aspectRatio: projectData.aspect_ratio?.replace(':', '/') || '16/9',
+          }}
+        >
+          {/* Loading overlay */}
+          {(isSigningUrl || isVideoLoading) && (
+            <div className="absolute inset-0 flex items-center justify-center bg-black/80 z-20">
+              <Loader2 className="w-10 h-10 text-blue-500 animate-spin" />
+            </div>
+          )}
+
+          {/* Video element */}
+          {signedUrl && (
+            <video
+              ref={videoRef}
+              src={signedUrl}
+              className="w-full h-full object-contain"
+              playsInline
+              preload="metadata"
+              onTimeUpdate={handleTimeUpdate}
+              onLoadedMetadata={handleLoadedMetadata}
+              onEnded={handleEnded}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onClick={togglePlayback}
+            />
+          )}
+
+          {/* Center play button (shown when paused) */}
+          {!isPlaying && !isVideoLoading && (
+            <button
+              onClick={togglePlayback}
+              className={cn(
+                'absolute inset-0 flex items-center justify-center transition-opacity',
+                showControls ? 'opacity-100' : 'opacity-0'
+              )}
+            >
+              <div className="w-20 h-20 rounded-full bg-blue-600/90 backdrop-blur flex items-center justify-center hover:bg-blue-500 transition-colors">
+                <Play className="w-10 h-10 text-white ml-1" fill="white" />
+              </div>
+            </button>
+          )}
+
+          {/* Action indicator (brief play/pause animation on click) */}
+          {actionIndicator && (
+            <div
+              className="absolute inset-0 flex items-center justify-center pointer-events-none z-30"
+              key={actionIndicator + Date.now()}
+            >
+              <div
+                className="w-20 h-20 rounded-full bg-black/70 backdrop-blur flex items-center justify-center"
+                style={{
+                  animation: 'action-indicator 0.5s ease-out forwards',
+                }}
+              >
+                {actionIndicator === 'play' ? (
+                  <Play className="w-10 h-10 text-white ml-1" fill="white" />
+                ) : (
+                  <Pause className="w-10 h-10 text-white" fill="white" />
+                )}
+              </div>
+              <style jsx>{`
+                @keyframes action-indicator {
+                  0% {
+                    transform: scale(0.8);
+                    opacity: 1;
+                  }
+                  100% {
+                    transform: scale(1.2);
+                    opacity: 0;
+                  }
+                }
+              `}</style>
+            </div>
+          )}
+
+          {/* Controls overlay */}
+          <div
+            className={cn(
+              'absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-4 pt-12 transition-opacity duration-300',
+              showControls || !isPlaying ? 'opacity-100' : 'opacity-0'
+            )}
+          >
+            {/* Progress bar */}
+            <Slider
+              value={[currentTime]}
+              max={duration || 1}
+              step={0.1}
+              onValueChange={handleSeek}
+              className="mb-4"
+            />
+
+            <div className="flex items-center justify-between">
+              {/* Left controls */}
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 text-white hover:bg-white/20"
+                  onClick={() => skip(-10)}
+                >
+                  <SkipBack className="h-5 w-5" />
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-10 w-10 text-white hover:bg-white/20"
+                  onClick={togglePlayback}
+                >
+                  {isPlaying ? (
+                    <Pause className="h-6 w-6" />
+                  ) : (
+                    <Play className="h-6 w-6" />
+                  )}
+                </Button>
+
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 text-white hover:bg-white/20"
+                  onClick={() => skip(10)}
+                >
+                  <SkipForward className="h-5 w-5" />
+                </Button>
+
+                {/* Time display */}
+                <span className="text-white text-sm font-mono ml-2">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
+              </div>
+
+              {/* Right controls */}
+              <div className="flex items-center gap-2">
+                {/* Volume */}
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-white hover:bg-white/20"
+                    onClick={toggleMute}
+                  >
+                    {isMuted || volume === 0 ? (
+                      <VolumeX className="h-5 w-5" />
+                    ) : (
+                      <Volume2 className="h-5 w-5" />
+                    )}
+                  </Button>
+                  <div className="w-24">
+                    <Slider
+                      value={[isMuted ? 0 : volume]}
+                      max={1}
+                      step={0.05}
+                      onValueChange={handleVolumeChange}
+                    />
+                  </div>
+                </div>
+
+                {/* Download */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 text-white hover:bg-white/20"
+                  onClick={handleDownload}
+                >
+                  <Download className="h-5 w-5" />
+                </Button>
+
+                {/* Fullscreen */}
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 text-white hover:bg-white/20"
+                  onClick={toggleFullscreen}
+                >
+                  {isFullscreen ? (
+                    <Minimize className="h-5 w-5" />
+                  ) : (
+                    <Maximize className="h-5 w-5" />
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer info */}
+      <div className="px-4 py-3 border-t border-white/10 text-xs text-slate-500">
+        <p>
+          Raccourcis: <kbd className="px-1 bg-white/10 rounded">Espace</kbd> Play/Pause •{' '}
+          <kbd className="px-1 bg-white/10 rounded">←</kbd><kbd className="px-1 bg-white/10 rounded">→</kbd> ±10s •{' '}
+          <kbd className="px-1 bg-white/10 rounded">↑</kbd><kbd className="px-1 bg-white/10 rounded">↓</kbd> Volume •{' '}
+          <kbd className="px-1 bg-white/10 rounded">F</kbd> Plein écran •{' '}
+          <kbd className="px-1 bg-white/10 rounded">M</kbd> Muet
+        </p>
+      </div>
     </div>
   );
 }

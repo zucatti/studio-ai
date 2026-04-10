@@ -226,7 +226,7 @@ export function MontageToolbar({ className, onSave, onRender, onImportFromEditio
               variant="ghost"
               size="sm"
               onClick={onImportFromEdition}
-              className="h-8 text-purple-400 hover:text-purple-300"
+              className="h-8 text-blue-400 hover:text-blue-300"
             >
               <Import className="w-4 h-4 mr-1.5" />
               Importer Édition
@@ -249,7 +249,7 @@ export function MontageToolbar({ className, onSave, onRender, onImportFromEditio
               size="sm"
               onClick={onRender}
               disabled={isRendering}
-              className="h-8 bg-purple-600 hover:bg-purple-700 disabled:opacity-50"
+              className="h-8 bg-blue-600 hover:bg-blue-700 disabled:opacity-50"
             >
               {isRendering ? (
                 <>

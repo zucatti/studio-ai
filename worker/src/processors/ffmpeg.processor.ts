@@ -1382,20 +1382,85 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
 
     const { readFile } = await import('fs/promises');
     const outputBuffer = await readFile(outputPath);
-    const storageKey = `montage/${userId.replace(/[|]/g, '_')}/${projectId}/${shortId}_montage_${Date.now()}.mp4`;
+    const filename = shortId ? `${shortId}_montage_${Date.now()}.mp4` : `project_render_${Date.now()}.mp4`;
+    const storageKey = `montage/${userId.replace(/[|]/g, '_')}/${projectId}/${filename}`;
     const b2Url = await uploadFile(storageKey, outputBuffer, 'video/mp4');
 
-    // Update scene with montage video URL
-    // Also update assembled_video_url so it appears in the shorts list
-    await supabase
-      .from('scenes')
-      .update({
-        montage_video_url: b2Url,
-        montage_rendered_at: new Date().toISOString(),
-        assembled_video_url: b2Url,
-        assembled_video_duration: totalDuration,
-      })
-      .eq('id', shortId);
+    if (shortId) {
+      // Short-level render: update scene with montage video URL
+      // Also update assembled_video_url so it appears in the shorts list
+      await supabase
+        .from('scenes')
+        .update({
+          montage_video_url: b2Url,
+          montage_rendered_at: new Date().toISOString(),
+          assembled_video_url: b2Url,
+          assembled_video_duration: totalDuration,
+        })
+        .eq('id', shortId);
+    } else {
+      // Project-level render: update project with rendered video URL
+      await supabase
+        .from('projects')
+        .update({
+          rendered_video_url: b2Url,
+          rendered_video_duration: totalDuration,
+          rendered_at: new Date().toISOString(),
+        })
+        .eq('id', projectId);
+
+      // Also create a project asset so it appears in the Gallery
+      const { data: existingAsset } = await supabase
+        .from('global_assets')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('name', 'Clip Rendu')
+        .eq('asset_type', 'video')
+        .single();
+
+      if (existingAsset) {
+        // Update existing asset
+        await supabase
+          .from('global_assets')
+          .update({
+            data: {
+              video_url: b2Url,
+              duration: totalDuration,
+              rendered_at: new Date().toISOString(),
+            },
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', existingAsset.id);
+      } else {
+        // Create new asset
+        const { data: newAsset } = await supabase
+          .from('global_assets')
+          .insert({
+            user_id: userId,
+            name: 'Clip Rendu',
+            asset_type: 'video',
+            data: {
+              video_url: b2Url,
+              duration: totalDuration,
+              rendered_at: new Date().toISOString(),
+            },
+          })
+          .select('id')
+          .single();
+
+        // Link to project
+        if (newAsset) {
+          await supabase
+            .from('project_assets')
+            .insert({
+              project_id: projectId,
+              global_asset_id: newAsset.id,
+            });
+        }
+      }
+
+      console.log(`[FFmpeg] Project render saved: ${b2Url}`);
+    }
 
     await completeJob(jobId, {
       outputUrl: b2Url,

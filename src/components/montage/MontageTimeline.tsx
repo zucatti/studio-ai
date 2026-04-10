@@ -455,7 +455,7 @@ function TrackRow({
         <Icon className={cn(
           'w-3.5 h-3.5',
           track.type === 'audio' ? 'text-green-400' :
-          track.type === 'transition' ? 'text-orange-400' : 'text-purple-400'
+          track.type === 'transition' ? 'text-orange-400' : 'text-blue-400'
         )} />
         <span className="flex-1 text-xs text-slate-300 truncate">{track.name}</span>
 

@@ -512,7 +512,7 @@ export function MontageSidebar({ projectId, shortId, className, editionSequences
               >
                 <Icon className="w-4 h-4" />
                 {count > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-purple-500 text-[9px] font-medium text-white">
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-[14px] flex items-center justify-center rounded-full bg-blue-500 text-[9px] font-medium text-white">
                     {count > 99 ? '99+' : count}
                   </span>
                 )}
@@ -533,7 +533,7 @@ export function MontageSidebar({ projectId, shortId, className, editionSequences
               </div>
             ) : isLoading ? (
               <div className="flex items-center justify-center py-8 text-slate-500">
-                <div className="animate-spin w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full" />
+                <div className="animate-spin w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full" />
               </div>
             ) : filteredAssets.length === 0 ? (
               <div className="text-center py-8 text-slate-500 text-xs">
@@ -706,7 +706,7 @@ function AssetItem({ asset }: { asset: MontageAsset }) {
 
         {/* Sequence badge */}
         {asset.type === 'sequence' && (
-          <div className="absolute top-0.5 left-0.5 px-1 py-0.5 bg-purple-500/80 rounded text-[8px] text-white font-medium">
+          <div className="absolute top-0.5 left-0.5 px-1 py-0.5 bg-blue-500/80 rounded text-[8px] text-white font-medium">
             SEQ
           </div>
         )}
