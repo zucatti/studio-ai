@@ -266,8 +266,8 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
         {currentClip && signedUrl ? (
           currentClip.type === 'video' ? (
             <>
-              {/* Thumbnail shown until video is ready and playing */}
-              {thumbnailUrl && !(isPlaying && isVideoReady) && !isVideoFile(thumbnailUrl) && (
+              {/* Thumbnail shown only until video is ready (not when paused) */}
+              {thumbnailUrl && !isVideoReady && !isVideoFile(thumbnailUrl) && (
                 <img
                   src={thumbnailUrl}
                   alt={currentClip.name}
