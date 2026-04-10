@@ -828,8 +828,10 @@ function AudioWaveform({
         // Get channel data (use first channel)
         const channelData = audioBuffer.getChannelData(0);
 
-        // Calculate samples based on width for smooth rendering (1 sample per 2 pixels)
-        const samples = Math.max(100, Math.min(Math.floor(width / 2), 500));
+        // Calculate samples to match WaveSurfer style: barWidth=2, barGap=1 = 3px per bar
+        const barWidth = 2;
+        const barGap = 1;
+        const samples = Math.floor(width / (barWidth + barGap));
         const blockSize = Math.floor(channelData.length / samples);
         const peaks: number[] = [];
 
@@ -869,7 +871,7 @@ function AudioWaveform({
     };
   }, [audioUrl, width]);
 
-  // Draw waveform - vertical bars style (like pro audio editors)
+  // Draw waveform - vertical bars style matching WaveSurfer (barWidth=2, barGap=1)
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !waveformData) return;
@@ -888,20 +890,34 @@ function AudioWaveform({
 
     const centerY = height / 2;
     const amplitude = height * 0.45;
-    const barWidth = Math.max(1, width / waveformData.length - 1);
-    const gap = 1;
+
+    // Match WaveSurfer settings
+    const barWidth = 2;
+    const barGap = 1;
+    const barRadius = 1; // Slight rounding
 
     ctx.fillStyle = color;
 
     // Draw vertical bars (mirrored top and bottom)
     waveformData.forEach((peak, i) => {
-      const x = i * (barWidth + gap);
+      const x = i * (barWidth + barGap);
       const barHeight = Math.max(1, peak * amplitude);
 
-      // Top bar (going up from center)
-      ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
-      // Bottom bar (going down from center, mirrored)
-      ctx.fillRect(x, centerY, barWidth, barHeight);
+      // Draw rounded bars using roundRect if available, otherwise fillRect
+      if (ctx.roundRect) {
+        // Top bar
+        ctx.beginPath();
+        ctx.roundRect(x, centerY - barHeight, barWidth, barHeight, barRadius);
+        ctx.fill();
+        // Bottom bar (mirrored)
+        ctx.beginPath();
+        ctx.roundRect(x, centerY, barWidth, barHeight, barRadius);
+        ctx.fill();
+      } else {
+        // Fallback for older browsers
+        ctx.fillRect(x, centerY - barHeight, barWidth, barHeight);
+        ctx.fillRect(x, centerY, barWidth, barHeight);
+      }
     });
 
   }, [waveformData, width, height, color]);
