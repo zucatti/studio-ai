@@ -1056,9 +1056,10 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
   const outputPath = join(tempDir, 'montage_output.mp4');
 
   try {
-    // Separate video/image clips from audio and transition clips
+    // Separate clips by track type
     const videoTracks = montageData.tracks.filter((t) => t.type === 'video' && !t.muted);
     const audioTracks = montageData.tracks.filter((t) => t.type === 'audio' && !t.muted);
+    const transitionTracks = montageData.tracks.filter((t) => t.type === 'transition');
 
     const videoClips = montageData.clips.filter(
       (c) => (c.type === 'video' || c.type === 'image') && videoTracks.some((t) => t.id === c.trackId)
@@ -1066,8 +1067,9 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
     const audioClips = montageData.clips.filter(
       (c) => c.type === 'audio' && audioTracks.some((t) => t.id === c.trackId)
     );
+    // Transitions are on the dedicated transition track
     const transitionClips = montageData.clips.filter(
-      (c) => c.type === 'transition' && videoTracks.some((t) => t.id === c.trackId)
+      (c) => c.type === 'transition' && transitionTracks.some((t) => t.id === c.trackId)
     );
 
     console.log(`[FFmpeg] Video clips: ${videoClips.length}, Audio clips: ${audioClips.length}, Transitions: ${transitionClips.length}`);

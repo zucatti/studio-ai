@@ -766,20 +766,20 @@ function TransitionItem({ transition }: { transition: TransitionInfo }) {
 
   // Handle double-click to add to timeline
   const handleDoubleClick = useCallback(() => {
-    // Find video track (transitions go on video track between clips)
-    let targetTrack = tracks.find((t) => t.type === 'video');
+    // Find or create transition track
+    let targetTrack = tracks.find((t) => t.type === 'transition');
     if (!targetTrack) {
-      const trackId = addTrack('video');
-      targetTrack = tracks.find((t) => t.id === trackId);
+      const trackId = addTrack('transition', 'Transitions');
+      targetTrack = useMontageStore.getState().tracks.find((t) => t.id === trackId);
     }
 
     if (!targetTrack) return;
 
-    // Calculate start position (at playhead or end of last clip)
+    // Calculate start position (at playhead)
     const store = useMontageStore.getState();
     const startTime = store.currentTime || 0;
 
-    // Add transition clip
+    // Add transition clip on the transition track
     addClip({
       type: 'transition',
       trackId: targetTrack.id,

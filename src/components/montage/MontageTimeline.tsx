@@ -181,16 +181,23 @@ export function MontageTimeline({ className }: MontageTimelineProps) {
 
         // Check if it's a transition
         if (parsed.type === 'transition' && parsed.transitionType) {
-          // Transitions go on video tracks only
+          // Transitions go on transition tracks only
           const track = tracks.find(t => t.id === trackId);
-          if (track?.type !== 'video') {
-            console.warn('Transitions can only be placed on video tracks');
-            return;
+
+          // If dropping on non-transition track, find or create a transition track
+          let targetTrackId = trackId;
+          if (track?.type !== 'transition') {
+            let transitionTrack = tracks.find(t => t.type === 'transition');
+            if (!transitionTrack) {
+              targetTrackId = addTrack('transition', 'Transitions');
+            } else {
+              targetTrackId = transitionTrack.id;
+            }
           }
 
           addClip({
             type: 'transition',
-            trackId,
+            trackId: targetTrackId,
             start: startTime,
             duration: parsed.duration || 0.5,
             name: parsed.name,
