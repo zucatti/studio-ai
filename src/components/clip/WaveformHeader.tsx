@@ -202,11 +202,16 @@ export function WaveformHeader({
         const bracketEl = document.createElement('div');
         bracketEl.style.cssText = `
           position: absolute;
-          inset: 0;
+          top: -24px;
+          left: 0;
+          right: 0;
+          bottom: 0;
           display: flex;
           flex-direction: column;
           justify-content: space-between;
           align-items: flex-start;
+          overflow: visible;
+          z-index: 10;
           pointer-events: ${isEditingWorkArea ? 'auto' : 'none'};
           cursor: ${isEditingWorkArea ? 'ew-resize' : 'default'};
         `;
@@ -225,23 +230,19 @@ export function WaveformHeader({
         // Top arm of [
         const topArm = document.createElement('div');
         topArm.style.cssText = `
-          position: absolute;
-          top: 0;
-          left: 0;
           width: 16px;
           height: 4px;
           background: #22c55e;
+          flex-shrink: 0;
         `;
 
         // Bottom arm of [
         const bottomArm = document.createElement('div');
         bottomArm.style.cssText = `
-          position: absolute;
-          bottom: 0;
-          left: 0;
           width: 16px;
           height: 4px;
           background: #22c55e;
+          flex-shrink: 0;
         `;
 
         bracketEl.appendChild(verticalBar);
@@ -295,6 +296,8 @@ export function WaveformHeader({
           flex-direction: column;
           justify-content: space-between;
           align-items: flex-end;
+          overflow: visible;
+          z-index: 10;
           pointer-events: ${isEditingWorkArea ? 'auto' : 'none'};
           cursor: ${isEditingWorkArea ? 'ew-resize' : 'default'};
         `;
@@ -313,23 +316,19 @@ export function WaveformHeader({
         // Top arm of ]
         const topArm = document.createElement('div');
         topArm.style.cssText = `
-          position: absolute;
-          top: 0;
-          right: 0;
           width: 16px;
           height: 4px;
           background: #ef4444;
+          flex-shrink: 0;
         `;
 
         // Bottom arm of ]
         const bottomArm = document.createElement('div');
         bottomArm.style.cssText = `
-          position: absolute;
-          bottom: 0;
-          right: 0;
           width: 16px;
           height: 4px;
           background: #ef4444;
+          flex-shrink: 0;
         `;
 
         bracketEl.appendChild(verticalBar);
@@ -579,13 +578,13 @@ export function WaveformHeader({
   return (
     <div className={cn('bg-[#0a0c0f] border-b border-white/10', className)}>
       {/* Waveform container */}
-      <div className="relative">
+      <div className="relative overflow-visible">
         {isLoading && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/50 z-10">
             <Loader2 className="w-6 h-6 animate-spin text-purple-500" />
           </div>
         )}
-        <div ref={containerRef} className="w-full" />
+        <div ref={containerRef} className="w-full [&_.wavesurfer-region]:overflow-visible" />
       </div>
 
       {/* Controls bar */}
