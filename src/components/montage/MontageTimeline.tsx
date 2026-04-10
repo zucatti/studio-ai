@@ -745,6 +745,30 @@ function ClipItem({
   const isDragging = interactionType === 'drag';
   const isResizing = interactionType === 'resize-left' || interactionType === 'resize-right';
 
+  // Hide resize handles on small clips (less than 50px) unless Alt is pressed
+  const [showResizeHandles, setShowResizeHandles] = useState(false);
+  const MIN_WIDTH_FOR_HANDLES = 50;
+  const isSmallClip = width < MIN_WIDTH_FOR_HANDLES;
+
+  // Track Alt key for forcing resize handles on small clips
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.altKey) setShowResizeHandles(true);
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (!e.altKey) setShowResizeHandles(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  // Show resize handles if: not small clip, OR alt pressed, OR currently resizing
+  const displayResizeHandles = !isSmallClip || showResizeHandles || isResizing;
+
   return (
     <div
       ref={clipRef}
@@ -814,9 +838,13 @@ function ClipItem({
         </span>
       </div>
 
-      {/* Resize handles */}
-      <div className="resize-left absolute left-0 top-0 bottom-0 w-3 z-20 cursor-ew-resize hover:bg-white/40" />
-      <div className="resize-right absolute right-0 top-0 bottom-0 w-3 z-20 cursor-ew-resize hover:bg-white/40" />
+      {/* Resize handles - hidden on small clips unless Alt is pressed */}
+      {displayResizeHandles && (
+        <>
+          <div className="resize-left absolute left-0 top-0 bottom-0 w-3 z-20 cursor-ew-resize hover:bg-white/40" />
+          <div className="resize-right absolute right-0 top-0 bottom-0 w-3 z-20 cursor-ew-resize hover:bg-white/40" />
+        </>
+      )}
     </div>
   );
 }
