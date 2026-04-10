@@ -11,13 +11,11 @@ const auth0Client = new Auth0Client({
   clientSecret: process.env.AUTH0_CLIENT_SECRET,
   secret: process.env.AUTH0_SECRET,
   appBaseUrl: baseUrl,
-  routes: {
-    callback: '/auth/callback',
-    login: '/auth/login',
-    logout: '/auth/logout',
-  },
+  // Use default routes: /auth/login, /auth/callback, /auth/logout
+  // Explicitly set authorization params to avoid silent auth issues
   authorizationParameters: {
-    redirect_uri: `${baseUrl}/auth/callback`,
+    scope: 'openid profile email',
+    // Remove offline_access to simplify auth flow
   },
   // Force cookie domain for reverse proxy setup (only in production)
   session: {

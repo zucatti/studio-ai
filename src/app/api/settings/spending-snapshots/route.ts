@@ -414,9 +414,12 @@ export async function GET() {
     // Calculate spending for each month
     const currentMonth = now.toISOString().slice(0, 7);
     for (let monthIndex = 0; monthIndex < 12; monthIndex++) {
-      const monthDate = new Date(now.getFullYear(), monthIndex, 1);
       const monthKey = `${now.getFullYear()}-${String(monthIndex + 1).padStart(2, '0')}`;
       const monthSnapshots = snapshotsByMonth[monthKey] || [];
+      const prevMonthKey = monthIndex > 0
+        ? `${now.getFullYear()}-${String(monthIndex).padStart(2, '0')}`
+        : `${now.getFullYear() - 1}-12`;
+      const prevMonthSnapshots = snapshotsByMonth[prevMonthKey] || [];
 
       const providers: Record<string, number> = {};
 
@@ -427,19 +430,36 @@ export async function GET() {
             providers[provider] = data.thisMonth;
           }
         }
-      } else if (monthSnapshots.length >= 2) {
+      } else if (monthSnapshots.length >= 1) {
         // For past months, calculate from first to last snapshot
+        // If only one snapshot, use previous month's last snapshot as baseline
         for (const provider of ['claude', 'fal', 'runway']) {
           const providerSnaps = monthSnapshots.filter(s => s.provider === provider);
-          if (providerSnaps.length >= 2) {
-            const first = providerSnaps[0];
-            const last = providerSnaps[providerSnaps.length - 1];
+          if (providerSnaps.length === 0) continue;
 
-            if (provider === 'claude' || provider === 'fal') {
-              // Cumulative cost: last - first (fal now uses cumulative_cost too)
-              providers[provider] = Math.max(0, (last.cumulative_cost || 0) - (first.cumulative_cost || 0));
-            } else {
-              // Balance-based (runway): first - last
+          const first = providerSnaps[0];
+          const last = providerSnaps[providerSnaps.length - 1];
+
+          if (provider === 'claude' || provider === 'fal') {
+            // Cumulative cost providers
+            let baseline = first.cumulative_cost || 0;
+
+            // If only one snapshot, look for previous month's last snapshot as baseline
+            if (providerSnaps.length === 1) {
+              const prevProviderSnaps = prevMonthSnapshots.filter(s => s.provider === provider);
+              if (prevProviderSnaps.length > 0) {
+                baseline = prevProviderSnaps[prevProviderSnaps.length - 1].cumulative_cost || 0;
+              } else {
+                // No previous month data - this single snapshot IS the month's total
+                // (happens for backfill/manual entries)
+                baseline = 0;
+              }
+            }
+
+            providers[provider] = Math.max(0, (last.cumulative_cost || 0) - baseline);
+          } else {
+            // Balance-based (runway): first - last
+            if (providerSnaps.length >= 2) {
               providers[provider] = Math.max(0, (first.balance || 0) - (last.balance || 0));
             }
           }
