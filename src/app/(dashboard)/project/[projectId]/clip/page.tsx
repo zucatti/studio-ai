@@ -8,6 +8,7 @@ import { type VideoGenerationProgress } from '@/components/shorts/VideoGeneratio
 import { VideoEditorLayout } from '@/components/video-editor';
 import { WaveformHeader } from '@/components/clip/WaveformHeader';
 import { TimelineEditor } from '@/components/montage/TimelineEditor';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { CinematicHeaderWizard, type PromptCharacterData } from '@/components/shorts/CinematicHeaderWizard';
 import { useJobsStore } from '@/store/jobs-store';
 import { useBibleStore } from '@/store/bible-store';
@@ -810,32 +811,24 @@ export default function ClipPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1">
-          <button
-            onClick={() => setViewMode('edition')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-l-md text-xs font-medium transition-colors',
-              viewMode === 'edition'
-                ? 'bg-purple-500/20 text-purple-400'
-                : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
-            )}
-          >
-            <Pencil className="w-3 h-3" />
-            Édition
-          </button>
-          <button
-            onClick={() => setViewMode('montage')}
-            className={cn(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-r-md text-xs font-medium transition-colors',
-              viewMode === 'montage'
-                ? 'bg-purple-500/20 text-purple-400'
-                : 'bg-white/5 text-slate-400 hover:text-white hover:bg-white/10'
-            )}
-          >
-            <Layers className="w-3 h-3" />
-            Montage
-          </button>
-        </div>
+        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'edition' | 'montage')}>
+          <TabsList className="bg-white/5 border border-white/10 h-8">
+            <TabsTrigger
+              value="edition"
+              className="text-xs data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+            >
+              <Pencil className="w-3 h-3 mr-1.5" />
+              Édition
+            </TabsTrigger>
+            <TabsTrigger
+              value="montage"
+              className="text-xs data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+            >
+              <Layers className="w-3 h-3 mr-1.5" />
+              Montage
+            </TabsTrigger>
+          </TabsList>
+        </Tabs>
       </div>
 
       {/* Waveform */}
@@ -913,22 +906,24 @@ export default function ClipPage() {
                 </div>
               </div>
 
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => setViewMode('edition')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-l-md text-xs font-medium transition-colors bg-white/5 text-slate-400 hover:text-white hover:bg-white/10"
-                >
-                  <Pencil className="w-3 h-3" />
-                  Édition
-                </button>
-                <button
-                  onClick={() => setViewMode('montage')}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-r-md text-xs font-medium transition-colors bg-purple-500/20 text-purple-400"
-                >
-                  <Layers className="w-3 h-3" />
-                  Montage
-                </button>
-              </div>
+              <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as 'edition' | 'montage')}>
+                <TabsList className="bg-white/5 border border-white/10 h-8">
+                  <TabsTrigger
+                    value="edition"
+                    className="text-xs data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+                  >
+                    <Pencil className="w-3 h-3 mr-1.5" />
+                    Édition
+                  </TabsTrigger>
+                  <TabsTrigger
+                    value="montage"
+                    className="text-xs data-[state=active]:bg-purple-600 data-[state=active]:text-white"
+                  >
+                    <Layers className="w-3 h-3 mr-1.5" />
+                    Montage
+                  </TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
           </div>
 
