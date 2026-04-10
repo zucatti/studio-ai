@@ -39,13 +39,13 @@ export interface FFmpegJobData {
     duration: number;
     tracks: Array<{
       id: string;
-      type: 'video' | 'audio' | 'text';
+      type: 'video' | 'audio' | 'text' | 'transition';
       name: string;
       muted: boolean;
     }>;
     clips: Array<{
       id: string;
-      type: 'video' | 'image' | 'audio' | 'text';
+      type: 'video' | 'image' | 'audio' | 'text' | 'transition';
       trackId: string;
       start: number;
       duration: number;
@@ -53,6 +53,7 @@ export interface FFmpegJobData {
       sourceEnd?: number;
       assetUrl: string;
       name: string;
+      transitionType?: string; // For transition clips
     }>;
   };
 }
@@ -935,6 +936,57 @@ function getAspectDimensions(aspectRatio: string): { width: number; height: numb
 }
 
 /**
+ * Map montage transition types to FFmpeg xfade transition names
+ */
+function mapTransitionToXfade(transitionType: string): string {
+  const transitionMap: Record<string, string> = {
+    'fade': 'fade',
+    'dissolve': 'dissolve',
+    'fadeblack': 'fadeblack',
+    'fadewhite': 'fadewhite',
+    'directional-left': 'slideleft',
+    'directional-right': 'slideright',
+    'directional-up': 'slideup',
+    'directional-down': 'slidedown',
+    'crosszoom': 'smoothleft', // No exact match, use smooth slide
+    'zoomin': 'circleopen',
+    'zoomout': 'circleclose',
+  };
+  return transitionMap[transitionType] || 'fade';
+}
+
+/**
+ * Find transition between two clips based on timeline position
+ */
+function findTransitionBetweenClips(
+  clipA: { start: number; duration: number },
+  clipB: { start: number },
+  transitions: Array<{ start: number; duration: number; transitionType?: string }>
+): { type: string; duration: number } | null {
+  const gapStart = clipA.start + clipA.duration;
+  const gapEnd = clipB.start;
+
+  // Find a transition that overlaps with the gap between clips
+  // Or is positioned at the junction point (with small tolerance)
+  const tolerance = 0.5;
+
+  for (const t of transitions) {
+    const tEnd = t.start + t.duration;
+    // Check if transition overlaps with the gap or is at the junction
+    if (
+      (t.start >= gapStart - tolerance && t.start <= gapEnd + tolerance) ||
+      (t.start <= gapStart && tEnd >= gapStart)
+    ) {
+      return {
+        type: t.transitionType || 'fade',
+        duration: t.duration,
+      };
+    }
+  }
+  return null;
+}
+
+/**
  * Process montage timeline render to MP4
  */
 async function processMontageRender(data: FFmpegJobData): Promise<void> {
@@ -960,7 +1012,7 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
   const outputPath = join(tempDir, 'montage_output.mp4');
 
   try {
-    // Separate video/image clips from audio clips
+    // Separate video/image clips from audio and transition clips
     const videoTracks = montageData.tracks.filter((t) => t.type === 'video' && !t.muted);
     const audioTracks = montageData.tracks.filter((t) => t.type === 'audio' && !t.muted);
 
@@ -970,8 +1022,11 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
     const audioClips = montageData.clips.filter(
       (c) => c.type === 'audio' && audioTracks.some((t) => t.id === c.trackId)
     );
+    const transitionClips = montageData.clips.filter(
+      (c) => c.type === 'transition' && videoTracks.some((t) => t.id === c.trackId)
+    );
 
-    console.log(`[FFmpeg] Video clips: ${videoClips.length}, Audio clips: ${audioClips.length}`);
+    console.log(`[FFmpeg] Video clips: ${videoClips.length}, Audio clips: ${audioClips.length}, Transitions: ${transitionClips.length}`);
 
     if (videoClips.length === 0) {
       throw new Error('No video clips to render');
@@ -1055,7 +1110,17 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
     const filterParts: string[] = [];
     let lastVideoLabel = '0:v'; // Start with black background (no brackets - added when used)
 
+    // Log transitions for debugging
+    if (transitionClips.length > 0) {
+      console.log(`[FFmpeg] Transitions found:`, transitionClips.map(t => ({
+        start: t.start,
+        duration: t.duration,
+        type: t.transitionType,
+      })));
+    }
+
     // Process video clips - overlay each on top of the previous
+    // Apply xfade transitions when a transition clip exists between consecutive clips
     for (let i = 0; i < sortedVideoClips.length; i++) {
       const clip = sortedVideoClips[i];
       const clipInputIdx = inputIndexMap.get(clip.id);
@@ -1067,7 +1132,6 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
 
       // Scale and position the clip
       const scaleLabel = `scaled${i}`;
-      const overlayLabel = i === sortedVideoClips.length - 1 ? 'vout' : `overlay${i}`;
 
       // Trim source video and shift timestamps to timeline position
       // Using setpts to position the clip at the correct time on the timeline
@@ -1087,14 +1151,44 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
         );
       }
 
-      // Overlay clip on top of previous result
-      // Keep enable as a safety guard for the clip's timeline range
-      const enableStart = timelineStart;
-      const enableEnd = timelineStart + clipDuration;
+      // Check if there's a transition TO this clip (from the previous clip)
+      let useTransition = false;
+      let transitionType = 'fade';
+      let transitionDuration = 0.5;
 
-      filterParts.push(
-        `[${lastVideoLabel}][${scaleLabel}]overlay=0:0:enable='between(t,${enableStart},${enableEnd})'[${overlayLabel}]`
-      );
+      if (i > 0) {
+        const prevClip = sortedVideoClips[i - 1];
+        const transition = findTransitionBetweenClips(prevClip, clip, transitionClips);
+        if (transition) {
+          useTransition = true;
+          transitionType = transition.type;
+          transitionDuration = transition.duration;
+          console.log(`[FFmpeg] Applying ${transitionType} transition (${transitionDuration}s) between "${prevClip.name}" and "${clip.name}"`);
+        }
+      }
+
+      const overlayLabel = i === sortedVideoClips.length - 1 ? 'vout' : `overlay${i}`;
+
+      if (useTransition && i > 0) {
+        // Use xfade transition
+        // xfade needs the transition to happen at the junction point
+        // offset = time when transition starts (relative to first input)
+        const prevClip = sortedVideoClips[i - 1];
+        const transitionOffset = prevClip.start + prevClip.duration - transitionDuration;
+        const xfadeType = mapTransitionToXfade(transitionType);
+
+        filterParts.push(
+          `[${lastVideoLabel}][${scaleLabel}]xfade=transition=${xfadeType}:duration=${transitionDuration}:offset=${transitionOffset}[${overlayLabel}]`
+        );
+      } else {
+        // Standard overlay without transition
+        const enableStart = timelineStart;
+        const enableEnd = timelineStart + clipDuration;
+
+        filterParts.push(
+          `[${lastVideoLabel}][${scaleLabel}]overlay=0:0:enable='between(t,${enableStart},${enableEnd})'[${overlayLabel}]`
+        );
+      }
 
       // Next iteration uses this overlay's output (store WITHOUT brackets)
       lastVideoLabel = overlayLabel;

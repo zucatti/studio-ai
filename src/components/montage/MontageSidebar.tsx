@@ -14,6 +14,7 @@ import {
   GripVertical,
   Play,
   Plus,
+  Shuffle,
 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -48,13 +49,14 @@ interface MontageSidebarProps {
   editionPlans?: EditionPlan[];
 }
 
-type AssetCategory = 'sequences' | 'videos' | 'images' | 'audio';
+type AssetCategory = 'sequences' | 'videos' | 'images' | 'audio' | 'transitions';
 
 const CATEGORY_ICONS: Record<AssetCategory, typeof Film> = {
   sequences: Layers,
   videos: Film,
   images: Image,
   audio: Music,
+  transitions: Shuffle,
 };
 
 const CATEGORY_LABELS: Record<AssetCategory, string> = {
@@ -62,7 +64,35 @@ const CATEGORY_LABELS: Record<AssetCategory, string> = {
   videos: 'Vidéos',
   images: 'Images',
   audio: 'Audio',
+  transitions: 'Transitions',
 };
+
+// Transition types with metadata
+import { TransitionType } from '@/store/montage-store';
+
+interface TransitionInfo {
+  type: TransitionType;
+  label: string;
+  category: string;
+}
+
+const TRANSITIONS: TransitionInfo[] = [
+  // Basic
+  { type: 'fade', label: 'Fondu', category: 'Basique' },
+  { type: 'dissolve', label: 'Fondu enchaîné', category: 'Basique' },
+  // Fade to color
+  { type: 'fadeblack', label: 'Fondu au noir', category: 'Couleur' },
+  { type: 'fadewhite', label: 'Fondu au blanc', category: 'Couleur' },
+  // Directional
+  { type: 'directional-left', label: 'Glissement gauche', category: 'Direction' },
+  { type: 'directional-right', label: 'Glissement droite', category: 'Direction' },
+  { type: 'directional-up', label: 'Glissement haut', category: 'Direction' },
+  { type: 'directional-down', label: 'Glissement bas', category: 'Direction' },
+  // Zoom
+  { type: 'crosszoom', label: 'Zoom croisé', category: 'Zoom' },
+  { type: 'zoomin', label: 'Zoom avant', category: 'Zoom' },
+  { type: 'zoomout', label: 'Zoom arrière', category: 'Zoom' },
+];
 
 export function MontageSidebar({ projectId, shortId, className, editionSequences, editionPlans }: MontageSidebarProps) {
   const [activeTab, setActiveTab] = useState<AssetCategory>('sequences');
@@ -447,6 +477,7 @@ export function MontageSidebar({ projectId, shortId, className, editionSequences
       videos: assets.filter(a => a.type === 'video' || a.type === 'rush').length,
       images: assets.filter(a => a.type === 'image' || a.type === 'storyboard').length,
       audio: assets.filter(a => a.type === 'audio').length,
+      transitions: TRANSITIONS.length,
     };
   }, [assets]);
 
@@ -493,7 +524,14 @@ export function MontageSidebar({ projectId, shortId, className, editionSequences
         {/* Assets list */}
         <ScrollArea className="flex-1">
           <div className="p-1 space-y-0.5">
-            {isLoading ? (
+            {activeTab === 'transitions' ? (
+              // Transitions list
+              <div className="space-y-0.5">
+                {TRANSITIONS.map((transition) => (
+                  <TransitionItem key={transition.type} transition={transition} />
+                ))}
+              </div>
+            ) : isLoading ? (
               <div className="flex items-center justify-center py-8 text-slate-500">
                 <div className="animate-spin w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full" />
               </div>
@@ -703,5 +741,344 @@ function AssetItem({ asset }: { asset: MontageAsset }) {
         <Plus className="w-3.5 h-3.5 text-slate-400" />
       </button>
     </div>
+  );
+}
+
+// Transition item with animated preview
+function TransitionItem({ transition }: { transition: TransitionInfo }) {
+  const { addClip, tracks, addTrack } = useMontageStore();
+  const [isHovered, setIsHovered] = useState(false);
+
+  // Handle drag start
+  const handleDragStart = useCallback(
+    (e: React.DragEvent) => {
+      const data = {
+        type: 'transition',
+        transitionType: transition.type,
+        name: transition.label,
+        duration: 0.5, // Default transition duration
+      };
+      e.dataTransfer.setData('application/json', JSON.stringify(data));
+      e.dataTransfer.effectAllowed = 'copy';
+    },
+    [transition]
+  );
+
+  // Handle double-click to add to timeline
+  const handleDoubleClick = useCallback(() => {
+    // Find video track (transitions go on video track between clips)
+    let targetTrack = tracks.find((t) => t.type === 'video');
+    if (!targetTrack) {
+      const trackId = addTrack('video');
+      targetTrack = tracks.find((t) => t.id === trackId);
+    }
+
+    if (!targetTrack) return;
+
+    // Calculate start position (at playhead or end of last clip)
+    const store = useMontageStore.getState();
+    const startTime = store.currentTime || 0;
+
+    // Add transition clip
+    addClip({
+      type: 'transition',
+      trackId: targetTrack.id,
+      start: startTime,
+      duration: 0.5, // Default 0.5s
+      name: transition.label,
+      transitionType: transition.type,
+      color: '#f97316', // Orange for transitions
+    });
+  }, [transition, tracks, addTrack, addClip]);
+
+  return (
+    <div
+      draggable
+      onDragStart={handleDragStart}
+      onDoubleClick={handleDoubleClick}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className={cn(
+        'group flex items-center gap-2 p-1.5 rounded-md cursor-grab',
+        'hover:bg-white/5 active:cursor-grabbing',
+        'transition-colors'
+      )}
+    >
+      {/* Drag handle */}
+      <GripVertical className="w-3 h-3 text-slate-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+
+      {/* Animated preview */}
+      <div className="relative w-12 h-12 rounded overflow-hidden bg-slate-900 flex-shrink-0">
+        <TransitionPreview type={transition.type} isPlaying={isHovered} />
+      </div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-white/90 truncate">{transition.label}</p>
+        <p className="text-[10px] text-slate-500 truncate">{transition.category}</p>
+      </div>
+
+      {/* Add button */}
+      <button
+        onClick={handleDoubleClick}
+        className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-white/10 transition-all"
+        title="Ajouter à la timeline"
+      >
+        <Plus className="w-3.5 h-3.5 text-slate-400" />
+      </button>
+    </div>
+  );
+}
+
+// Animated transition preview component
+function TransitionPreview({ type, isPlaying }: { type: TransitionType; isPlaying: boolean }) {
+  // CSS animations for each transition type
+  const getAnimationStyles = (): { left: React.CSSProperties; right: React.CSSProperties } => {
+    const baseLeft: React.CSSProperties = {
+      position: 'absolute',
+      width: '100%',
+      height: '100%',
+      backgroundColor: '#3b82f6', // Blue
+      transition: 'none',
+    };
+    const baseRight: React.CSSProperties = {
+      position: 'absolute',
+      width: '100%',
+      height: '100%',
+      backgroundColor: '#8b5cf6', // Purple
+      transition: 'none',
+    };
+
+    if (!isPlaying) {
+      // Static: show split view
+      return {
+        left: { ...baseLeft, clipPath: 'inset(0 50% 0 0)' },
+        right: { ...baseRight, clipPath: 'inset(0 0 0 50%)' },
+      };
+    }
+
+    // Playing animations
+    const duration = '1.5s';
+    const timing = 'ease-in-out';
+    const iterationCount = 'infinite';
+
+    switch (type) {
+      case 'fade':
+      case 'dissolve':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `fadeOut ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            animation: `fadeIn ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      case 'fadeblack':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `fadeOut ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            backgroundColor: '#000',
+            animation: `fadeBlackIn ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      case 'fadewhite':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `fadeOut ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            backgroundColor: '#fff',
+            animation: `fadeWhiteIn ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      case 'directional-left':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `slideOutLeft ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            animation: `slideInLeft ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      case 'directional-right':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `slideOutRight ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            animation: `slideInRight ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      case 'directional-up':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `slideOutUp ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            animation: `slideInUp ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      case 'directional-down':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `slideOutDown ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            animation: `slideInDown ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      case 'crosszoom':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `zoomOut ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            animation: `zoomIn ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      case 'zoomin':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `zoomOutFade ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            animation: `zoomInFade ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      case 'zoomout':
+        return {
+          left: {
+            ...baseLeft,
+            animation: `zoomInReverse ${duration} ${timing} ${iterationCount}`,
+          },
+          right: {
+            ...baseRight,
+            animation: `zoomOutReverse ${duration} ${timing} ${iterationCount}`,
+          },
+        };
+
+      default:
+        return {
+          left: { ...baseLeft, clipPath: 'inset(0 50% 0 0)' },
+          right: { ...baseRight, clipPath: 'inset(0 0 0 50%)' },
+        };
+    }
+  };
+
+  const styles = getAnimationStyles();
+
+  return (
+    <>
+      {/* CSS Keyframes */}
+      <style jsx>{`
+        @keyframes fadeOut {
+          0%, 30% { opacity: 1; }
+          70%, 100% { opacity: 0; }
+        }
+        @keyframes fadeIn {
+          0%, 30% { opacity: 0; }
+          70%, 100% { opacity: 1; }
+        }
+        @keyframes fadeBlackIn {
+          0% { opacity: 0; background-color: #000; }
+          40% { opacity: 1; background-color: #000; }
+          60% { opacity: 1; background-color: #000; }
+          100% { opacity: 1; background-color: #8b5cf6; }
+        }
+        @keyframes fadeWhiteIn {
+          0% { opacity: 0; background-color: #fff; }
+          40% { opacity: 1; background-color: #fff; }
+          60% { opacity: 1; background-color: #fff; }
+          100% { opacity: 1; background-color: #8b5cf6; }
+        }
+        @keyframes slideOutLeft {
+          0%, 20% { transform: translateX(0); }
+          80%, 100% { transform: translateX(-100%); }
+        }
+        @keyframes slideInLeft {
+          0%, 20% { transform: translateX(100%); }
+          80%, 100% { transform: translateX(0); }
+        }
+        @keyframes slideOutRight {
+          0%, 20% { transform: translateX(0); }
+          80%, 100% { transform: translateX(100%); }
+        }
+        @keyframes slideInRight {
+          0%, 20% { transform: translateX(-100%); }
+          80%, 100% { transform: translateX(0); }
+        }
+        @keyframes slideOutUp {
+          0%, 20% { transform: translateY(0); }
+          80%, 100% { transform: translateY(-100%); }
+        }
+        @keyframes slideInUp {
+          0%, 20% { transform: translateY(100%); }
+          80%, 100% { transform: translateY(0); }
+        }
+        @keyframes slideOutDown {
+          0%, 20% { transform: translateY(0); }
+          80%, 100% { transform: translateY(100%); }
+        }
+        @keyframes slideInDown {
+          0%, 20% { transform: translateY(-100%); }
+          80%, 100% { transform: translateY(0); }
+        }
+        @keyframes zoomOut {
+          0%, 20% { transform: scale(1); opacity: 1; }
+          80%, 100% { transform: scale(0.5); opacity: 0; }
+        }
+        @keyframes zoomIn {
+          0%, 20% { transform: scale(1.5); opacity: 0; }
+          80%, 100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes zoomOutFade {
+          0%, 20% { transform: scale(1); opacity: 1; }
+          80%, 100% { transform: scale(0.8); opacity: 0; }
+        }
+        @keyframes zoomInFade {
+          0%, 20% { transform: scale(1.2); opacity: 0; }
+          80%, 100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes zoomInReverse {
+          0%, 20% { transform: scale(1); opacity: 1; }
+          80%, 100% { transform: scale(1.2); opacity: 0; }
+        }
+        @keyframes zoomOutReverse {
+          0%, 20% { transform: scale(0.8); opacity: 0; }
+          80%, 100% { transform: scale(1); opacity: 1; }
+        }
+      `}</style>
+      <div style={styles.left} />
+      <div style={styles.right} />
+    </>
   );
 }

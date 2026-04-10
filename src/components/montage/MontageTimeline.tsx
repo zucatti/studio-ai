@@ -172,12 +172,36 @@ export function MontageTimeline({ className }: MontageTimelineProps) {
       if (!data) return;
 
       try {
-        const asset: MontageAsset = JSON.parse(data);
+        const parsed = JSON.parse(data);
 
         // Calculate drop position
         const rect = e.currentTarget.getBoundingClientRect();
         const x = e.clientX - rect.left + scrollLeft;
         const startTime = Math.max(0, x / scale);
+
+        // Check if it's a transition
+        if (parsed.type === 'transition' && parsed.transitionType) {
+          // Transitions go on video tracks only
+          const track = tracks.find(t => t.id === trackId);
+          if (track?.type !== 'video') {
+            console.warn('Transitions can only be placed on video tracks');
+            return;
+          }
+
+          addClip({
+            type: 'transition',
+            trackId,
+            start: startTime,
+            duration: parsed.duration || 0.5,
+            name: parsed.name,
+            transitionType: parsed.transitionType,
+            color: '#f97316', // Orange for transitions
+          });
+          return;
+        }
+
+        // Regular asset drop
+        const asset: MontageAsset = parsed;
 
         // Determine clip type
         const clipType: ClipType = asset.type === 'audio' ? 'audio' : 'video';
@@ -199,7 +223,7 @@ export function MontageTimeline({ className }: MontageTimelineProps) {
         console.error('Failed to parse drop data:', err);
       }
     },
-    [scrollLeft, scale, addClip]
+    [scrollLeft, scale, addClip, tracks]
   );
 
   // Handle drag over
