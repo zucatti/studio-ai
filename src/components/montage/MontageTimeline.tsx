@@ -17,6 +17,7 @@ import {
   Plus,
   Trash2,
   GripVertical,
+  Shuffle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
@@ -251,6 +252,7 @@ export function MontageTimeline({ className }: MontageTimelineProps) {
             size="sm"
             className="h-7 px-2"
             onClick={() => addTrack('video')}
+            title="Ajouter piste vidéo"
           >
             <Film className="w-3.5 h-3.5 mr-1" />
             <Plus className="w-3 h-3" />
@@ -260,8 +262,19 @@ export function MontageTimeline({ className }: MontageTimelineProps) {
             size="sm"
             className="h-7 px-2"
             onClick={() => addTrack('audio')}
+            title="Ajouter piste audio"
           >
             <Music className="w-3.5 h-3.5 mr-1" />
+            <Plus className="w-3 h-3" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2"
+            onClick={() => addTrack('transition')}
+            title="Ajouter piste transition"
+          >
+            <Shuffle className="w-3.5 h-3.5 mr-1" />
             <Plus className="w-3 h-3" />
           </Button>
         </div>
@@ -395,7 +408,7 @@ function TrackRow({
     return filtered;
   }, [allClips, track.id, track.name]);
 
-  const Icon = track.type === 'audio' ? Music : track.type === 'text' ? Type : Film;
+  const Icon = track.type === 'audio' ? Music : track.type === 'text' ? Type : track.type === 'transition' ? Shuffle : Film;
 
   return (
     <div
@@ -410,7 +423,8 @@ function TrackRow({
         <GripVertical className="w-3 h-3 text-slate-600 cursor-grab" />
         <Icon className={cn(
           'w-3.5 h-3.5',
-          track.type === 'audio' ? 'text-green-400' : 'text-purple-400'
+          track.type === 'audio' ? 'text-green-400' :
+          track.type === 'transition' ? 'text-orange-400' : 'text-purple-400'
         )} />
         <span className="flex-1 text-xs text-slate-300 truncate">{track.name}</span>
 
@@ -538,12 +552,14 @@ function ClipItem({
 }) {
   const clipRef = useRef<HTMLDivElement>(null);
   const { selectClip, moveClip, resizeClip, updateClip } = useMontageStore();
-  const { signedUrl, isLoading, error } = useSignedUrl(clip.thumbnailUrl || null);
+  const { signedUrl: thumbnailSignedUrl, isLoading, error } = useSignedUrl(clip.thumbnailUrl || null);
+  // For audio clips, sign the asset URL for waveform display
+  const { signedUrl: audioSignedUrl } = useSignedUrl(clip.type === 'audio' ? (clip.assetUrl || null) : null);
 
   // Debug logging
   useEffect(() => {
-    console.log(`[ClipItem] ${clip.id}: thumbnailUrl=${clip.thumbnailUrl?.substring(0, 50)}, signedUrl=${signedUrl?.substring(0, 50)}, isLoading=${isLoading}, error=${error?.message}`);
-  }, [clip.id, clip.thumbnailUrl, signedUrl, isLoading, error]);
+    console.log(`[ClipItem] ${clip.id}: thumbnailUrl=${clip.thumbnailUrl?.substring(0, 50)}, thumbnailSignedUrl=${thumbnailSignedUrl?.substring(0, 50)}, isLoading=${isLoading}, error=${error?.message}`);
+  }, [clip.id, clip.thumbnailUrl, thumbnailSignedUrl, isLoading, error]);
 
   // Local state for immediate visual feedback during drag/resize
   const [localPosition, setLocalPosition] = useState<{
@@ -721,17 +737,38 @@ function ClipItem({
       onMouseDown={handleMouseDown}
     >
       {/* Thumbnail background - use video element if URL is a video file */}
-      {signedUrl && clip.type !== 'audio' && (
-        isVideoFile(signedUrl) ? (
-          <VideoThumbnail src={signedUrl} />
+      {thumbnailSignedUrl && clip.type !== 'audio' && clip.type !== 'transition' && (
+        isVideoFile(thumbnailSignedUrl) ? (
+          <VideoThumbnail src={thumbnailSignedUrl} />
         ) : (
           <img
-            src={signedUrl}
+            src={thumbnailSignedUrl}
             alt=""
             className="absolute inset-0 w-full h-full object-cover opacity-60"
             draggable={false}
           />
         )
+      )}
+
+      {/* Audio waveform visualization */}
+      {clip.type === 'audio' && audioSignedUrl && (
+        <AudioWaveform
+          audioUrl={audioSignedUrl}
+          width={width}
+          height={trackHeight - 8}
+          color="rgba(255, 255, 255, 0.6)"
+        />
+      )}
+
+      {/* Transition visual */}
+      {clip.type === 'transition' && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="flex items-center gap-1 opacity-60">
+            <div className="w-0 h-0 border-t-4 border-b-4 border-l-6 border-transparent border-l-white" />
+            <Shuffle className="w-4 h-4" />
+            <div className="w-0 h-0 border-t-4 border-b-4 border-r-6 border-transparent border-r-white" />
+          </div>
+        </div>
       )}
 
       {/* Clip content */}
@@ -750,6 +787,124 @@ function ClipItem({
       <div className="resize-left absolute left-0 top-0 bottom-0 w-3 z-20 cursor-ew-resize hover:bg-white/40" />
       <div className="resize-right absolute right-0 top-0 bottom-0 w-3 z-20 cursor-ew-resize hover:bg-white/40" />
     </div>
+  );
+}
+
+// Audio waveform visualization component
+function AudioWaveform({
+  audioUrl,
+  width,
+  height,
+  color = '#22c55e',
+}: {
+  audioUrl: string;
+  width: number;
+  height: number;
+  color?: string;
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [waveformData, setWaveformData] = useState<number[] | null>(null);
+
+  // Load and analyze audio
+  useEffect(() => {
+    if (!audioUrl) return;
+
+    let cancelled = false;
+    const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
+
+    const loadAudio = async () => {
+      try {
+        const response = await fetch(audioUrl);
+        const arrayBuffer = await response.arrayBuffer();
+        const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+        if (cancelled) return;
+
+        // Get channel data (use first channel)
+        const channelData = audioBuffer.getChannelData(0);
+
+        // Sample the waveform (reduce to ~200 points)
+        const samples = 200;
+        const blockSize = Math.floor(channelData.length / samples);
+        const peaks: number[] = [];
+
+        for (let i = 0; i < samples; i++) {
+          const start = i * blockSize;
+          let max = 0;
+          for (let j = 0; j < blockSize; j++) {
+            const val = Math.abs(channelData[start + j] || 0);
+            if (val > max) max = val;
+          }
+          peaks.push(max);
+        }
+
+        setWaveformData(peaks);
+      } catch (err) {
+        console.error('Failed to load audio for waveform:', err);
+      }
+    };
+
+    loadAudio();
+
+    return () => {
+      cancelled = true;
+      audioContext.close();
+    };
+  }, [audioUrl]);
+
+  // Draw waveform
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !waveformData) return;
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    // Set canvas size with device pixel ratio for sharpness
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+
+    // Clear canvas
+    ctx.clearRect(0, 0, width, height);
+
+    // Draw waveform
+    const barWidth = width / waveformData.length;
+    const centerY = height / 2;
+
+    ctx.fillStyle = color;
+
+    waveformData.forEach((peak, i) => {
+      const barHeight = Math.max(2, peak * height * 0.9);
+      const x = i * barWidth;
+      const y = centerY - barHeight / 2;
+
+      ctx.fillRect(x, y, Math.max(1, barWidth - 1), barHeight);
+    });
+  }, [waveformData, width, height, color]);
+
+  if (!waveformData) {
+    // Loading state - show placeholder bars
+    return (
+      <div className="absolute inset-0 flex items-center justify-center gap-0.5 opacity-30">
+        {Array.from({ length: 20 }).map((_, i) => (
+          <div
+            key={i}
+            className="w-1 bg-current"
+            style={{ height: `${20 + Math.random() * 60}%` }}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="absolute inset-0 pointer-events-none"
+      style={{ width, height }}
+    />
   );
 }
 

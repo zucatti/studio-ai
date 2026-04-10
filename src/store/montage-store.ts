@@ -2,8 +2,22 @@ import { create } from 'zustand';
 import { immer } from 'zustand/middleware/immer';
 
 // Types for montage editor
-export type ClipType = 'video' | 'image' | 'audio' | 'text';
-export type TrackType = 'video' | 'audio' | 'text';
+export type ClipType = 'video' | 'image' | 'audio' | 'text' | 'transition';
+export type TrackType = 'video' | 'audio' | 'text' | 'transition';
+
+// Transition types (matches Editly)
+export type TransitionType =
+  | 'fade'
+  | 'fadeblack'
+  | 'fadewhite'
+  | 'dissolve'
+  | 'directional-left'
+  | 'directional-right'
+  | 'directional-up'
+  | 'directional-down'
+  | 'crosszoom'
+  | 'zoomin'
+  | 'zoomout';
 
 export interface MontageClip {
   id: string;
@@ -36,6 +50,9 @@ export interface MontageClip {
   text?: string;
   fontSize?: number;
   fontColor?: string;
+
+  // Transition specific
+  transitionType?: TransitionType;
 }
 
 export interface MontageTrack {

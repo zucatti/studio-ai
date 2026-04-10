@@ -132,13 +132,13 @@ export interface FFmpegJobData extends BaseJobData {
     duration: number;
     tracks: Array<{
       id: string;
-      type: 'video' | 'audio' | 'text';
+      type: 'video' | 'audio' | 'text' | 'transition';
       name: string;
       muted: boolean;
     }>;
     clips: Array<{
       id: string;
-      type: 'video' | 'image' | 'audio' | 'text';
+      type: 'video' | 'image' | 'audio' | 'text' | 'transition';
       trackId: string;
       start: number;
       duration: number;
@@ -146,6 +146,7 @@ export interface FFmpegJobData extends BaseJobData {
       sourceEnd?: number;
       assetUrl: string;
       name: string;
+      transitionType?: string;
     }>;
   };
 }
