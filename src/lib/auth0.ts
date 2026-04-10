@@ -11,16 +11,18 @@ const auth0Client = new Auth0Client({
   clientSecret: process.env.AUTH0_CLIENT_SECRET,
   secret: process.env.AUTH0_SECRET,
   appBaseUrl: baseUrl,
-  // Use default routes: /auth/login, /auth/callback, /auth/logout
-  // Explicitly set authorization params to avoid silent auth issues
   authorizationParameters: {
     scope: 'openid profile email',
-    // Remove offline_access to simplify auth flow
   },
-  // Force cookie domain for reverse proxy setup (only in production)
   session: {
-    cookie: isLocalhost ? {} : {
+    cookie: isLocalhost ? {
+      // Localhost needs explicit cookie config for HTTP
+      secure: false,
+      sameSite: 'lax',
+    } : {
       domain: 'studio.stevencreeks.com',
+      secure: true,
+      sameSite: 'lax',
     },
   },
 });
@@ -31,10 +33,9 @@ const auth0Client = new Auth0Client({
 async function buildCorrectedRequest(): Promise<NextRequest> {
   const cookieStore = await cookies();
 
-  // Filter out empty cookies and old __session format
+  // Filter out empty cookies only
   const validCookies = cookieStore.getAll().filter(c => {
     if (!c.value || c.value === '') return false;
-    if (c.name === '__session') return false;
     return true;
   });
 
