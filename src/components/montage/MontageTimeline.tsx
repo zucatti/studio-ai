@@ -790,7 +790,7 @@ function ClipItem({
   );
 }
 
-// Audio waveform visualization component
+// Audio waveform visualization component - smooth mirrored waveform like pro editors
 function AudioWaveform({
   audioUrl,
   width,
@@ -828,22 +828,34 @@ function AudioWaveform({
         // Get channel data (use first channel)
         const channelData = audioBuffer.getChannelData(0);
 
-        // Sample the waveform (reduce to ~200 points)
-        const samples = 200;
+        // Calculate samples based on width for smooth rendering (1 sample per 2 pixels)
+        const samples = Math.max(100, Math.min(Math.floor(width / 2), 500));
         const blockSize = Math.floor(channelData.length / samples);
         const peaks: number[] = [];
 
         for (let i = 0; i < samples; i++) {
           const start = i * blockSize;
+          let sum = 0;
           let max = 0;
+
+          // Calculate both RMS and peak for smoother waveform
           for (let j = 0; j < blockSize; j++) {
             const val = Math.abs(channelData[start + j] || 0);
+            sum += val * val;
             if (val > max) max = val;
           }
-          peaks.push(max);
+
+          // Use a mix of RMS and peak for a balanced look
+          const rms = Math.sqrt(sum / blockSize);
+          const value = rms * 0.7 + max * 0.3;
+          peaks.push(value);
         }
 
-        setWaveformData(peaks);
+        // Normalize peaks
+        const maxPeak = Math.max(...peaks, 0.01);
+        const normalized = peaks.map(p => p / maxPeak);
+
+        setWaveformData(normalized);
       } catch (err) {
         console.error('Failed to load audio for waveform:', err);
       }
@@ -855,7 +867,7 @@ function AudioWaveform({
       cancelled = true;
       audioContext.close();
     };
-  }, [audioUrl]);
+  }, [audioUrl, width]);
 
   // Draw waveform
   useEffect(() => {
@@ -874,32 +886,78 @@ function AudioWaveform({
     // Clear canvas
     ctx.clearRect(0, 0, width, height);
 
-    // Draw waveform
-    const barWidth = width / waveformData.length;
     const centerY = height / 2;
+    const amplitude = height * 0.45; // Leave some margin
+    const stepX = width / waveformData.length;
 
-    ctx.fillStyle = color;
+    // Create gradient for a nicer look
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, color);
+    gradient.addColorStop(0.5, color);
+    gradient.addColorStop(1, color);
 
-    waveformData.forEach((peak, i) => {
-      const barHeight = Math.max(2, peak * height * 0.9);
-      const x = i * barWidth;
-      const y = centerY - barHeight / 2;
+    // Draw filled waveform path (mirrored)
+    ctx.beginPath();
+    ctx.moveTo(0, centerY);
 
-      ctx.fillRect(x, y, Math.max(1, barWidth - 1), barHeight);
-    });
+    // Top half
+    for (let i = 0; i < waveformData.length; i++) {
+      const x = i * stepX;
+      const y = centerY - waveformData[i] * amplitude;
+      if (i === 0) {
+        ctx.lineTo(x, y);
+      } else {
+        // Use quadratic curve for smoothing
+        const prevX = (i - 1) * stepX;
+        const cpX = (prevX + x) / 2;
+        ctx.quadraticCurveTo(prevX, centerY - waveformData[i - 1] * amplitude, cpX, (centerY - waveformData[i - 1] * amplitude + y) / 2);
+      }
+    }
+    ctx.lineTo(width, centerY);
+
+    // Bottom half (mirrored)
+    for (let i = waveformData.length - 1; i >= 0; i--) {
+      const x = i * stepX;
+      const y = centerY + waveformData[i] * amplitude;
+      if (i === waveformData.length - 1) {
+        ctx.lineTo(x, y);
+      } else {
+        const nextX = (i + 1) * stepX;
+        const cpX = (nextX + x) / 2;
+        ctx.quadraticCurveTo(nextX, centerY + waveformData[i + 1] * amplitude, cpX, (centerY + waveformData[i + 1] * amplitude + y) / 2);
+      }
+    }
+
+    ctx.closePath();
+    ctx.fillStyle = gradient;
+    ctx.fill();
+
+    // Add a subtle center line
+    ctx.beginPath();
+    ctx.moveTo(0, centerY);
+    ctx.lineTo(width, centerY);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
   }, [waveformData, width, height, color]);
 
   if (!waveformData) {
-    // Loading state - show placeholder bars
+    // Loading state - animated placeholder
     return (
-      <div className="absolute inset-0 flex items-center justify-center gap-0.5 opacity-30">
-        {Array.from({ length: 20 }).map((_, i) => (
-          <div
-            key={i}
-            className="w-1 bg-current"
-            style={{ height: `${20 + Math.random() * 60}%` }}
-          />
-        ))}
+      <div className="absolute inset-0 flex items-center justify-center opacity-30 overflow-hidden">
+        <div className="flex items-center gap-[2px] h-full py-2">
+          {Array.from({ length: 30 }).map((_, i) => (
+            <div
+              key={i}
+              className="w-[3px] bg-white/50 rounded-full animate-pulse"
+              style={{
+                height: `${30 + Math.sin(i * 0.5) * 20 + Math.random() * 20}%`,
+                animationDelay: `${i * 50}ms`
+              }}
+            />
+          ))}
+        </div>
       </div>
     );
   }
