@@ -20,6 +20,7 @@ import {
   Maximize2,
   Film,
   Loader2,
+  Import,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
@@ -34,11 +35,13 @@ interface MontageToolbarProps {
   className?: string;
   onSave?: () => void;
   onRender?: () => void;
+  onImportFromEdition?: () => void;
+  hasEditionPlans?: boolean;
   isRendering?: boolean;
   renderProgress?: number;
 }
 
-export function MontageToolbar({ className, onSave, onRender, isRendering, renderProgress }: MontageToolbarProps) {
+export function MontageToolbar({ className, onSave, onRender, onImportFromEdition, hasEditionPlans, isRendering, renderProgress }: MontageToolbarProps) {
   const {
     isPlaying,
     currentTime,
@@ -218,6 +221,18 @@ export function MontageToolbar({ className, onSave, onRender, isRendering, rende
 
         {/* Save/Render */}
         <div className="flex items-center gap-2">
+          {onImportFromEdition && hasEditionPlans && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onImportFromEdition}
+              className="h-8 text-purple-400 hover:text-purple-300"
+            >
+              <Import className="w-4 h-4 mr-1.5" />
+              Importer Édition
+            </Button>
+          )}
+
           <Button
             variant="ghost"
             size="sm"

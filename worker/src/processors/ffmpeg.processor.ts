@@ -321,6 +321,13 @@ async function processSequenceAssembly(data: FFmpegJobData): Promise<void> {
     }
     const hasAnyAudio = audioStatus.some(Boolean);
 
+    // Get video info for the first file to determine target resolution
+    const firstVideoInfo = await getVideoInfo(videoFiles[0]);
+    const targetWidth = firstVideoInfo.width || 1080;
+    const targetHeight = firstVideoInfo.height || 1920;
+    const targetFps = 30; // Normalize to 30fps
+    console.log(`[FFmpeg] Target resolution: ${targetWidth}x${targetHeight} @ ${targetFps}fps`);
+
     // Build FFmpeg command based on number of clips
     // Use filter_complex with audio crossfade to eliminate clicks at junction points
     const AUDIO_CROSSFADE_DURATION = 0.05; // 50ms - imperceptible but eliminates clicks
@@ -328,10 +335,11 @@ async function processSequenceAssembly(data: FFmpegJobData): Promise<void> {
     let ffmpegArgs: string[];
 
     if (videoFiles.length === 1) {
-      // Single clip - just re-encode
+      // Single clip - just re-encode with normalization
       const singleHasAudio = audioStatus[0];
       ffmpegArgs = [
         '-i', videoFiles[0],
+        '-vf', `scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2,fps=${targetFps},format=yuv420p`,
         '-c:v', 'libx264',
         '-preset', 'fast',
         '-crf', '18',
@@ -341,7 +349,7 @@ async function processSequenceAssembly(data: FFmpegJobData): Promise<void> {
         outputPath,
       ];
     } else {
-      // Multiple clips - use filter_complex with audio crossfade
+      // Multiple clips - use filter_complex with normalization and audio crossfade
       // Build input arguments
       const inputArgs: string[] = [];
       for (const file of videoFiles) {
@@ -350,14 +358,22 @@ async function processSequenceAssembly(data: FFmpegJobData): Promise<void> {
 
       const n = videoFiles.length;
 
-      // Video concat: [0:v][1:v]...[n-1:v]concat=n=N:v=1:a=0[outv]
-      const videoInputs = videoFiles.map((_, i) => `[${i}:v]`).join('');
+      // Normalize each video: scale, pad, fps, format - then concat
+      // This ensures all streams have identical parameters before concatenation
+      const normalizeFilters = videoFiles.map((_, i) =>
+        `[${i}:v]scale=${targetWidth}:${targetHeight}:force_original_aspect_ratio=decrease,` +
+        `pad=${targetWidth}:${targetHeight}:(ow-iw)/2:(oh-ih)/2,` +
+        `fps=${targetFps},format=yuv420p,setsar=1[v${i}]`
+      );
+
+      // Video concat with normalized streams
+      const videoInputs = videoFiles.map((_, i) => `[v${i}]`).join('');
       const videoConcat = `${videoInputs}concat=n=${n}:v=1:a=0[outv]`;
 
       if (!hasAnyAudio) {
         // No audio in any clip - video only output
         console.log(`[FFmpeg] No audio in any clip, video-only output`);
-        const filterComplex = videoConcat;
+        const filterComplex = [...normalizeFilters, videoConcat].join(';');
         console.log(`[FFmpeg] Filter complex: ${filterComplex}`);
 
         ffmpegArgs = [
@@ -413,8 +429,8 @@ async function processSequenceAssembly(data: FFmpegJobData): Promise<void> {
           audioFilter = crossfades.join(';');
         }
 
-        // Combine all filter parts
-        const allFilters = [...audioFilters, videoConcat, audioFilter].filter(Boolean);
+        // Combine all filter parts: normalize videos, then concat, then audio
+        const allFilters = [...normalizeFilters, ...audioFilters, videoConcat, audioFilter].filter(Boolean);
         const filterComplex = allFilters.join(';');
         console.log(`[FFmpeg] Filter complex: ${filterComplex}`);
 
@@ -746,6 +762,58 @@ async function getVideoDuration(videoPath: string): Promise<number> {
 
     proc.on('error', () => {
       resolve(0);
+    });
+  });
+}
+
+/**
+ * Get video info (width, height, fps) using ffprobe
+ */
+async function getVideoInfo(videoPath: string): Promise<{ width: number; height: number; fps: number }> {
+  return new Promise((resolve) => {
+    const proc = spawn('ffprobe', [
+      '-v', 'error',
+      '-select_streams', 'v:0',
+      '-show_entries', 'stream=width,height,r_frame_rate',
+      '-of', 'json',
+      videoPath,
+    ], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    let stdout = '';
+    proc.stdout?.on('data', (data) => {
+      stdout += data.toString();
+    });
+
+    proc.on('close', () => {
+      try {
+        const data = JSON.parse(stdout);
+        const stream = data.streams?.[0];
+        if (stream) {
+          // Parse frame rate (e.g., "30/1" or "30000/1001")
+          let fps = 30;
+          if (stream.r_frame_rate) {
+            const [num, den] = stream.r_frame_rate.split('/').map(Number);
+            if (num && den) {
+              fps = Math.round(num / den);
+            }
+          }
+          resolve({
+            width: stream.width || 1080,
+            height: stream.height || 1920,
+            fps,
+          });
+          return;
+        }
+      } catch {
+        // Parse error
+      }
+      resolve({ width: 1080, height: 1920, fps: 30 });
+    });
+
+    proc.on('error', () => {
+      resolve({ width: 1080, height: 1920, fps: 30 });
     });
   });
 }

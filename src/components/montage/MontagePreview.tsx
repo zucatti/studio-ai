@@ -145,10 +145,13 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
   }, [currentClipId, signedUrl]);
 
   // Seek video when timeline position changes (while paused)
+  // Note: We always get currentTime from store directly because storeCurrentTime
+  // is null during playback and might be stale when pausing
   useEffect(() => {
     if (!videoRef.current || !currentClip || !signedUrl || isPlaying) return;
 
-    const time = storeCurrentTime ?? useMontageStore.getState().currentTime;
+    // Always get fresh time from store (not storeCurrentTime which was null during playback)
+    const time = useMontageStore.getState().currentTime;
     const clipTime = time - currentClip.start;
     const sourceTime = (currentClip.sourceStart || 0) + clipTime;
 
