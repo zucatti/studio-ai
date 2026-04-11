@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useEffect, useState } from 'react';
-import { Check, Clock, Image as ImageIcon, Video as VideoIcon, Edit2, Maximize2, X } from 'lucide-react';
+import { Check, Clock, Image as ImageIcon, Video as VideoIcon, Edit2, Maximize2, X, ImagePlus } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { useRushCreatorStore } from '@/store/rush-creator-store';
@@ -16,9 +16,13 @@ interface RushMediaCardProps {
 export function RushMediaCard({ media, isCurrent }: RushMediaCardProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const fullscreenVideoRef = useRef<HTMLVideoElement>(null);
-  const { selectedIds, toggleSelect, loadPromptFromMedia } = useRushCreatorStore();
+  const { selectedIds, toggleSelect, loadPromptFromMedia, sourceImageUrl, setSourceImageUrl } = useRushCreatorStore();
   const isSelected = selectedIds.has(media.id);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const isVideo = media.media_type === 'video';
+
+  // Check if this media is currently set as reference image (only for images)
+  const isReferenceImage = !isVideo && sourceImageUrl === media.url;
 
   // Sign URLs if needed
   const { signedUrl: signedMediaUrl } = useSignedUrl(media.url);
@@ -26,8 +30,6 @@ export function RushMediaCard({ media, isCurrent }: RushMediaCardProps) {
 
   const finalUrl = signedMediaUrl || (media.url && !isB2Url(media.url) ? media.url : null);
   const finalThumbUrl = signedThumbUrl || (media.thumbnail_url && !isB2Url(media.thumbnail_url) ? media.thumbnail_url : null);
-
-  const isVideo = media.media_type === 'video';
 
   // Auto-play video when current
   useEffect(() => {
@@ -80,6 +82,21 @@ export function RushMediaCard({ media, isCurrent }: RushMediaCardProps) {
     toggleSelect(media.id);
   };
 
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    // Only allow images to be set as reference (not videos)
+    if (isVideo) return;
+    e.stopPropagation();
+
+    // Toggle reference image
+    if (isReferenceImage) {
+      // Already reference - clear it
+      setSourceImageUrl(null);
+    } else {
+      // Set as reference
+      setSourceImageUrl(media.url);
+    }
+  };
+
   const handleFullscreen = (e: React.MouseEvent) => {
     e.stopPropagation();
     setIsFullscreen(true);
@@ -98,9 +115,10 @@ export function RushMediaCard({ media, isCurrent }: RushMediaCardProps) {
         className={cn(
           'relative rounded-xl overflow-hidden shadow-2xl transition-all duration-300',
           isCurrent && 'ring-2',
-          isCurrent && isSelected ? 'ring-green-500' : 'ring-white/20'
+          isReferenceImage ? 'ring-amber-500' : (isCurrent && isSelected ? 'ring-green-500' : 'ring-white/20')
         )}
         onClick={handleClick}
+        onDoubleClick={handleDoubleClick}
       >
         {/* Media content */}
         {isVideo && finalUrl ? (
@@ -135,10 +153,21 @@ export function RushMediaCard({ media, isCurrent }: RushMediaCardProps) {
           </div>
         )}
 
+        {/* Reference image tag */}
+        {isReferenceImage && (
+          <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-amber-500 text-white text-xs font-semibold shadow-lg">
+            <ImagePlus className="w-3.5 h-3.5" />
+            Image de référence
+          </div>
+        )}
+
         {/* Info overlay - top */}
         <div className="absolute top-0 left-0 right-0 bg-gradient-to-b from-black/80 to-transparent p-3 pb-10">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-white flex items-center gap-2 pointer-events-none">
+            <span className={cn(
+              "text-sm font-medium text-white flex items-center gap-2 pointer-events-none",
+              isReferenceImage && "opacity-0" // Hide when reference tag is showing
+            )}>
               {isVideo ? (
                 <VideoIcon className="w-4 h-4 text-purple-400" />
               ) : (
