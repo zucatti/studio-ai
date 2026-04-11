@@ -130,10 +130,10 @@ export default function BookEditorPage() {
             size="sm"
             onClick={() => setShowImportDialog(true)}
             className="h-8 px-2 text-slate-400 hover:text-white hover:bg-white/10 gap-1"
-            title="Importer un fichier DOCX"
+            title="Importer un fichier EPUB ou DOCX"
           >
             <Upload className="w-4 h-4" />
-            <span className="text-xs">DOCX</span>
+            <span className="text-xs">Import</span>
           </Button>
         </div>
       </div>

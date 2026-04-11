@@ -24,7 +24,7 @@ interface ImportResult {
   chapters: number;
   created: string[];
   updated: string[];
-  warnings: string[];
+  warnings?: string[];
 }
 
 export function ImportDocxDialog({
@@ -43,6 +43,15 @@ export function ImportDocxDialog({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Determine endpoint based on file type
+    const isEpub = file.name.toLowerCase().endsWith('.epub');
+    const isDocx = file.name.toLowerCase().endsWith('.docx');
+
+    if (!isEpub && !isDocx) {
+      setError('Format non supporté. Utilisez .epub ou .docx');
+      return;
+    }
+
     setIsUploading(true);
     setError(null);
     setResult(null);
@@ -51,8 +60,9 @@ export function ImportDocxDialog({
       const formData = new FormData();
       formData.append('file', file);
 
+      const endpoint = isEpub ? 'import-epub' : 'import-docx';
       const response = await fetch(
-        `/api/projects/${projectId}/books/${bookId}/import-docx`,
+        `/api/projects/${projectId}/books/${bookId}/${endpoint}`,
         {
           method: 'POST',
           body: formData,
@@ -93,10 +103,10 @@ export function ImportDocxDialog({
         <DialogHeader>
           <DialogTitle className="text-white flex items-center gap-2">
             <FileText className="w-5 h-5 text-amber-400" />
-            Importer un fichier DOCX
+            Importer un livre
           </DialogTitle>
           <DialogDescription className="text-slate-400">
-            Importez un document Word (.docx) exporté depuis Pages ou Word.
+            Importez un fichier EPUB ou DOCX exporté depuis Pages.
             Les chapitres seront détectés automatiquement.
           </DialogDescription>
         </DialogHeader>
@@ -131,7 +141,7 @@ export function ImportDocxDialog({
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".docx"
+                accept=".epub,.docx"
                 onChange={handleFileSelect}
                 className="hidden"
                 disabled={isUploading}
@@ -145,8 +155,8 @@ export function ImportDocxDialog({
               ) : (
                 <div className="flex flex-col items-center gap-2">
                   <Upload className="w-8 h-8 text-slate-500" />
-                  <p className="text-slate-300">Cliquez pour sélectionner un fichier .docx</p>
-                  <p className="text-sm text-slate-500">ou glissez-déposez ici</p>
+                  <p className="text-slate-300">Cliquez pour sélectionner un fichier</p>
+                  <p className="text-sm text-slate-500">.epub (recommandé) ou .docx</p>
                 </div>
               )}
             </div>
@@ -194,7 +204,7 @@ export function ImportDocxDialog({
                 </div>
               )}
 
-              {result.warnings.length > 0 && (
+              {result.warnings && result.warnings.length > 0 && (
                 <div className="text-sm">
                   <p className="text-slate-400 mb-1">Avertissements :</p>
                   <ul className="list-disc list-inside text-yellow-400 space-y-0.5">
