@@ -183,26 +183,17 @@ function cleanXhtmlContent(xhtml: string): string {
     paragraphs.push(text);
   }
 
-  // Merge consecutive non-empty paragraphs, empty ones are separators
+  // Keep each line as a separate <p> for proper indent
+  // Empty lines become empty paragraphs (visual spacing)
   const result: string[] = [];
-  let currentParagraph: string[] = [];
 
   for (const para of paragraphs) {
     if (para === '' || para === ' ') {
-      // Empty paragraph = paragraph separator
-      if (currentParagraph.length > 0) {
-        result.push(`<p>${currentParagraph.join('<br>')}</p>`);
-        currentParagraph = [];
-      }
+      // Empty paragraph = visual spacer
+      result.push('<p></p>');
     } else {
-      // Non-empty line, add to current paragraph
-      currentParagraph.push(para);
+      result.push(`<p>${para}</p>`);
     }
-  }
-
-  // Don't forget the last paragraph
-  if (currentParagraph.length > 0) {
-    result.push(`<p>${currentParagraph.join('<br>')}</p>`);
   }
 
   return result.join('\n');
