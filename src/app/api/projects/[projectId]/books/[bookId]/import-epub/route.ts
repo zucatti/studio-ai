@@ -87,6 +87,21 @@ function parseOpf(opfContent: string): { spine: SpineItem[], manifest: Map<strin
   return { spine, manifest };
 }
 
+// Strip HTML tags to get plain text
+function stripTags(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#160;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // Extract text content from XHTML
 function extractTextFromXhtml(xhtml: string): string {
   // Get body content
@@ -99,11 +114,19 @@ function extractTextFromXhtml(xhtml: string): string {
   body = body.replace(/<script[\s\S]*?<\/script>/gi, '');
   body = body.replace(/<style[\s\S]*?<\/style>/gi, '');
 
-  // Extract title from h1, h2, or title-like elements
-  const titleMatch = body.match(/<h[12][^>]*>([^<]+)<\/h[12]>/i);
-  const title = titleMatch ? titleMatch[1].trim() : '';
+  // Extract title from h1, h2, or title-like elements (now handles nested tags)
+  const titleMatch = body.match(/<h[12][^>]*>([\s\S]*?)<\/h[12]>/i);
+  if (titleMatch) {
+    return stripTags(titleMatch[1]);
+  }
 
-  return title;
+  // Fallback: try first paragraph or div with class containing "title" or "chapter"
+  const titleClassMatch = body.match(/<(?:p|div)[^>]*class="[^"]*(?:title|chapter|heading)[^"]*"[^>]*>([\s\S]*?)<\/(?:p|div)>/i);
+  if (titleClassMatch) {
+    return stripTags(titleClassMatch[1]);
+  }
+
+  return '';
 }
 
 // Clean XHTML content for storage
@@ -239,19 +262,28 @@ export async function POST(request: Request, { params }: RouteParams) {
     const parsedChapters: ParsedChapter[] = [];
     let foundFirstChapter = false;
 
+    console.log(`[EPUB Import] Processing ${spine.length} spine items...`);
+
     for (const item of spine) {
       const filePath = opfDir + item.href;
       const file = zip.file(filePath);
 
-      if (!file) continue;
+      if (!file) {
+        console.log(`[EPUB Import] File not found: ${filePath}`);
+        continue;
+      }
 
       const xhtmlContent = await file.async('string');
       const title = extractTextFromXhtml(xhtmlContent);
+
+      console.log(`[EPUB Import] File: ${item.href}, Title: "${title}", IsChapter: ${isChapterTitle(title)}`);
 
       // Check if this is a chapter
       if (isChapterTitle(title)) {
         foundFirstChapter = true;
         const content = cleanXhtmlContent(xhtmlContent);
+
+        console.log(`[EPUB Import] -> Adding chapter "${title}", content length: ${content.length}`);
 
         parsedChapters.push({
           title: normalizeChapterTitle(title),
@@ -262,6 +294,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         // This handles cases where chapters don't follow the pattern
         const content = cleanXhtmlContent(xhtmlContent);
         if (content.trim()) {
+          console.log(`[EPUB Import] -> Adding section "${title}", content length: ${content.length}`);
           parsedChapters.push({
             title: title,
             content,
@@ -269,6 +302,8 @@ export async function POST(request: Request, { params }: RouteParams) {
         }
       }
     }
+
+    console.log(`[EPUB Import] Found ${parsedChapters.length} chapters`);
 
     if (parsedChapters.length === 0) {
       return NextResponse.json({
