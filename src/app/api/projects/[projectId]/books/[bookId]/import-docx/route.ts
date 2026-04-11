@@ -36,33 +36,50 @@ interface ParsedChapter {
   content: string;
 }
 
+function stripHtmlTags(html: string): string {
+  // Use a simple state machine instead of regex for large strings
+  let result = '';
+  let inTag = false;
+
+  for (let i = 0; i < html.length; i++) {
+    const char = html[i];
+    if (char === '<') {
+      inTag = true;
+    } else if (char === '>') {
+      inTag = false;
+    } else if (!inTag) {
+      result += char;
+    }
+  }
+
+  return result
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&#160;/g, ' ')
+    .trim();
+}
+
 function parseDocxHtml(html: string): ParsedChapter[] {
   const chapters: ParsedChapter[] = [];
 
-  // Create a temporary element to parse HTML
-  // We'll do this server-side by parsing the HTML string directly
+  // Split by paragraph and header tags more efficiently
+  // First, add markers for splitting
+  const marked = html
+    .replace(/<\/p>/gi, '</p>|||SPLIT|||')
+    .replace(/<\/h[1-6]>/gi, m => m + '|||SPLIT|||');
 
-  // Split by paragraph tags and headers
-  const lines = html
-    .replace(/<\/p>/gi, '</p>\n')
-    .replace(/<\/h[1-6]>/gi, m => m + '\n')
-    .split('\n')
-    .filter(line => line.trim());
+  const lines = marked.split('|||SPLIT|||').filter(line => line.trim());
 
   let currentChapter: ParsedChapter | null = null;
   let foundFirstChapter = false;
 
   for (const line of lines) {
     // Extract text content from HTML line
-    const textContent = line
-      .replace(/<[^>]+>/g, '')
-      .replace(/&nbsp;/g, ' ')
-      .replace(/&amp;/g, '&')
-      .replace(/&lt;/g, '<')
-      .replace(/&gt;/g, '>')
-      .replace(/&quot;/g, '"')
-      .replace(/&#39;/g, "'")
-      .trim();
+    const textContent = stripHtmlTags(line);
 
     if (!textContent) continue;
 
@@ -101,18 +118,41 @@ function parseDocxHtml(html: string): ParsedChapter[] {
 }
 
 function cleanHtmlContent(html: string): string {
-  return html
-    // Remove empty paragraphs
+  // Process in chunks to avoid regex stack overflow
+  let result = html;
+
+  // Remove style and class attributes (process in smaller chunks if needed)
+  const chunks: string[] = [];
+  const chunkSize = 50000;
+
+  for (let i = 0; i < result.length; i += chunkSize) {
+    let chunk = result.slice(i, i + chunkSize);
+    chunk = chunk
+      .replace(/\s*style="[^"]*"/gi, '')
+      .replace(/\s*class="[^"]*"/gi, '');
+    chunks.push(chunk);
+  }
+  result = chunks.join('');
+
+  // Simple replacements
+  result = result
     .replace(/<p[^>]*>\s*<\/p>/gi, '')
-    // Normalize whitespace
-    .replace(/\n{3,}/g, '\n\n')
-    // Convert mammoth's <br /> to <br>
     .replace(/<br\s*\/?>/gi, '<br>')
-    // Remove style attributes
-    .replace(/\s*style="[^"]*"/gi, '')
-    // Remove class attributes
-    .replace(/\s*class="[^"]*"/gi, '')
     .trim();
+
+  // Normalize multiple newlines
+  const lines = result.split('\n');
+  const normalized: string[] = [];
+  let prevEmpty = false;
+
+  for (const line of lines) {
+    const isEmpty = line.trim() === '';
+    if (isEmpty && prevEmpty) continue;
+    normalized.push(line);
+    prevEmpty = isEmpty;
+  }
+
+  return normalized.join('\n').trim();
 }
 
 // POST /api/projects/[projectId]/books/[bookId]/import-docx
