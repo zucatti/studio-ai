@@ -659,3 +659,130 @@ Shot 2: OldWoman#1 says: "Goodbye"
 - `src/components/ui/mention-input.tsx` - Utilise `project_generic_asset_id` (UUID) pour les suggestions
 - `src/lib/ai/cinematic-prompt-builder.ts` - Figurants utilisent juste le nom (description dans la légende)
 - `worker/src/processors/video-gen.processor.ts` - Logs améliorés pour debug
+
+---
+
+### 2026-04-12 - Timeline, Drag-Drop, Backup System
+
+#### Drag & Drop Reordering
+
+**Problème**: Impossible de réordonner les plans au sein d'une même séquence (drag-drop ne fonctionnait qu'entre séquences).
+
+**Cause**: `handleDragEnd` dans `VideoEditorLayout.tsx` retournait trop tôt quand on droppait sur la même séquence.
+
+**Fix**:
+```typescript
+// Avant: return même pour same sequence
+if (overData?.type === 'sequence' && overData.sequenceId) {
+  onMovePlanToSequence(planId, targetSequenceId);
+  return; // ← Bloquait le reorder
+}
+
+// Après: fall through pour same sequence
+if (plan.sequence_id !== targetSequenceId) {
+  onMovePlanToSequence(planId, targetSequenceId);
+  return;
+}
+// Same sequence - continue vers la logique de reorder
+```
+
+**Fichiers**:
+- `src/components/video-editor/VideoEditorLayout.tsx`
+- `src/app/(dashboard)/project/[projectId]/shorts/[shortId]/page.tsx`
+- `src/app/api/projects/[projectId]/sequences/[sequenceId]/shots/reorder/route.ts` (nouveau)
+
+#### AI Panel Positioning
+
+**Problème**: Le panel AI flottait par rapport à l'écran au lieu d'être collé au modal Plan.
+
+**Fix**: Changé de `absolute` à `fixed` avec coordonnées calculées pour matcher le dialog (5vh margins, 2.5vw from right).
+
+**Fichiers**: `src/components/plan-editor/PlanAIPanel.tsx`
+
+#### Montage Timeline Preview
+
+**Problème**: La preview s'arrêtait après le premier clip, écran noir.
+
+**Causes**:
+1. `handleVideoEnded` pausait au lieu de chercher le clip suivant
+2. Les clips des séquences assemblées avaient `assetUrl: ''` (vide)
+3. TimelineEditor importait les plans individuels au lieu des vidéos assemblées
+
+**Fix TimelineEditor** - Nouvelle logique d'import:
+```typescript
+// Si la séquence a une vidéo assemblée → UN clip avec assembled_video_url
+if (sequence.assembled_video_url) {
+  addClip({ assetUrl: sequence.assembled_video_url, ... });
+} else {
+  // Sinon → clips individuels par plan
+  for (const plan of seqPlans) { addClip({ assetUrl: plan.generated_video_url, ... }); }
+}
+```
+
+**Préservation des tracks audio**: Quand de nouvelles vidéos assemblées sont détectées, mise à jour des clips vidéo EN PLACE au lieu de `reset()` qui effaçait tout.
+
+**Fichiers**:
+- `src/components/montage/MontagePreview.tsx` - Continue vers clip suivant
+- `src/components/montage/TimelineEditor.tsx` - Import séquences assemblées + update in place
+- `src/app/(dashboard)/project/[projectId]/shorts/[shortId]/timeline/page.tsx` - Passe sequences/plans props
+
+#### FFmpeg xfade Timebase Fix
+
+**Problème**: Erreur FFmpeg lors du rendu montage avec transitions.
+```
+[Parsed_xfade_9] First input link main timebase (1/30) do not match second input link xfade timebase (1/15360)
+```
+
+**Cause**: Le filtre `xfade` exige que les deux inputs aient le même timebase.
+
+**Fix**: Normaliser les deux inputs avant xfade:
+```typescript
+// Avant xfade
+filterParts.push(`[${lastVideoLabel}]fps=30,settb=AVTB[${normLabel1}]`);
+filterParts.push(`[${scaleLabel}]fps=30,settb=AVTB[${normLabel2}]`);
+filterParts.push(`[${normLabel1}][${normLabel2}]xfade=...`);
+```
+
+**Fichier**: `worker/src/processors/ffmpeg.processor.ts`
+
+#### Database Backup System
+
+**Nouveau système de backup PostgreSQL vers B2 avec rotation 7 jours.**
+
+**Script local** (`scripts/backup-db.ts`):
+- Utilise `pg_dump` + gzip streaming
+- Upload direct vers B2 via `@aws-sdk/lib-storage`
+- Supprime automatiquement les backups > 7 jours
+- Charge `.env.local` avec dotenv
+
+**K8s CronJob** (`k8s/backup-cronjob.yaml`):
+- Exécution quotidienne à 3h UTC
+- Image `amazon/aws-cli` + postgresql15
+- Pipeline: `pg_dump | gzip | aws s3 cp -`
+- Utilise les secrets existants (`studio-secrets`)
+
+**Variables d'environnement**:
+- `DATABASE_URL` ajouté à `k8s/secrets.yaml` (gitignored)
+- Format: `postgresql://postgres:PASSWORD@db.xxx.supabase.co:5432/postgres`
+- Le `!` dans le mot de passe doit être URL-encodé en `%21`
+
+**Commandes utiles**:
+```bash
+# Test local
+npx tsx scripts/backup-db.ts
+
+# Déployer sur K8s
+kubectl apply -f k8s/backup-cronjob.yaml
+
+# Test manuel sur K8s
+kubectl create job db-backup-test --from=cronjob/db-backup
+kubectl logs -f job/db-backup-test
+
+# Restaurer un backup
+gunzip -c backup.sql.gz | psql "$DATABASE_URL"
+```
+
+#### Autres fixes mineurs
+
+- `SequenceCard.tsx`: Bouton assembly visible même avec 1 seul plan
+- Nouvelles dépendances: `@aws-sdk/lib-storage`, `dotenv`
