@@ -436,12 +436,21 @@ export function VideoEditorLayout({
                       <span className="text-[10px] text-slate-600">
                         ({unassignedPlans.length})
                       </span>
+                      <div className="flex-1" />
+                      {/* Add Plan to Rush button */}
+                      <button
+                        onClick={() => onAddPlan(null)}
+                        className="p-1 rounded transition-all text-slate-500 hover:text-blue-400 hover:bg-blue-500/10"
+                        title="Ajouter un plan au rush"
+                      >
+                        <Plus className="w-3 h-3" />
+                      </button>
                     </div>
                     <div className="p-1.5 space-y-1">
                       <SortableContext items={unassignedPlans.map(p => p.id)} strategy={verticalListSortingStrategy}>
                         {unassignedPlans.length === 0 ? (
                           <div className="text-center py-3 text-[10px] text-slate-600">
-                            Glissez des plans ici ou créez-en un
+                            Glissez des plans ici
                           </div>
                         ) : (
                           unassignedPlans.map((plan) => (
@@ -455,14 +464,6 @@ export function VideoEditorLayout({
                           ))
                         )}
                       </SortableContext>
-                      {/* Add Plan to Rush button */}
-                      <button
-                        onClick={() => onAddPlan(null)}
-                        className="w-full py-1.5 rounded border border-dashed border-white/10 hover:border-blue-500/50 hover:bg-blue-500/5 text-slate-500 hover:text-blue-400 text-xs flex items-center justify-center gap-1.5 transition-colors"
-                      >
-                        <Plus className="w-3 h-3" />
-                        Plan
-                      </button>
                     </div>
                   </div>
                 </DroppableRush>

@@ -472,79 +472,88 @@ export function SequenceCard({
                 />
               ))
             )}
-            {/* Add Plan button */}
-            {onAddPlan && (
-              <button
-                onClick={onAddPlan}
-                className="w-full py-1.5 rounded border border-dashed border-white/10 hover:border-purple-500/50 hover:bg-purple-500/5 text-slate-500 hover:text-purple-400 text-xs flex items-center justify-center gap-1.5 transition-colors"
-              >
-                <Plus className="w-3 h-3" />
-                Plan
-              </button>
-            )}
           </div>
         )}
 
-        {/* Assembly Footer - Compact */}
-        {isExpanded && plans.length >= 2 && (
-          <div className="flex items-center justify-end gap-1 px-2 py-1 border-t border-white/5 bg-[#080b0f]">
+        {/* Footer Bar - Always show when expanded */}
+        {isExpanded && (
+          <div className="flex items-center gap-1 px-2 py-1 border-t border-white/5 bg-[#080b0f]">
+            {/* Add Plan button - left side */}
+            {onAddPlan && (
+              <button
+                onClick={onAddPlan}
+                className="p-1 rounded transition-all text-slate-500 hover:text-purple-400 hover:bg-purple-500/10"
+                title="Ajouter un plan"
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            )}
+
             {/* Status indicator - only when processing or failed */}
             {(assembly.status === 'queued' || assembly.status === 'processing') && (
-              <span className="text-[10px] text-purple-400 mr-auto flex items-center gap-1">
+              <span className="text-[10px] text-purple-400 flex items-center gap-1">
                 <Loader2 className="w-2.5 h-2.5 animate-spin" />
                 {assembly.progress !== undefined ? `${assembly.progress}%` : '...'}
               </span>
             )}
             {assembly.status === 'failed' && (
-              <span className="text-[10px] text-red-400 mr-auto truncate max-w-32">
+              <span className="text-[10px] text-red-400 truncate max-w-32">
                 {assembly.message || 'Erreur'}
               </span>
             )}
 
-            {/* Play button - show when video is available */}
-            {assembly.videoUrl && (
-              <button
-                onClick={handlePlayVideo}
-                className="p-1 rounded transition-all text-green-500 hover:text-green-400 hover:bg-green-500/10"
-                title="Lire la séquence assemblée"
-              >
-                <Play className="w-3 h-3" />
-              </button>
-            )}
+            {/* Spacer */}
+            <div className="flex-1" />
 
-            {/* Assemble button - minimal */}
-            <button
-                onClick={handleAssemble}
-                disabled={
-                  !hasVideosToAssemble ||
-                  assembly.status === 'checking' ||
-                  assembly.status === 'queued' ||
-                  assembly.status === 'processing'
-                }
-                className={cn(
-                  "p-1 rounded transition-all",
-                  assembly.status === 'queued' || assembly.status === 'processing'
-                    ? "text-purple-400 cursor-wait"
-                    : assembly.status === 'completed' && !assembly.needsAssembly
-                      ? "text-green-500 hover:text-green-400 hover:bg-green-500/10"
-                      : hasVideosToAssemble
-                        ? "text-slate-400 hover:text-purple-400 hover:bg-purple-500/10"
-                        : "text-slate-600 cursor-not-allowed"
+            {/* Assembly buttons - only show when 2+ plans */}
+            {plans.length >= 2 && (
+              <>
+                {/* Play button - show when video is available */}
+                {assembly.videoUrl && (
+                  <button
+                    onClick={handlePlayVideo}
+                    className="p-1 rounded transition-all text-green-500 hover:text-green-400 hover:bg-green-500/10"
+                    title="Lire la séquence assemblée"
+                  >
+                    <Play className="w-3 h-3" />
+                  </button>
                 )}
-                title={
-                  assembly.status === 'completed' && !assembly.needsAssembly
-                    ? 'Réassembler'
-                    : `Assembler (${plansWithVideos.length}/${plans.length})`
-                }
-              >
-                {assembly.status === 'queued' || assembly.status === 'processing' ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : assembly.status === 'completed' && !assembly.needsAssembly ? (
-                  <Check className="w-3 h-3" />
-                ) : (
-                  <Film className="w-3 h-3" />
-                )}
-            </button>
+
+                {/* Assemble button - minimal */}
+                <button
+                  onClick={handleAssemble}
+                  disabled={
+                    !hasVideosToAssemble ||
+                    assembly.status === 'checking' ||
+                    assembly.status === 'queued' ||
+                    assembly.status === 'processing'
+                  }
+                  className={cn(
+                    "p-1 rounded transition-all",
+                    assembly.status === 'queued' || assembly.status === 'processing'
+                      ? "text-purple-400 cursor-wait"
+                      : assembly.status === 'completed' && !assembly.needsAssembly
+                        ? "text-green-500 hover:text-green-400 hover:bg-green-500/10"
+                        : hasVideosToAssemble
+                          ? "text-slate-400 hover:text-purple-400 hover:bg-purple-500/10"
+                          : "text-slate-600 cursor-not-allowed"
+                  )}
+                  title={
+                    assembly.status === 'completed' && !assembly.needsAssembly
+                      ? 'Réassembler'
+                      : `Assembler (${plansWithVideos.length}/${plans.length})`
+                  }
+                >
+                  {assembly.status === 'queued' || assembly.status === 'processing' ? (
+                    <Loader2 className="w-3 h-3 animate-spin" />
+                  ) : assembly.status === 'completed' && !assembly.needsAssembly ? (
+                    <Check className="w-3 h-3" />
+                  ) : (
+                    <Film className="w-3 h-3" />
+                  )}
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>
