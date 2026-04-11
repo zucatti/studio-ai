@@ -4,8 +4,9 @@ import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { BookEditor } from '@/components/books/BookEditor';
 import { CreateBookDialog } from '@/components/books/CreateBookDialog';
+import { ImportDocxDialog } from '@/components/books/ImportDocxDialog';
 import { Button } from '@/components/ui/button';
-import { ArrowLeft, Loader2, BookOpen, Info } from 'lucide-react';
+import { ArrowLeft, Loader2, BookOpen, Info, Upload } from 'lucide-react';
 import { useBooksStore } from '@/store/books-store';
 import type { Book } from '@/types/database';
 
@@ -19,6 +20,8 @@ export default function BookEditorPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showEditDialog, setShowEditDialog] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const { updateBook } = useBooksStore();
 
@@ -122,11 +125,21 @@ export default function BookEditorPage() {
           >
             <Info className="w-4 h-4" />
           </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowImportDialog(true)}
+            className="h-8 px-2 text-slate-400 hover:text-white hover:bg-white/10 gap-1"
+            title="Importer un fichier DOCX"
+          >
+            <Upload className="w-4 h-4" />
+            <span className="text-xs">DOCX</span>
+          </Button>
         </div>
       </div>
 
       {/* Editor */}
-      <BookEditor book={book} projectId={projectId} />
+      <BookEditor key={refreshKey} book={book} projectId={projectId} />
 
       {/* Edit Book Dialog */}
       <CreateBookDialog
@@ -134,6 +147,15 @@ export default function BookEditorPage() {
         onOpenChange={setShowEditDialog}
         editBook={book}
         onSubmit={handleUpdateBook}
+      />
+
+      {/* Import DOCX Dialog */}
+      <ImportDocxDialog
+        open={showImportDialog}
+        onOpenChange={setShowImportDialog}
+        projectId={projectId}
+        bookId={bookId}
+        onImportComplete={() => setRefreshKey(k => k + 1)}
       />
     </div>
   );
