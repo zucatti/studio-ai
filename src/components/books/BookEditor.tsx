@@ -148,6 +148,7 @@ export function BookEditor({ book, projectId }: BookEditorProps) {
         onOpenChange={setShowPdfPreview}
         book={book}
         chapters={chapters}
+        projectId={projectId}
       />
     </div>
   );

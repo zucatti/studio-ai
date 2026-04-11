@@ -57,6 +57,47 @@ interface ManifestItem {
   mediaType: string;
 }
 
+interface CssStyles {
+  italicClasses: Set<string>;
+  boldClasses: Set<string>;
+  centerClasses: Set<string>;
+}
+
+// Parse CSS to extract style classes
+function parseCss(css: string): CssStyles {
+  const italicClasses = new Set<string>();
+  const boldClasses = new Set<string>();
+  const centerClasses = new Set<string>();
+
+  // Match class definitions: .className { ... }
+  const classRegex = /\.([a-zA-Z0-9_-]+)\s*\{([^}]+)\}/g;
+  let match;
+
+  while ((match = classRegex.exec(css)) !== null) {
+    const className = match[1];
+    const rules = match[2].toLowerCase();
+
+    // Check for italic
+    if (rules.includes('font-style') && rules.includes('italic')) {
+      italicClasses.add(className);
+    }
+
+    // Check for bold (font-weight: bold or font-weight: 700)
+    if (rules.includes('font-weight') && (rules.includes('bold') || rules.includes('700'))) {
+      boldClasses.add(className);
+    }
+
+    // Check for center alignment
+    if (rules.includes('text-align') && rules.includes('center')) {
+      centerClasses.add(className);
+    }
+  }
+
+  console.log('[EPUB Import] CSS classes - italic:', [...italicClasses], 'bold:', [...boldClasses], 'center:', [...centerClasses]);
+
+  return { italicClasses, boldClasses, centerClasses };
+}
+
 // Parse the OPF file to get spine order
 function parseOpf(opfContent: string): { spine: SpineItem[], manifest: Map<string, ManifestItem> } {
   const manifest = new Map<string, ManifestItem>();
@@ -139,8 +180,8 @@ function extractTextFromXhtml(xhtml: string): string {
   return '';
 }
 
-// Clean XHTML content for storage - merges consecutive lines into paragraphs
-function cleanXhtmlContent(xhtml: string): string {
+// Clean XHTML content for storage - applies CSS-based formatting
+function cleanXhtmlContent(xhtml: string, cssStyles: CssStyles): string {
   // Get body content
   let content = '';
 
@@ -171,17 +212,63 @@ function cleanXhtmlContent(xhtml: string): string {
   content = content.replace(/<div[^>]*>/gi, '');
   content = content.replace(/<\/div>/gi, '');
 
-  // Convert italic spans to <em>
-  content = content.replace(/<span[^>]*(?:font-style:\s*italic|class="[^"]*italic[^"]*")[^>]*>([\s\S]*?)<\/span>/gi, '<em>$1</em>');
+  // Process ALL paragraphs with class attributes in ONE pass
+  // This handles cases where a paragraph has multiple classes (e.g., both italic AND center)
+  let italicCount = 0;
+  let boldCount = 0;
+  let centerCount = 0;
 
-  // Convert bold spans to <strong>
-  content = content.replace(/<span[^>]*(?:font-weight:\s*bold|class="[^"]*bold[^"]*")[^>]*>([\s\S]*?)<\/span>/gi, '<strong>$1</strong>');
+  content = content.replace(/<p\s+([^>]*)>([\s\S]*?)<\/p>/gi, (match, attrs, innerContent) => {
+    const classMatch = attrs.match(/class="([^"]*)"/);
+    if (!classMatch) return match;
+
+    const classes = classMatch[1].split(/\s+/);
+
+    let newContent = innerContent;
+    let style = '';
+
+    // Check for formatting classes
+    const hasItalic = classes.some((c: string) => cssStyles.italicClasses.has(c));
+    const hasBold = classes.some((c: string) => cssStyles.boldClasses.has(c));
+    const hasCenter = classes.some((c: string) => cssStyles.centerClasses.has(c));
+
+    if (hasItalic) {
+      newContent = `<em>${newContent}</em>`;
+      italicCount++;
+    }
+    if (hasBold) {
+      newContent = `<strong>${newContent}</strong>`;
+      boldCount++;
+    }
+    if (hasCenter) {
+      style = ' style="text-align: center"';
+      centerCount++;
+    }
+
+    return `<p${style}>${newContent}</p>`;
+  });
+
+  console.log(`[EPUB Import] Applied formatting - italic: ${italicCount}, bold: ${boldCount}, center: ${centerCount}`);
+
+  // Also handle spans with formatting classes (some EPUBs use spans)
+  for (const cls of cssStyles.italicClasses) {
+    const spanRegex = new RegExp(`<span\\s+[^>]*class="[^"]*\\b${cls}\\b[^"]*"[^>]*>([\\s\\S]*?)<\\/span>`, 'gi');
+    content = content.replace(spanRegex, '<em>$1</em>');
+  }
+  for (const cls of cssStyles.boldClasses) {
+    const spanRegex = new RegExp(`<span\\s+[^>]*class="[^"]*\\b${cls}\\b[^"]*"[^>]*>([\\s\\S]*?)<\\/span>`, 'gi');
+    content = content.replace(spanRegex, '<strong>$1</strong>');
+  }
+
+  // Convert inline style italic/bold spans
+  content = content.replace(/<span[^>]*font-style:\s*italic[^>]*>([\s\S]*?)<\/span>/gi, '<em>$1</em>');
+  content = content.replace(/<span[^>]*font-weight:\s*(?:bold|700)[^>]*>([\s\S]*?)<\/span>/gi, '<strong>$1</strong>');
 
   // Keep <i> and <b> tags, convert to <em> and <strong>
   content = content.replace(/<i\b[^>]*>([\s\S]*?)<\/i>/gi, '<em>$1</em>');
   content = content.replace(/<b\b[^>]*>([\s\S]*?)<\/b>/gi, '<strong>$1</strong>');
 
-  // Preserve text-align center on paragraphs
+  // Preserve inline text-align center on paragraphs
   content = content.replace(/<p[^>]*text-align:\s*center[^>]*>/gi, '<p style="text-align: center">');
 
   // Remove attributes from other p tags (but keep the centered ones)
@@ -313,10 +400,26 @@ export async function POST(request: Request, { params }: RouteParams) {
     const opfDir = opfPath.includes('/') ? opfPath.substring(0, opfPath.lastIndexOf('/') + 1) : '';
 
     // Parse OPF to get spine order
-    const { spine } = parseOpf(opfContent);
+    const { spine, manifest } = parseOpf(opfContent);
 
     if (spine.length === 0) {
       return NextResponse.json({ error: 'Invalid EPUB: no content found' }, { status: 400 });
+    }
+
+    // Find and parse CSS file
+    let cssStyles: CssStyles = { italicClasses: new Set(), boldClasses: new Set(), centerClasses: new Set() };
+
+    // Look for CSS in manifest
+    for (const [, item] of manifest) {
+      if (item.mediaType === 'text/css' || item.href.endsWith('.css')) {
+        const cssPath = opfDir + item.href;
+        const cssFile = zip.file(cssPath);
+        if (cssFile) {
+          const cssContent = await cssFile.async('string');
+          cssStyles = parseCss(cssContent);
+          break; // Use first CSS file found
+        }
+      }
     }
 
     // Process each spine item
@@ -342,7 +445,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       // Check if this is a chapter
       if (isChapterTitle(title)) {
         foundFirstChapter = true;
-        const content = cleanXhtmlContent(xhtmlContent);
+        const content = cleanXhtmlContent(xhtmlContent, cssStyles);
 
         console.log(`[EPUB Import] -> Adding chapter "${title}", content length: ${content.length}`);
 
@@ -353,7 +456,7 @@ export async function POST(request: Request, { params }: RouteParams) {
       } else if (foundFirstChapter && title) {
         // After first chapter, include sections that have titles
         // This handles cases where chapters don't follow the pattern
-        const content = cleanXhtmlContent(xhtmlContent);
+        const content = cleanXhtmlContent(xhtmlContent, cssStyles);
         if (content.trim()) {
           console.log(`[EPUB Import] -> Adding section "${title}", content length: ${content.length}`);
           parsedChapters.push({

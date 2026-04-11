@@ -65,14 +65,41 @@ function htmlToEpubXhtml(content: string): string {
     .replace(/&hellip;/g, '&#8230;');
 
   // Mark paragraphs after empty ones with p-after-break class (has margin-top)
-  // Empty paragraphs become markers that we'll remove after processing
-  result = result.replace(/<p>\s*<\/p>\s*<p>/g, '<p class="p-after-break">');
+  // Empty paragraphs are removed, and the following paragraph gets the spacing class
+  // This handles: <p></p><p>, <p></p><p style="...">, etc.
+  result = result.replace(/<p[^>]*>\s*<\/p>\s*<p([^>]*)>/gi, (_match, attrs: string) => {
+    const trimmedAttrs = attrs.trim();
+    if (trimmedAttrs) {
+      // Preserve existing attributes (like style="text-align: center")
+      return `<p class="p-after-break" ${trimmedAttrs}>`;
+    } else {
+      return '<p class="p-after-break">';
+    }
+  });
 
-  // Mark remaining paragraphs with p-body class (no margin)
-  result = result
-    .replace(/<p>/g, '<p class="p-body">')
-    .replace(/<p\s+style="/g, '<p class="p-body" style="')
-    .replace(/<p\s+class="([^"]*)">/g, '<p class="p-body $1">');
+  // Mark all paragraphs with p-body class (adds text-indent and base styles)
+  // Handle: <p>, <p style="...">, <p class="...">, <p class="..." style="...">
+  result = result.replace(/<p([^>]*)>/gi, (_match, attrs: string) => {
+    const trimmedAttrs = attrs.trim();
+
+    if (!trimmedAttrs) {
+      // Simple <p>
+      return '<p class="p-body">';
+    }
+
+    if (trimmedAttrs.startsWith('class="')) {
+      // Already has class, add p-body to it
+      return `<p${attrs.replace('class="', ' class="p-body ')}>`;
+    }
+
+    if (trimmedAttrs.startsWith('style="')) {
+      // Has style but no class
+      return `<p class="p-body" ${trimmedAttrs}>`;
+    }
+
+    // Some other attribute pattern, add class
+    return `<p class="p-body" ${trimmedAttrs}>`;
+  });
 
   // Convert any remaining <br> to paragraph breaks
   result = result.replace(/<br\s*\/?>/gi, '</p>\n<p class="p-body">');
