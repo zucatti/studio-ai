@@ -8,8 +8,10 @@ import { AiAssistDialog } from './AiAssistDialog';
 import { EpubPreviewDialog } from './EpubPreviewDialog';
 import { PdfPreviewDialog } from './PdfPreviewDialog';
 import { useBooksStore } from '@/store/books-store';
-import { Loader2 } from 'lucide-react';
+import { List, Edit3, BarChart3 } from 'lucide-react';
 import type { Book } from '@/types/database';
+
+type MobileTab = 'chapters' | 'editor' | 'stats';
 
 interface BookEditorProps {
   book: Book;
@@ -20,6 +22,7 @@ export function BookEditor({ book, projectId }: BookEditorProps) {
   const [showAiAssist, setShowAiAssist] = useState(false);
   const [showEpubPreview, setShowEpubPreview] = useState(false);
   const [showPdfPreview, setShowPdfPreview] = useState(false);
+  const [mobileTab, setMobileTab] = useState<MobileTab>('editor');
 
   const {
     chapters,
@@ -87,40 +90,95 @@ export function BookEditor({ book, projectId }: BookEditorProps) {
     }
   };
 
+  // Switch to editor after selecting a chapter on mobile
+  const handleSelectChapterMobile = (chapterId: string) => {
+    setCurrentChapter(chapterId);
+    setMobileTab('editor');
+  };
+
   return (
-    <div className="flex h-[calc(100vh-180px)] bg-[#0d1520] rounded-xl border border-white/5 overflow-hidden">
-      {/* Left panel - Chapters list */}
-      <div className="w-64 border-r border-white/5 bg-[#0d1520] flex-shrink-0">
-        <ChaptersList
-          chapters={chapters}
-          currentChapterId={currentChapterId}
-          onSelectChapter={setCurrentChapter}
-          onCreateChapter={handleCreateChapter}
-          onUpdateChapter={(id, updates) => handleUpdateChapter(id, updates)}
-          onDeleteChapter={handleDeleteChapter}
-          onReorderChapters={handleReorderChapters}
-        />
+    <div className="flex flex-col h-[calc(100vh-180px)] md:h-[calc(100vh-180px)] bg-[#0d1520] rounded-xl border border-white/5 overflow-hidden">
+      {/* Main content area */}
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        {/* Left panel - Chapters list */}
+        <div className={`
+          ${mobileTab === 'chapters' ? 'flex' : 'hidden'} md:flex
+          w-full md:w-64 border-r border-white/5 bg-[#0d1520] flex-shrink-0
+        `}>
+          <ChaptersList
+            chapters={chapters}
+            currentChapterId={currentChapterId}
+            onSelectChapter={handleSelectChapterMobile}
+            onCreateChapter={handleCreateChapter}
+            onUpdateChapter={(id, updates) => handleUpdateChapter(id, updates)}
+            onDeleteChapter={handleDeleteChapter}
+            onReorderChapters={handleReorderChapters}
+          />
+        </div>
+
+        {/* Center panel - Editor */}
+        <div className={`
+          ${mobileTab === 'editor' ? 'flex' : 'hidden'} md:flex
+          flex-1 flex-col min-w-0
+        `}>
+          <ChapterEditor
+            chapter={currentChapter}
+            book={book}
+            chapters={chapters}
+            onUpdateChapter={handleUpdateChapter}
+            onPreviewEpub={() => setShowEpubPreview(true)}
+            onPreviewPdf={() => setShowPdfPreview(true)}
+          />
+        </div>
+
+        {/* Right panel - Stats */}
+        <div className={`
+          ${mobileTab === 'stats' ? 'flex' : 'hidden'} md:flex
+          w-full md:w-64 border-l border-white/5 bg-[#0d1520] flex-shrink-0
+        `}>
+          <BookStats
+            book={book}
+            chapters={chapters}
+            onAiAssist={() => setShowAiAssist(true)}
+          />
+        </div>
       </div>
 
-      {/* Center panel - Editor */}
-      <div className="flex-1 flex flex-col min-w-0">
-        <ChapterEditor
-          chapter={currentChapter}
-          book={book}
-          chapters={chapters}
-          onUpdateChapter={handleUpdateChapter}
-          onPreviewEpub={() => setShowEpubPreview(true)}
-          onPreviewPdf={() => setShowPdfPreview(true)}
-        />
-      </div>
-
-      {/* Right panel - Stats */}
-      <div className="w-64 border-l border-white/5 bg-[#0d1520] flex-shrink-0">
-        <BookStats
-          book={book}
-          chapters={chapters}
-          onAiAssist={() => setShowAiAssist(true)}
-        />
+      {/* Mobile tab bar */}
+      <div className="flex md:hidden border-t border-white/10 bg-[#0a0f18]">
+        <button
+          onClick={() => setMobileTab('chapters')}
+          className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs transition-colors ${
+            mobileTab === 'chapters'
+              ? 'text-amber-400 bg-amber-500/10'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          <List className="w-5 h-5" />
+          Chapitres
+        </button>
+        <button
+          onClick={() => setMobileTab('editor')}
+          className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs transition-colors ${
+            mobileTab === 'editor'
+              ? 'text-amber-400 bg-amber-500/10'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          <Edit3 className="w-5 h-5" />
+          Éditeur
+        </button>
+        <button
+          onClick={() => setMobileTab('stats')}
+          className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs transition-colors ${
+            mobileTab === 'stats'
+              ? 'text-amber-400 bg-amber-500/10'
+              : 'text-slate-500 hover:text-slate-300'
+          }`}
+        >
+          <BarChart3 className="w-5 h-5" />
+          Stats
+        </button>
       </div>
 
       {/* AI Assist Dialog */}

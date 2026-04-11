@@ -138,11 +138,11 @@ export function ChapterEditor({
   return (
     <div className="flex-1 flex flex-col h-full bg-[#0d1520]">
       {/* Toolbar */}
-      <div className="flex items-center justify-between px-4 py-2 border-b border-white/5">
+      <div className="flex items-center justify-between px-2 md:px-4 py-2 border-b border-white/5">
         {/* Formatting buttons */}
         <div className="flex items-center gap-1">
           {/* Text formatting */}
-          <div className="flex items-center gap-0.5 mr-2">
+          <div className="flex items-center gap-0.5 md:mr-2">
             <Button
               variant="ghost"
               size="sm"
@@ -172,11 +172,11 @@ export function ChapterEditor({
             </Button>
           </div>
 
-          {/* Separator */}
-          <div className="w-px h-5 bg-white/10 mx-1" />
+          {/* Separator - hidden on mobile */}
+          <div className="hidden md:block w-px h-5 bg-white/10 mx-1" />
 
-          {/* Alignment */}
-          <div className="flex items-center gap-0.5">
+          {/* Alignment - hidden on mobile */}
+          <div className="hidden md:flex items-center gap-0.5">
             <Button
               variant="ghost"
               size="sm"
@@ -217,19 +217,19 @@ export function ChapterEditor({
         </div>
 
         {/* Right side: status & preview */}
-        <div className="flex items-center gap-3 text-sm text-slate-500">
+        <div className="flex items-center gap-2 md:gap-3 text-sm text-slate-500">
           {isSaving && (
             <span className="flex items-center gap-1 text-blue-400">
               <Loader2 className="w-3 h-3 animate-spin" />
-              Sauvegarde...
+              <span className="hidden md:inline">Sauvegarde...</span>
             </span>
           )}
           <span className="text-xs font-medium px-2 py-1 rounded-full bg-amber-500/20 text-amber-400">
-            {wordCount.toLocaleString()} mots
+            {wordCount.toLocaleString()}
           </span>
 
-          {/* Preview buttons */}
-          <div className="flex items-center gap-1 ml-2">
+          {/* Preview buttons - hidden on mobile */}
+          <div className="hidden md:flex items-center gap-1 ml-2">
             {onPreviewEpub && (
               <Button
                 variant="ghost"
@@ -259,7 +259,7 @@ export function ChapterEditor({
       </div>
 
       {/* Editor */}
-      <div className="flex-1 min-h-0 overflow-auto p-6">
+      <div className="flex-1 min-h-0 overflow-auto p-3 md:p-6">
         <TipTapEditor
           content={content}
           onChange={handleContentChange}
