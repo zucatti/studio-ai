@@ -380,20 +380,24 @@ export function PlanEditor({
 
     console.log('[PlanEditor] Opening Rush Creator for frame:', frameType, 'with source:', existingImageUrl ? 'yes' : 'no');
     openRushCreator(projectId, {
-      type: frameType === 'in' ? 'frame-in' : 'frame-out',
-      // Pass existing image as source for image-to-image generation
-      sourceImageUrl: existingImageUrl || undefined,
-      callback: (imageUrl: string) => {
-        if (frameType === 'in') {
-          onUpdate({ storyboard_image_url: imageUrl, first_frame_url: imageUrl });
-          toast.success('Image appliquée à Frame In');
-        } else {
-          onUpdate({ last_frame_url: imageUrl });
-          toast.success('Image appliquée à Frame Out');
-        }
+      // Pass project aspect ratio to lock the selector
+      projectAspectRatio: aspectRatio,
+      context: {
+        type: frameType === 'in' ? 'frame-in' : 'frame-out',
+        // Pass existing image as source for image-to-image generation
+        sourceImageUrl: existingImageUrl || undefined,
+        callback: (imageUrl: string) => {
+          if (frameType === 'in') {
+            onUpdate({ storyboard_image_url: imageUrl, first_frame_url: imageUrl });
+            toast.success('Image appliquée à Frame In');
+          } else {
+            onUpdate({ last_frame_url: imageUrl });
+            toast.success('Image appliquée à Frame Out');
+          }
+        },
       },
     });
-  }, [projectId, openRushCreator, onUpdate, plan?.storyboard_image_url, plan?.first_frame_url, plan?.last_frame_url]);
+  }, [projectId, openRushCreator, onUpdate, plan?.storyboard_image_url, plan?.first_frame_url, plan?.last_frame_url, aspectRatio]);
 
   const handleImageSelect = useCallback((url: string) => {
     const frameType = pickingFrame; // Capture before clearing

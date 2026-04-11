@@ -9,6 +9,7 @@ import { RushGeneratorPanel } from './RushGeneratorPanel';
 import { RushActionBar } from './RushActionBar';
 import { RushTopBar } from './RushTopBar';
 import { RushSidePanel, type SidePanelType } from './RushSidePanel';
+import type { AspectRatio } from '@/types/database';
 
 interface RushCreatorProps {
   projectId?: string;
@@ -28,10 +29,35 @@ export function RushCreator({ projectId }: RushCreatorProps) {
     getTotalItems,
     isLoading,
     isPromptFullscreen,
+    projectAspectRatio,
+    setAspectRatio,
   } = useRushCreatorStore();
 
   const totalItems = getTotalItems();
   const [activePanel, setActivePanel] = useState<SidePanelType>(null);
+
+  // Fetch project aspect ratio when opening with a projectId but no locked ratio
+  useEffect(() => {
+    if (!isOpen || !currentProjectId || projectAspectRatio) return;
+
+    const fetchProjectRatio = async () => {
+      try {
+        const res = await fetch(`/api/projects/${currentProjectId}`);
+        if (res.ok) {
+          const project = await res.json();
+          if (project.aspect_ratio) {
+            // Set the aspect ratio and lock it
+            setAspectRatio(project.aspect_ratio as AspectRatio);
+            useRushCreatorStore.setState({ projectAspectRatio: project.aspect_ratio as AspectRatio });
+          }
+        }
+      } catch (error) {
+        console.error('[RushCreator] Failed to fetch project:', error);
+      }
+    };
+
+    fetchProjectRatio();
+  }, [isOpen, currentProjectId, projectAspectRatio, setAspectRatio]);
 
   // Close panel when Rush Creator closes
   useEffect(() => {

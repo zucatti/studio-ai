@@ -2,6 +2,11 @@ import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { RushMedia, RushMediaStatus, RushMediaType, AspectRatio } from '@/types/database';
 
+export interface OpenOptions {
+  context?: ValidationContext;
+  projectAspectRatio?: AspectRatio;
+}
+
 export type RushMode = 'photo' | 'video';
 
 // Pending job with metadata for placeholder display
@@ -31,6 +36,8 @@ export interface RushCreatorStore {
   mode: RushMode;
   currentProjectId: string | null;
   isPromptFullscreen: boolean;
+  /** Project's aspect ratio - locks the selector when set */
+  projectAspectRatio: AspectRatio | null;
 
   // Validation context (Frame In/Out)
   validationContext: ValidationContext | null;
@@ -56,7 +63,7 @@ export interface RushCreatorStore {
   duration: number;
 
   // Actions - UI
-  open: (projectId?: string, context?: ValidationContext) => void;
+  open: (projectId?: string, options?: ValidationContext | OpenOptions) => void;
   close: () => void;
   setMode: (mode: RushMode) => void;
   setCurrentProjectId: (projectId: string | null) => void;
@@ -120,6 +127,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       mode: 'photo',
       currentProjectId: null,
       isPromptFullscreen: false,
+      projectAspectRatio: null,
 
       // Validation context
       validationContext: null,
@@ -161,12 +169,30 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       },
 
       // Actions - UI
-      open: (projectId, context) => {
+      open: (projectId, options) => {
+        // Handle both old API (ValidationContext) and new API (OpenOptions)
+        let context: ValidationContext | null = null;
+        let projectAspectRatio: AspectRatio | null = null;
+
+        if (options) {
+          if ('callback' in options) {
+            // Old API: ValidationContext passed directly
+            context = options;
+          } else {
+            // New API: OpenOptions object
+            context = options.context || null;
+            projectAspectRatio = options.projectAspectRatio || null;
+          }
+        }
+
         // Set all state in a single call to avoid race conditions
         set({
           isOpen: true,
-          validationContext: context || null,
+          validationContext: context,
           sourceImageUrl: context?.sourceImageUrl || null,
+          projectAspectRatio,
+          // If project has a locked aspect ratio, set it
+          ...(projectAspectRatio ? { aspectRatio: projectAspectRatio } : {}),
           ...(projectId ? { currentProjectId: projectId } : {}),
         });
         if (projectId) {
@@ -181,6 +207,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
         currentIndex: 0,
         validationContext: null,
         sourceImageUrl: null,
+        projectAspectRatio: null,
         isPromptFullscreen: false,
       }),
 

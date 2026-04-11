@@ -128,17 +128,17 @@ export function RushCarousel() {
   );
 }
 
-// Source image card with special tag
+// Source image card with special tag - respects natural aspect ratio
 function SourceImageCard({ url, isCurrent, onRemove }: { url: string; isCurrent: boolean; onRemove: () => void }) {
   return (
     <div className={cn(
-      'relative rounded-xl overflow-hidden shadow-2xl',
+      'relative rounded-xl overflow-hidden shadow-2xl flex items-center justify-center',
       isCurrent && 'ring-2 ring-amber-500/50'
     )}>
       <StorageImg
         src={url}
         alt="Image de référence"
-        className="w-full aspect-[9/16] object-cover"
+        className="max-w-full max-h-[60vh] object-contain rounded-xl"
       />
 
       {/* Reference tag */}

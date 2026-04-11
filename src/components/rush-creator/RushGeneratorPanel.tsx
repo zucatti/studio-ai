@@ -55,7 +55,11 @@ export function RushGeneratorPanel() {
     generate,
     isPromptFullscreen,
     togglePromptFullscreen,
+    projectAspectRatio,
   } = useRushCreatorStore();
+
+  // Aspect ratio is locked when project has a defined ratio
+  const isAspectRatioLocked = !!projectAspectRatio;
 
   // Get duration limits for current model
   const durationLimits = VIDEO_DURATION_LIMITS[model] || { min: 3, max: 15 };
@@ -125,11 +129,17 @@ export function RushGeneratorPanel() {
         <div className="w-px h-6 bg-white/10" />
 
         {/* Aspect ratio */}
-        <div className="relative">
+        <div className="relative" title={isAspectRatioLocked ? 'Ratio défini par le projet' : undefined}>
           <select
             value={aspectRatio}
             onChange={(e) => setAspectRatio(e.target.value as AspectRatio)}
-            className="h-9 pl-3 pr-8 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-blue-500/50 focus:outline-none appearance-none cursor-pointer hover:bg-white/10 transition-colors"
+            disabled={isAspectRatioLocked}
+            className={cn(
+              "h-9 pl-3 pr-8 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:border-blue-500/50 focus:outline-none appearance-none transition-colors",
+              isAspectRatioLocked
+                ? 'opacity-50 cursor-not-allowed'
+                : 'cursor-pointer hover:bg-white/10'
+            )}
           >
             {ASPECT_RATIO_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value} className="bg-[#1a2433]">
