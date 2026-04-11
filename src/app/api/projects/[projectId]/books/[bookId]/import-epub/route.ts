@@ -21,14 +21,24 @@ const CHAPTER_PATTERNS = [
 ];
 
 function isChapterTitle(text: string): boolean {
-  const trimmed = text.trim();
-  return CHAPTER_PATTERNS.some(pattern => pattern.test(trimmed));
+  // Remove potential trailing page numbers before checking
+  const cleaned = text.trim().replace(/\s+\d{2,}$/, '');
+  return CHAPTER_PATTERNS.some(pattern => pattern.test(cleaned));
 }
 
 function normalizeChapterTitle(title: string): string {
-  return title.trim()
+  let normalized = title.trim()
     .replace(/\s+/g, ' ')
     .replace(/^(chapitre|chapter)\s+/i, 'Chapitre ');
+
+  // Remove trailing page numbers (e.g., "Chapitre 12 183" -> "Chapitre 12")
+  // Pattern: word boundary, then a large number (>20) at the end
+  normalized = normalized.replace(/\s+\d{2,}$/g, '');
+
+  // Also handle "Epilogue 207" -> "Epilogue" (number after epilogue/prologue)
+  normalized = normalized.replace(/^(Prologue|Épilogue|Epilogue|Introduction|Conclusion|Préface|Avant[- ]propos)\s+\d+$/i, '$1');
+
+  return normalized;
 }
 
 interface ParsedChapter {
