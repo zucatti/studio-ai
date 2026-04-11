@@ -166,7 +166,7 @@ export function TipTapEditor({
     <div className={className}>
       <EditorContent
         editor={editor}
-        className="h-full [&_.ProseMirror]:h-full [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:text-slate-200 [&_.ProseMirror_p]:mb-4 [&_.is-editor-empty]:before:content-[attr(data-placeholder)] [&_.is-editor-empty]:before:text-slate-600 [&_.is-editor-empty]:before:float-left [&_.is-editor-empty]:before:pointer-events-none [&_.is-editor-empty]:before:h-0"
+        className="h-full [&_.ProseMirror]:h-full [&_.ProseMirror]:outline-none [&_.ProseMirror_p]:text-slate-200 [&_.ProseMirror_p]:mb-4 [&_.ProseMirror_p:empty]:min-h-[1.8em] [&_.is-editor-empty]:before:content-[attr(data-placeholder)] [&_.is-editor-empty]:before:text-slate-600 [&_.is-editor-empty]:before:float-left [&_.is-editor-empty]:before:pointer-events-none [&_.is-editor-empty]:before:h-0"
       />
     </div>
   );

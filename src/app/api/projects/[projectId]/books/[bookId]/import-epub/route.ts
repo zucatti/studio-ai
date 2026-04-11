@@ -129,7 +129,7 @@ function extractTextFromXhtml(xhtml: string): string {
   return '';
 }
 
-// Clean XHTML content for storage
+// Clean XHTML content for storage - preserves paragraph structure for TipTap
 function cleanXhtmlContent(xhtml: string): string {
   // Get body content - use greedy match and handle self-closing or missing body
   let content = '';
@@ -163,6 +163,10 @@ function cleanXhtmlContent(xhtml: string): string {
   // Remove chapter title (h1, h2) - we store it separately
   content = content.replace(/<h[12][^>]*>[\s\S]*?<\/h[12]>/gi, '');
 
+  // Remove wrapping div (Pages uses <div class="body s1" ...>)
+  content = content.replace(/<div[^>]*class="[^"]*body[^"]*"[^>]*>/gi, '');
+  content = content.replace(/<\/div>\s*$/gi, '');
+
   // Remove excessive attributes but keep the tags
   content = content.replace(/\s+class="[^"]*"/gi, '');
   content = content.replace(/\s+style="[^"]*"/gi, '');
@@ -180,14 +184,20 @@ function cleanXhtmlContent(xhtml: string): string {
   // Convert section tags to nothing (unwrap)
   content = content.replace(/<\/?section[^>]*>/gi, '');
 
-  // Clean up empty paragraphs
-  content = content.replace(/<p[^>]*>\s*<\/p>/gi, '');
+  // Handle empty paragraphs used as spacers (Pages uses <p> </p> or just space)
+  // TipTap needs <p><br></p> or <p></p> for empty lines
+  // First normalize all "empty" paragraphs (with just space/nbsp)
+  content = content.replace(/<p>(\s|&nbsp;| |&#160;)*<\/p>/gi, '<p></p>');
 
   // Ensure br tags are self-closing
   content = content.replace(/<br\s*>/gi, '<br>');
 
-  // Normalize whitespace
-  content = content.replace(/\n\s*\n\s*\n/g, '\n\n');
+  // Clean up multiple consecutive empty paragraphs (max 1 between text paragraphs)
+  // This preserves single blank lines but removes excessive spacing
+  content = content.replace(/(<p><\/p>){2,}/gi, '<p></p>');
+
+  // Add newlines between paragraphs for readability in the stored HTML
+  content = content.replace(/<\/p><p/gi, '</p>\n<p');
 
   return content.trim();
 }
