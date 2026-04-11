@@ -5,6 +5,8 @@ import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
+import { Extension } from '@tiptap/core';
+import { textInputRule } from '@tiptap/core';
 import { DOMParser as ProseDOMParser } from '@tiptap/pm/model';
 import { useEffect, useMemo, useRef } from 'react';
 import { SlashCommands } from './SlashCommands';
@@ -17,6 +19,35 @@ interface TipTapEditorProps {
   placeholder?: string;
   className?: string;
 }
+
+// Custom typography extension for French typographic rules
+const FrenchTypography = Extension.create({
+  name: 'frenchTypography',
+  addInputRules() {
+    return [
+      // -- → — (em dash / tiret long)
+      textInputRule({
+        find: /--$/,
+        replace: '—',
+      }),
+      // ... → … (ellipsis)
+      textInputRule({
+        find: /\.\.\.$/,
+        replace: '…',
+      }),
+      // << → « (French opening quote)
+      textInputRule({
+        find: /<<$/,
+        replace: '«\u00A0', // with non-breaking space
+      }),
+      // >> → » (French closing quote)
+      textInputRule({
+        find: />>$/,
+        replace: '\u00A0»', // with non-breaking space before
+      }),
+    ];
+  },
+});
 
 // Convert plain text with line breaks to HTML
 // - \n\n (blank line) = new paragraph
@@ -81,6 +112,7 @@ export function TipTapEditor({
         types: ['heading', 'paragraph'],
       }),
       SlashCommands,
+      FrenchTypography,
     ],
     content: initialContent,
     editorProps: {
