@@ -225,8 +225,8 @@ function BibleContent({ projectId }: { projectId: string }) {
           {activeTab === 'project' ? 'Aucun élément dans la Bible du projet' : 'Aucun élément dans la Bible générale'}
         </p>
       ) : activeType === 'characters' ? (
-        // Character list with expandable looks
-        <div className="space-y-2">
+        // Character list with expandable looks - compact version
+        <div className="space-y-1.5">
           {currentAssets.map((asset) => {
             const refImage = asset.reference_images?.[0];
             const looks = (asset.data as { looks?: Array<{ id?: string; name: string; description?: string; imageUrl: string }> })?.looks || [];
@@ -234,101 +234,94 @@ function BibleContent({ projectId }: { projectId: string }) {
             const hasLooks = looks.length > 0;
 
             return (
-              <div key={asset.id} className="rounded-xl bg-white/5 border border-blue-500/30 overflow-hidden">
-                {/* Character header */}
-                <div className="flex items-center gap-3 p-3">
-                  {/* Image with reference button overlay */}
+              <div key={asset.id} className="rounded-lg bg-white/5 border border-blue-500/20 overflow-hidden">
+                {/* Character header - compact */}
+                <div className="flex items-center gap-2 p-2">
+                  {/* Small thumbnail */}
                   <div className="relative group flex-shrink-0">
                     {refImage ? (
                       <>
-                        <StorageThumbnail src={refImage} alt={asset.name} size={48} className="rounded-lg" />
+                        <StorageThumbnail src={refImage} alt={asset.name} size={32} className="rounded" />
                         <button
                           onClick={(e) => { e.stopPropagation(); setSourceImageUrl(refImage); }}
-                          className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center"
-                          title="Utiliser comme référence"
+                          className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center"
                         >
-                          <ImagePlus className="w-5 h-5 text-amber-400" />
+                          <ImagePlus className="w-3.5 h-3.5 text-amber-400" />
                         </button>
                         {sourceImageUrl === refImage && (
-                          <div className="absolute -top-1 -right-1">
-                            <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center">
-                              <Check className="w-2.5 h-2.5 text-white" />
-                            </div>
+                          <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-500 flex items-center justify-center">
+                            <Check className="w-2 h-2 text-white" />
                           </div>
                         )}
                       </>
                     ) : (
-                      <div className="w-12 h-12 rounded-lg flex items-center justify-center text-blue-400 bg-blue-500/20">
-                        <User className="w-6 h-6" />
+                      <div className="w-8 h-8 rounded flex items-center justify-center text-blue-400 bg-blue-500/20">
+                        <User className="w-4 h-4" />
                       </div>
                     )}
                   </div>
 
-                  {/* Name - clickable to insert mention */}
+                  {/* Name - clickable */}
                   <button
                     onClick={() => insertMention(asset.name, '@')}
                     className="flex-1 text-left hover:opacity-80 transition-opacity min-w-0"
                   >
-                    <p className="text-white font-medium text-sm truncate">{asset.name}</p>
-                    <p className="text-xs text-blue-400 font-mono">
+                    <p className="text-white font-medium text-xs truncate">{asset.name}</p>
+                    <p className="text-[10px] text-blue-400 font-mono truncate">
                       @{generateReferenceName(asset.name, '@').slice(1)}
                     </p>
                   </button>
 
-                  {/* Expand button for looks */}
+                  {/* Expand button */}
                   {hasLooks && (
                     <button
                       onClick={() => toggleCharacterExpanded(asset.id)}
-                      className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-slate-400 hover:text-white"
+                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-colors text-slate-400 hover:text-white"
                     >
-                      <Shirt className="w-4 h-4" />
-                      <span className="text-xs">{looks.length}</span>
-                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                      <Shirt className="w-3 h-3" />
+                      <span className="text-[10px]">{looks.length}</span>
+                      {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
                     </button>
                   )}
                 </div>
 
-                {/* Looks grid (expanded) */}
+                {/* Looks grid - compact */}
                 {hasLooks && isExpanded && (
-                  <div className="px-3 pb-3 pt-1 border-t border-white/10">
-                    <p className="text-xs text-slate-500 mb-2">Cliquez sur un look pour l'ajouter au prompt</p>
-                    <div className="grid grid-cols-3 gap-2">
+                  <div className="px-2 pb-2 pt-1 border-t border-white/5">
+                    <div className="grid grid-cols-4 gap-1">
                       {looks.map((look, idx) => {
                         const isLookRef = look.imageUrl && sourceImageUrl === look.imageUrl;
                         return (
-                          <div
+                          <button
                             key={look.id || idx}
+                            onClick={() => insertMention(asset.name, '@', look.name)}
                             className={cn(
-                              'relative group rounded-lg overflow-hidden border transition-all cursor-pointer',
-                              isLookRef ? 'ring-2 ring-amber-500 border-amber-500/50' : 'border-white/10 hover:border-purple-500/50'
+                              'relative group rounded overflow-hidden border transition-all',
+                              isLookRef ? 'ring-1 ring-amber-500 border-amber-500/50' : 'border-white/10 hover:border-purple-500/50'
                             )}
+                            title={`${look.name} - ${generateLookReferenceName(look.name)}`}
                           >
                             {look.imageUrl ? (
-                              <StorageThumbnail src={look.imageUrl} alt={look.name} size={80} className="w-full aspect-square object-cover" />
+                              <StorageThumbnail src={look.imageUrl} alt={look.name} size={48} className="w-full aspect-square object-cover" />
                             ) : (
                               <div className="w-full aspect-square bg-purple-500/20 flex items-center justify-center">
-                                <Shirt className="w-6 h-6 text-purple-400" />
+                                <Shirt className="w-4 h-4 text-purple-400" />
                               </div>
                             )}
-                            {/* Click to insert look mention */}
-                            <button
-                              onClick={() => insertMention(asset.name, '@', look.name)}
-                              className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-1.5"
-                            >
-                              <p className="text-white text-xs font-medium truncate">{look.name}</p>
-                              <p className="text-purple-400 text-[10px] font-mono truncate">{generateLookReferenceName(look.name)}</p>
-                            </button>
+                            {/* Overlay with name */}
+                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-0.5">
+                              <p className="text-white text-[9px] font-medium truncate text-center">{look.name}</p>
+                            </div>
                             {/* Reference button on hover */}
                             {look.imageUrl && (
-                              <button
+                              <div
                                 onClick={(e) => { e.stopPropagation(); setSourceImageUrl(look.imageUrl); }}
-                                className="absolute top-1 right-1 w-6 h-6 rounded bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
-                                title="Utiliser comme référence"
+                                className="absolute top-0.5 right-0.5 w-4 h-4 rounded bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
                               >
-                                <ImagePlus className="w-3.5 h-3.5 text-amber-400" />
-                              </button>
+                                <ImagePlus className="w-2.5 h-2.5 text-amber-400" />
+                              </div>
                             )}
-                          </div>
+                          </button>
                         );
                       })}
                     </div>
