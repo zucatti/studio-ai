@@ -77,6 +77,11 @@ export function ImportDocxDialog({
       }
 
       setResult(data);
+
+      // Refresh chapters immediately after successful import
+      if (data.success) {
+        onImportComplete();
+      }
     } catch (err) {
       setError('Failed to upload file');
     } finally {
@@ -89,9 +94,6 @@ export function ImportDocxDialog({
   };
 
   const handleClose = () => {
-    if (result?.success) {
-      onImportComplete();
-    }
     setResult(null);
     setError(null);
     onOpenChange(false);
