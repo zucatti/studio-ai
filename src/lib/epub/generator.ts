@@ -271,11 +271,12 @@ nav#toc a:hover {
   font-family: "Georgia", serif;
   font-size: 1em;
   font-style: italic;
-  color: #000080;
+  color: inherit;
   text-align: right;
   text-indent: 0;
   margin: 0 0 1em 0;
   line-height: 1.6;
+  opacity: 0.7;
 }
 `;
 

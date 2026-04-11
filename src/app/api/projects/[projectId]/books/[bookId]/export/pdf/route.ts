@@ -139,7 +139,7 @@ function generateBookHtml(book: Book, chapters: Chapter[], author: string): stri
   const mentionsList = parseMentions(book.mentions);
   const mentionsHtml = mentionsList.map((mention) => `
   <div class="mentions-page" style="page-break-after: always;">
-    <div style="padding-top: 30%; text-align: right; font-style: italic; color: #000080; line-height: 1.8;">
+    <div style="padding-top: 30%; text-align: right; font-style: italic; color: #555; line-height: 1.8;">
       ${escapeHtml(mention).replace(/\n/g, '<br/>')}
     </div>
   </div>
