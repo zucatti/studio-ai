@@ -99,14 +99,22 @@ function generateUUID(): string {
 
 // CSS styles for the EPUB
 const BOOK_CSS = `
-/* Base styles */
+/* Reset and base styles */
+* {
+  margin: 0;
+  padding: 0;
+}
+
 body {
   font-family: "Georgia", "Times New Roman", serif;
   font-size: 1em;
-  line-height: 1.6;
+  line-height: 1.5;
   color: #1a1a1a;
-  margin: 0;
-  padding: 0;
+}
+
+p {
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 /* Chapter title */
@@ -145,7 +153,7 @@ p.p-after-break {
   color: #000000;
   text-align: justify;
   text-indent: 1.5em;
-  margin: 0.8em 0 0 0;
+  margin: 1em 0 0 0 !important;
   padding: 0;
   line-height: 1.5;
   hyphens: auto;
