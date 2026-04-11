@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, BookOpen, Grid3X3, Archive, User, MapPin, Package, Loader2, Check, Users, Book, ImagePlus } from 'lucide-react';
+import { X, BookOpen, Grid3X3, Archive, User, MapPin, Package, Loader2, Check, Users, Book, ImagePlus, ChevronDown, ChevronRight, Shirt } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRushCreatorStore } from '@/store/rush-creator-store';
 import { useBibleStore } from '@/store/bible-store';
 import { StorageImg, StorageThumbnail } from '@/components/ui/storage-image';
-import { generateReferenceName } from '@/lib/reference-name';
+import { generateReferenceName, generateLookReferenceName, generateCharacterLookReference } from '@/lib/reference-name';
 import { getGenericCharacter } from '@/lib/generic-characters';
 import type { GlobalAsset, ProjectAssetFlat } from '@/types/database';
 
@@ -93,6 +93,7 @@ function BibleContent({ projectId }: { projectId: string }) {
   const { prompt, setPrompt, setSourceImageUrl, sourceImageUrl } = useRushCreatorStore();
   const [activeTab, setActiveTab] = useState<'project' | 'global'>('project');
   const [activeType, setActiveType] = useState<'characters' | 'locations' | 'props'>('characters');
+  const [expandedCharacters, setExpandedCharacters] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchProjectAssets(projectId);
@@ -110,9 +111,23 @@ function BibleContent({ projectId }: { projectId: string }) {
   const globalLocations = globalAssets.filter(a => a.asset_type === 'location');
   const globalProps = globalAssets.filter(a => a.asset_type === 'prop');
 
-  const insertMention = (name: string, prefix: '@' | '#' = '@') => {
-    const refName = generateReferenceName(name, prefix);
-    setPrompt(prompt + refName + ' ');
+  const insertMention = (name: string, prefix: '@' | '#' = '@', lookName?: string) => {
+    const mention = lookName
+      ? generateCharacterLookReference(name, lookName)
+      : generateReferenceName(name, prefix);
+    setPrompt(prompt + mention + ' ');
+  };
+
+  const toggleCharacterExpanded = (characterId: string) => {
+    setExpandedCharacters(prev => {
+      const next = new Set(prev);
+      if (next.has(characterId)) {
+        next.delete(characterId);
+      } else {
+        next.add(characterId);
+      }
+      return next;
+    });
   };
 
   if (isLoading) {
@@ -199,58 +214,173 @@ function BibleContent({ projectId }: { projectId: string }) {
         </button>
       </div>
 
-      {/* Content Grid */}
+      {/* Content */}
       <p className="text-amber-400 text-xs mb-3 flex items-center gap-1.5">
         <ImagePlus className="w-3.5 h-3.5" />
         Survolez une image pour l'utiliser comme référence
       </p>
-      <div className="grid grid-cols-2 gap-3">
-        {currentAssets.length === 0 && currentFigurants.length === 0 ? (
-          <p className="text-slate-500 text-sm col-span-2 text-center py-8">
-            {activeTab === 'project' ? 'Aucun élément dans la Bible du projet' : 'Aucun élément dans la Bible générale'}
-          </p>
-        ) : (
-          <>
-            {/* Regular assets */}
-            {currentAssets.map((asset) => {
-              const refImage = asset.reference_images?.[0];
-              return (
-                <AssetButton
-                  key={asset.id}
-                  name={asset.name}
-                  image={refImage}
-                  type={activeType}
-                  onClick={() => insertMention(asset.name, activeType === 'characters' ? '@' : '#')}
-                  onSetAsReference={refImage ? () => setSourceImageUrl(refImage) : undefined}
-                  isReferenceSelected={refImage ? sourceImageUrl === refImage : false}
-                />
-              );
-            })}
 
-            {/* Figurants (generic characters) - only for project characters */}
-            {currentFigurants.map((figurant) => {
-              const generic = getGenericCharacter(figurant.id);
-              const images = figurant.local_overrides?.reference_images_metadata;
-              const image = images?.[0]?.url;
-              return (
-                <AssetButton
-                  key={figurant.project_generic_asset_id}
-                  name={figurant.name_override || figurant.name}
-                  image={image}
-                  type="characters"
-                  isGeneric
-                  onClick={() => insertMention(figurant.name_override || figurant.name, '@')}
-                  onSetAsReference={image ? () => setSourceImageUrl(image) : undefined}
-                  isReferenceSelected={image ? sourceImageUrl === image : false}
-                />
-              );
-            })}
-          </>
-        )}
-      </div>
+      {currentAssets.length === 0 && currentFigurants.length === 0 ? (
+        <p className="text-slate-500 text-sm text-center py-8">
+          {activeTab === 'project' ? 'Aucun élément dans la Bible du projet' : 'Aucun élément dans la Bible générale'}
+        </p>
+      ) : activeType === 'characters' ? (
+        // Character list with expandable looks
+        <div className="space-y-2">
+          {currentAssets.map((asset) => {
+            const refImage = asset.reference_images?.[0];
+            const looks = (asset.data as { looks?: Array<{ id?: string; name: string; description?: string; imageUrl: string }> })?.looks || [];
+            const isExpanded = expandedCharacters.has(asset.id);
+            const hasLooks = looks.length > 0;
+
+            return (
+              <div key={asset.id} className="rounded-xl bg-white/5 border border-blue-500/30 overflow-hidden">
+                {/* Character header */}
+                <div className="flex items-center gap-3 p-3">
+                  {/* Image with reference button overlay */}
+                  <div className="relative group flex-shrink-0">
+                    {refImage ? (
+                      <>
+                        <StorageThumbnail src={refImage} alt={asset.name} size={48} className="rounded-lg" />
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSourceImageUrl(refImage); }}
+                          className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center"
+                          title="Utiliser comme référence"
+                        >
+                          <ImagePlus className="w-5 h-5 text-amber-400" />
+                        </button>
+                        {sourceImageUrl === refImage && (
+                          <div className="absolute -top-1 -right-1">
+                            <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center">
+                              <Check className="w-2.5 h-2.5 text-white" />
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="w-12 h-12 rounded-lg flex items-center justify-center text-blue-400 bg-blue-500/20">
+                        <User className="w-6 h-6" />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Name - clickable to insert mention */}
+                  <button
+                    onClick={() => insertMention(asset.name, '@')}
+                    className="flex-1 text-left hover:opacity-80 transition-opacity min-w-0"
+                  >
+                    <p className="text-white font-medium text-sm truncate">{asset.name}</p>
+                    <p className="text-xs text-blue-400 font-mono">
+                      @{generateReferenceName(asset.name, '@').slice(1)}
+                    </p>
+                  </button>
+
+                  {/* Expand button for looks */}
+                  {hasLooks && (
+                    <button
+                      onClick={() => toggleCharacterExpanded(asset.id)}
+                      className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-slate-400 hover:text-white"
+                    >
+                      <Shirt className="w-4 h-4" />
+                      <span className="text-xs">{looks.length}</span>
+                      {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                    </button>
+                  )}
+                </div>
+
+                {/* Looks grid (expanded) */}
+                {hasLooks && isExpanded && (
+                  <div className="px-3 pb-3 pt-1 border-t border-white/10">
+                    <p className="text-xs text-slate-500 mb-2">Cliquez sur un look pour l'ajouter au prompt</p>
+                    <div className="grid grid-cols-3 gap-2">
+                      {looks.map((look, idx) => {
+                        const isLookRef = look.imageUrl && sourceImageUrl === look.imageUrl;
+                        return (
+                          <div
+                            key={look.id || idx}
+                            className={cn(
+                              'relative group rounded-lg overflow-hidden border transition-all cursor-pointer',
+                              isLookRef ? 'ring-2 ring-amber-500 border-amber-500/50' : 'border-white/10 hover:border-purple-500/50'
+                            )}
+                          >
+                            {look.imageUrl ? (
+                              <StorageThumbnail src={look.imageUrl} alt={look.name} size={80} className="w-full aspect-square object-cover" />
+                            ) : (
+                              <div className="w-full aspect-square bg-purple-500/20 flex items-center justify-center">
+                                <Shirt className="w-6 h-6 text-purple-400" />
+                              </div>
+                            )}
+                            {/* Click to insert look mention */}
+                            <button
+                              onClick={() => insertMention(asset.name, '@', look.name)}
+                              className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent flex flex-col justify-end p-1.5"
+                            >
+                              <p className="text-white text-xs font-medium truncate">{look.name}</p>
+                              <p className="text-purple-400 text-[10px] font-mono truncate">{generateLookReferenceName(look.name)}</p>
+                            </button>
+                            {/* Reference button on hover */}
+                            {look.imageUrl && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setSourceImageUrl(look.imageUrl); }}
+                                className="absolute top-1 right-1 w-6 h-6 rounded bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                                title="Utiliser comme référence"
+                              >
+                                <ImagePlus className="w-3.5 h-3.5 text-amber-400" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Figurants (generic characters) */}
+          {currentFigurants.map((figurant) => {
+            const images = figurant.local_overrides?.reference_images_metadata;
+            const image = images?.[0]?.url;
+            return (
+              <AssetButton
+                key={figurant.project_generic_asset_id}
+                name={figurant.name_override || figurant.name}
+                image={image}
+                type="characters"
+                isGeneric
+                onClick={() => insertMention(figurant.name_override || figurant.name, '@')}
+                onSetAsReference={image ? () => setSourceImageUrl(image) : undefined}
+                isReferenceSelected={image ? sourceImageUrl === image : false}
+              />
+            );
+          })}
+        </div>
+      ) : (
+        // Grid for locations and props (no looks)
+        <div className="grid grid-cols-2 gap-3">
+          {currentAssets.map((asset) => {
+            const refImage = asset.reference_images?.[0];
+            return (
+              <AssetButton
+                key={asset.id}
+                name={asset.name}
+                image={refImage}
+                type={activeType}
+                onClick={() => insertMention(asset.name, '#')}
+                onSetAsReference={refImage ? () => setSourceImageUrl(refImage) : undefined}
+                isReferenceSelected={refImage ? sourceImageUrl === refImage : false}
+              />
+            );
+          })}
+        </div>
+      )}
 
       <p className="text-slate-500 text-xs mt-4 text-center">
-        Cliquez sur le nom pour ajouter au prompt
+        {activeType === 'characters'
+          ? 'Cliquez sur le nom ou un look pour ajouter au prompt'
+          : 'Cliquez sur le nom pour ajouter au prompt'
+        }
       </p>
     </div>
   );
