@@ -140,11 +140,12 @@ const STYLE_CONFIG: Record<string, {
 };
 
 // View configurations for multi-view generation
-const CHARACTER_VIEWS: { name: CharacterImageType; label: string; promptSuffix: string }[] = [
-  { name: 'front', label: 'Face (Vue de face)', promptSuffix: 'front view, facing camera, looking straight ahead' },
-  { name: 'profile', label: 'Profil (Vue de côté)', promptSuffix: 'side profile view, looking to the side' },
-  { name: 'three_quarter', label: '3/4 (Vue trois-quarts)', promptSuffix: 'three quarter view, 3/4 angle, slightly turned' },
-  { name: 'back', label: 'Dos (Vue arrière)', promptSuffix: 'back view, facing away from camera, rear view, back of head visible' },
+// Using bust/portrait framing for face views (more useful as reference for AI generation)
+const CHARACTER_VIEWS: { name: CharacterImageType; label: string; promptSuffix: string; framing: string }[] = [
+  { name: 'front', label: 'Face (Vue de face)', promptSuffix: 'front view, facing camera, looking straight ahead', framing: 'portrait bust, head and shoulders' },
+  { name: 'profile', label: 'Profil (Vue de côté)', promptSuffix: 'side profile view, looking to the side', framing: 'portrait bust, head and shoulders' },
+  { name: 'three_quarter', label: '3/4 (Vue trois-quarts)', promptSuffix: 'three quarter view, 3/4 angle, slightly turned', framing: 'portrait bust, head and shoulders' },
+  { name: 'back', label: 'Dos (Vue arrière)', promptSuffix: 'back view, facing away from camera, rear view, back of head visible', framing: 'portrait bust, head and shoulders from behind' },
 ];
 
 // Fetch image and convert to base64
@@ -436,19 +437,9 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const creditService = createCreditService(supabase);
 
-    // Check budget for fal.ai calls
-    try {
-      const estimatedCost = calculateFalCost(textToImageModel, mode === 'generate_all' ? 3 : 1);
-      await ensureCredit(creditService, session.user.sub, 'fal', estimatedCost);
-    } catch (error) {
-      if (isCreditError(error)) {
-        return NextResponse.json(
-          { error: formatCreditError(error), code: error.code },
-          { status: 402 }
-        );
-      }
-      throw error;
-    }
+    // Budget check disabled - user manages fal.ai credits directly
+    // const estimatedCost = calculateFalCost(textToImageModel, mode === 'generate_all' ? 3 : 1);
+    // await ensureCredit(creditService, session.user.sub, 'fal', estimatedCost);
 
     // Optimize prompt with Claude (this is fast, do it before enqueueing)
     let optimizedPrompt = visualDescription;
@@ -472,7 +463,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, product photography, clean background, studio lighting${styleConfig.promptSuffix}`;
       } else {
         const viewConfig = CHARACTER_VIEWS.find(v => v.name === viewType) || CHARACTER_VIEWS[0];
-        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
+        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, ${viewConfig.promptSuffix}, ${viewConfig.framing}${styleConfig.promptSuffix}`;
       }
     }
 
@@ -487,11 +478,11 @@ export async function POST(request: Request, { params }: RouteParams) {
       const viewConfig = CHARACTER_VIEWS.find(v => v.name === viewType);
       if (viewConfig) {
         optimizedPrompt = `single person, solo, character portrait, ${viewConfig.promptSuffix}`;
-        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, full body portrait, one person only${styleConfig.promptSuffix}`;
+        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, ${viewConfig.framing}, one person only${styleConfig.promptSuffix}`;
       } else {
-        // Unknown view type, use viewType directly
+        // Unknown view type, use viewType directly with bust framing
         optimizedPrompt = `single person, solo, character portrait, ${viewType} view`;
-        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, full body portrait, one person only${styleConfig.promptSuffix}`;
+        fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, portrait bust, head and shoulders, one person only${styleConfig.promptSuffix}`;
       }
     }
 

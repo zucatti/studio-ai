@@ -57,8 +57,10 @@ import {
   CheckCircle2,
   AlertCircle,
   LayoutGrid,
+  Expand,
 } from 'lucide-react';
 import { GalleryPicker } from '@/components/gallery/GalleryPicker';
+import { ImageCarousel, type CarouselImage } from '@/components/ui/image-carousel';
 import { MultiImageGenerator } from '@/components/ui/multi-image-generator';
 import { generateReferenceName, generateLookReferenceName } from '@/lib/reference-name';
 import { cn } from '@/lib/utils';
@@ -273,6 +275,10 @@ export function CharacterFormDialog({
     (character?.data as CharacterData)?.rushes || []
   );
   const [showRushesFor, setShowRushesFor] = useState<CharacterImageType | null>(null);
+
+  // Carousel state for fullscreen image viewing
+  const [carouselOpen, setCarouselOpen] = useState(false);
+  const [carouselInitialIndex, setCarouselInitialIndex] = useState(0);
 
   // Selected source image for modification
   const [selectedSourceUrl, setSelectedSourceUrl] = useState<string | null>(null);
@@ -1277,7 +1283,17 @@ export function CharacterFormDialog({
       })
     : voices;
 
+  // Prepare carousel images from reference images
+  const carouselImages: CarouselImage[] = [];
+  for (const imageType of IMAGE_TYPES) {
+    const img = referenceImages.find((ri) => ri.type === imageType.value);
+    if (img) {
+      carouselImages.push({ url: img.url, label: imageType.label, description: imageType.description });
+    }
+  }
+
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[90vw] max-w-[90vw] h-[90vh] p-0 bg-[#0d1520] border-white/10 flex flex-col overflow-hidden [&>button]:hidden">
         {/* Header */}
@@ -1740,6 +1756,21 @@ export function CharacterFormDialog({
                                 ) : (
                                   <Circle className="w-6 h-6 drop-shadow-lg" />
                                 )}
+                              </button>
+                              {/* Expand button in top-right */}
+                              <button
+                                className="absolute top-2 right-2 z-10 w-8 h-8 rounded-full bg-black/60 backdrop-blur flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const idx = carouselImages.findIndex(img => img.label === imageType.label);
+                                  if (idx >= 0) {
+                                    setCarouselInitialIndex(idx);
+                                    setCarouselOpen(true);
+                                  }
+                                }}
+                                title="Agrandir"
+                              >
+                                <Expand className="w-4 h-4 text-white" />
                               </button>
                               <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center gap-3 rounded-xl">
                                 <div className="flex items-center gap-2">
@@ -2562,5 +2593,15 @@ export function CharacterFormDialog({
         </DialogContent>
       </Dialog>
     </Dialog>
+
+    {/* Image Carousel - outside Dialog to avoid portal nesting issues */}
+    <ImageCarousel
+      images={carouselImages}
+      initialIndex={carouselInitialIndex}
+      isOpen={carouselOpen}
+      onClose={() => setCarouselOpen(false)}
+      title={name || 'Personnage'}
+    />
+    </>
   );
 }

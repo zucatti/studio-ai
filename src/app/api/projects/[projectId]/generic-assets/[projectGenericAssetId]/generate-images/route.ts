@@ -55,11 +55,12 @@ const STYLE_CONFIG: Record<string, {
 };
 
 // View configurations for multi-view generation
-const CHARACTER_VIEWS: { name: CharacterImageType; label: string; promptSuffix: string }[] = [
-  { name: 'front', label: 'Face (Vue de face)', promptSuffix: 'front view, facing camera, looking straight ahead' },
-  { name: 'profile', label: 'Profil (Vue de cote)', promptSuffix: 'side profile view, looking to the side' },
-  { name: 'three_quarter', label: '3/4 (Vue trois-quarts)', promptSuffix: 'three quarter view, 3/4 angle, slightly turned' },
-  { name: 'back', label: 'Dos (Vue arriere)', promptSuffix: 'back view, facing away from camera, rear view, back of head visible' },
+// Using bust/portrait framing for face views (more useful as reference for AI generation)
+const CHARACTER_VIEWS: { name: CharacterImageType; label: string; promptSuffix: string; framing: string }[] = [
+  { name: 'front', label: 'Face (Vue de face)', promptSuffix: 'front view, facing camera, looking straight ahead', framing: 'portrait bust, head and shoulders' },
+  { name: 'profile', label: 'Profil (Vue de cote)', promptSuffix: 'side profile view, looking to the side', framing: 'portrait bust, head and shoulders' },
+  { name: 'three_quarter', label: '3/4 (Vue trois-quarts)', promptSuffix: 'three quarter view, 3/4 angle, slightly turned', framing: 'portrait bust, head and shoulders' },
+  { name: 'back', label: 'Dos (Vue arriere)', promptSuffix: 'back view, facing away from camera, rear view, back of head visible', framing: 'portrait bust, head and shoulders from behind' },
 ];
 
 // Optimize prompt with Claude
@@ -192,24 +193,14 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const creditService = createCreditService(supabase);
 
-    // Check budget
-    try {
-      const estimatedCost = calculateFalCost(textToImageModel, 1);
-      await ensureCredit(creditService, session.user.sub, 'fal', estimatedCost);
-    } catch (error) {
-      if (isCreditError(error)) {
-        return NextResponse.json(
-          { error: formatCreditError(error), code: error.code },
-          { status: 402 }
-        );
-      }
-      throw error;
-    }
+    // Budget check disabled - user manages fal.ai credits directly
+    // const estimatedCost = calculateFalCost(textToImageModel, 1);
+    // await ensureCredit(creditService, session.user.sub, 'fal', estimatedCost);
 
     // Optimize prompt with Claude
     const optimizedPrompt = await optimizePrompt(visualDescription, style, claudeWrapper);
     const viewConfig = CHARACTER_VIEWS.find(v => v.name === viewType) || CHARACTER_VIEWS[0];
-    const fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, ${viewConfig.promptSuffix}, full body portrait${styleConfig.promptSuffix}`;
+    const fullPrompt = `${styleConfig.promptPrefix}${optimizedPrompt}, ${viewConfig.promptSuffix}, ${viewConfig.framing}${styleConfig.promptSuffix}`;
 
     // Get front reference if exists
     const existingImages = localOverrides.reference_images_metadata || [];

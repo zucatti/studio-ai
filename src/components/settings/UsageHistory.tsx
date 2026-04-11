@@ -47,6 +47,12 @@ const PROVIDER_LABELS: Record<ApiProvider, string> = {
   global: 'Global',
 };
 
+// Providers that are no longer used - hide from summary
+const HIDDEN_PROVIDERS = ['piapi', 'creatomate', 'replicate', 'wavespeed', 'modelslab'];
+
+// Active providers - always show these even if no data
+const ACTIVE_PROVIDERS = ['fal', 'claude', 'elevenlabs', 'runway'];
+
 const STATUS_CONFIG: Record<ApiCallStatus, { label: string; icon: typeof Check; color: string }> = {
   success: { label: 'Succès', icon: Check, color: 'text-green-400 bg-green-400/10' },
   failed: { label: 'Échec', icon: X, color: 'text-red-400 bg-red-400/10' },
@@ -145,20 +151,23 @@ export function UsageHistory() {
         ) : data && data.logs.length > 0 ? (
           <>
             {/* Summary */}
-            {data.summary && Object.keys(data.summary).length > 0 && (
+            {data.summary && (
               <div className="mb-4 flex flex-wrap gap-2">
-                {Object.entries(data.summary).map(([provider, stats]) => (
-                  <div
-                    key={provider}
-                    className="bg-slate-900/50 rounded px-3 py-1.5 text-xs"
-                  >
-                    <span className="text-slate-400">{PROVIDER_LABELS[provider as ApiProvider] || provider}:</span>{' '}
-                    <span className="text-green-400">${stats.totalCost.toFixed(2)}</span>
-                    <span className="text-slate-500 ml-2">
-                      ({stats.successCount} ok, {stats.failedCount} err, {stats.blockedCount} blk)
-                    </span>
-                  </div>
-                ))}
+                {ACTIVE_PROVIDERS.map((provider) => {
+                  const stats = data.summary[provider] || { totalCost: 0, successCount: 0, failedCount: 0, blockedCount: 0 };
+                  return (
+                    <div
+                      key={provider}
+                      className="bg-slate-900/50 rounded px-3 py-1.5 text-xs"
+                    >
+                      <span className="text-slate-400">{PROVIDER_LABELS[provider as ApiProvider] || provider}:</span>{' '}
+                      <span className="text-green-400">${stats.totalCost.toFixed(2)}</span>
+                      <span className="text-slate-500 ml-2">
+                        ({stats.successCount} ok, {stats.failedCount} err, {stats.blockedCount} blk)
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             )}
 

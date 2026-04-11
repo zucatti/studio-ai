@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { User, Users, Image as ImageIcon, Mic, Save, Loader2, RefreshCw, Trash2, Baby, Radio, BookOpen, LayoutGrid } from 'lucide-react';
+import { User, Users, Image as ImageIcon, Mic, Save, Loader2, RefreshCw, Trash2, Baby, Radio, BookOpen, LayoutGrid, Expand } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -25,6 +25,7 @@ import { useBibleStore, type GenericAssetLocalOverrides, type ImportedGenericCha
 import { GENERIC_CHARACTERS } from '@/lib/generic-characters';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
+import { ImageCarousel, type CarouselImage } from '@/components/ui/image-carousel';
 
 // Icons for generic characters
 const GENERIC_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
@@ -72,6 +73,8 @@ export function CharacterEditor({
   const [isSaving, setIsSaving] = useState(false);
   const [generatingView, setGeneratingView] = useState<string | null>(null);
   const [isGeneratingMatrix, setIsGeneratingMatrix] = useState(false);
+  const [carouselOpen, setCarouselOpen] = useState(false);
+  const [carouselInitialIndex, setCarouselInitialIndex] = useState(0);
 
   // Form state for generic characters
   const [nameOverride, setNameOverride] = useState('');
@@ -224,7 +227,17 @@ export function CharacterEditor({
     ? (genericAsset.name_override || genericAsset.name)
     : (customAsset?.name || '');
 
+  // Prepare carousel images
+  const carouselImages: CarouselImage[] = [];
+  for (const { type, label, description } of IMAGE_TYPES) {
+    const img = getImageForType(type);
+    if (img) {
+      carouselImages.push({ url: img.url, label, description });
+    }
+  }
+
   return (
+    <>
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[85vh] p-0 bg-[#0d1520] border-white/10 flex flex-col overflow-hidden">
         {/* Header */}
@@ -386,12 +399,28 @@ export function CharacterEditor({
                           </div>
 
                           {image ? (
-                            <StorageThumbnail
-                              src={image.url}
-                              alt={`${displayName} - ${label}`}
-                              size={200}
-                              className="w-full aspect-square rounded-lg object-cover"
-                            />
+                            <div className="relative group">
+                              <StorageThumbnail
+                                src={image.url}
+                                alt={`${displayName} - ${label}`}
+                                size={200}
+                                className="w-full aspect-square rounded-lg object-cover"
+                              />
+                              {/* Expand button overlay */}
+                              <button
+                                onClick={() => {
+                                  const idx = carouselImages.findIndex(img => img.label === label);
+                                  if (idx >= 0) {
+                                    setCarouselInitialIndex(idx);
+                                    setCarouselOpen(true);
+                                  }
+                                }}
+                                className="absolute top-2 right-2 w-8 h-8 rounded-full bg-black/60 backdrop-blur flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity hover:bg-black/80"
+                                title="Agrandir"
+                              >
+                                <Expand className="w-4 h-4 text-white" />
+                              </button>
+                            </div>
                           ) : (
                             <div className="w-full aspect-square rounded-lg bg-white/5 flex items-center justify-center">
                               <div className="text-center text-slate-500">
@@ -517,5 +546,15 @@ export function CharacterEditor({
         </Tabs>
       </DialogContent>
     </Dialog>
+
+    {/* Image Carousel - outside Dialog to avoid portal nesting issues */}
+    <ImageCarousel
+      images={carouselImages}
+      initialIndex={carouselInitialIndex}
+      isOpen={carouselOpen}
+      onClose={() => setCarouselOpen(false)}
+      title={displayName}
+    />
+    </>
   );
 }

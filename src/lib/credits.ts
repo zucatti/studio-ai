@@ -712,18 +712,14 @@ export async function ensureCredit(
   provider: ApiProvider,
   estimatedCost: number
 ): Promise<CreditCheckResult> {
-  const result = await service.checkCredit(userId, provider, estimatedCost);
-
-  if (!result.allowed) {
-    throw new CreditError({
-      code: result.currentSpent >= result.budgetAmount ? 'BUDGET_EXCEEDED' : 'BUDGET_WOULD_EXCEED',
-      message: result.message || 'Budget exceeded',
-      provider,
-      budgetAmount: result.budgetAmount,
-      currentSpent: result.currentSpent,
-      estimatedCost,
-    });
-  }
-
-  return result;
+  // Budget blocking disabled - users manage their API credits directly on each provider
+  // The logging still works, but we never block operations
+  return {
+    allowed: true,
+    remainingBudget: Infinity,
+    warningLevel: 'none',
+    spentPercent: 0,
+    budgetAmount: 0,
+    currentSpent: 0,
+  };
 }
