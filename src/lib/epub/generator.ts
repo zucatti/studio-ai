@@ -24,6 +24,7 @@ function escapeHtml(text: string): string {
 
 // Convert TipTap HTML to EPUB-compatible XHTML
 // Adds proper classes for styling
+// Converts <br> to separate paragraphs so each line has text-indent
 function htmlToEpubXhtml(content: string): string {
   if (!content) return '';
 
@@ -33,27 +34,26 @@ function htmlToEpubXhtml(content: string): string {
   if (!isHtml) {
     // Legacy plain text:
     // - \n\n = new paragraph
-    // - \n = <br/> within paragraph
+    // - \n = separate paragraph (not br, so each line has indent)
     const normalized = content
       .replace(/\r\n/g, '\n')
       .replace(/\r/g, '\n')
       .replace(/\n{3,}/g, '\n\n');
 
-    const paragraphs = normalized.split(/\n\n/);
+    const paragraphs = normalized.split(/\n/);
     return paragraphs
       .map(p => {
         const trimmed = p.trim();
         if (!trimmed) return '';
         const escaped = escapeHtml(trimmed);
-        const withBreaks = escaped.replace(/\n/g, '<br/>');
-        return `<p class="p-body">${withBreaks}</p>`;
+        return `<p class="p-body">${escaped}</p>`;
       })
       .filter(Boolean)
       .join('\n');
   }
 
-  // TipTap HTML: add classes for consistent EPUB styling
-  return content
+  // TipTap HTML: convert br to paragraph breaks for proper text-indent
+  let result = content
     // Convert HTML entities to XHTML-safe numeric entities
     .replace(/&nbsp;/g, '&#160;')
     .replace(/&mdash;/g, '&#8212;')
@@ -62,19 +62,28 @@ function htmlToEpubXhtml(content: string): string {
     .replace(/&rsquo;/g, '&#8217;')
     .replace(/&ldquo;/g, '&#8220;')
     .replace(/&rdquo;/g, '&#8221;')
-    .replace(/&hellip;/g, '&#8230;')
-    // Add p-body class to all paragraphs
+    .replace(/&hellip;/g, '&#8230;');
+
+  // Convert <br> inside paragraphs to paragraph breaks
+  // This ensures each line gets its own text-indent
+  result = result.replace(/<br\s*\/?>/gi, '</p>\n<p>');
+
+  // Add p-body class to all paragraphs
+  result = result
     .replace(/<p>/g, '<p class="p-body">')
     .replace(/<p\s+style="/g, '<p class="p-body" style="')
-    .replace(/<p\s+class="([^"]*)"/g, '<p class="p-body $1"')
-    // Make sure br tags are self-closing for XHTML
-    .replace(/<br>/g, '<br/>')
+    .replace(/<p\s+class="([^"]*)"/g, '<p class="p-body $1">')
     // Ensure hr tags are self-closing
     .replace(/<hr>/g, '<hr/>')
     // Convert h1/h2/h3 to styled headings
     .replace(/<h1>/g, '<h1 class="chapter-heading">')
     .replace(/<h2>/g, '<h2 class="section-heading">')
     .replace(/<h3>/g, '<h3 class="subsection-heading">');
+
+  // Clean up empty paragraphs that may result from br conversion
+  result = result.replace(/<p class="p-body">\s*<\/p>/g, '');
+
+  return result;
 }
 
 // Generate UUID
