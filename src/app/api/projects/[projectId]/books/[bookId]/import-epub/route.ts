@@ -131,11 +131,30 @@ function extractTextFromXhtml(xhtml: string): string {
 
 // Clean XHTML content for storage
 function cleanXhtmlContent(xhtml: string): string {
-  // Get body content
-  const bodyMatch = xhtml.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
-  if (!bodyMatch) return '';
+  // Get body content - use greedy match and handle self-closing or missing body
+  let content = '';
 
-  let content = bodyMatch[1];
+  // Try to find body content
+  const bodyStartMatch = xhtml.match(/<body[^>]*>/i);
+  if (bodyStartMatch) {
+    const bodyStart = xhtml.indexOf(bodyStartMatch[0]) + bodyStartMatch[0].length;
+    const bodyEnd = xhtml.lastIndexOf('</body>');
+    if (bodyEnd > bodyStart) {
+      content = xhtml.substring(bodyStart, bodyEnd);
+    } else {
+      // No closing body tag, take everything after body open
+      content = xhtml.substring(bodyStart);
+    }
+  } else {
+    // No body tag at all, use the whole content
+    content = xhtml;
+  }
+
+  if (!content.trim()) {
+    console.log('[EPUB Import] WARNING: No body content found');
+    console.log('[EPUB Import] XHTML preview:', xhtml.substring(0, 500));
+    return '';
+  }
 
   // Remove scripts and styles
   content = content.replace(/<script[\s\S]*?<\/script>/gi, '');
@@ -144,17 +163,28 @@ function cleanXhtmlContent(xhtml: string): string {
   // Remove chapter title (h1, h2) - we store it separately
   content = content.replace(/<h[12][^>]*>[\s\S]*?<\/h[12]>/gi, '');
 
-  // Remove excessive attributes
+  // Remove excessive attributes but keep the tags
   content = content.replace(/\s+class="[^"]*"/gi, '');
   content = content.replace(/\s+style="[^"]*"/gi, '');
   content = content.replace(/\s+id="[^"]*"/gi, '');
+  content = content.replace(/\s+epub:type="[^"]*"/gi, '');
+  content = content.replace(/\s+xmlns[^=]*="[^"]*"/gi, '');
+
+  // Convert spans to just their content (unwrap)
+  content = content.replace(/<span[^>]*>([\s\S]*?)<\/span>/gi, '$1');
 
   // Convert divs to paragraphs if they contain text
   content = content.replace(/<div([^>]*)>/gi, '<p$1>');
   content = content.replace(/<\/div>/gi, '</p>');
 
+  // Convert section tags to nothing (unwrap)
+  content = content.replace(/<\/?section[^>]*>/gi, '');
+
   // Clean up empty paragraphs
   content = content.replace(/<p[^>]*>\s*<\/p>/gi, '');
+
+  // Ensure br tags are self-closing
+  content = content.replace(/<br\s*>/gi, '<br>');
 
   // Normalize whitespace
   content = content.replace(/\n\s*\n\s*\n/g, '\n\n');
