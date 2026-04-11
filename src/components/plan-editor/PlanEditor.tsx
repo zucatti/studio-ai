@@ -69,6 +69,7 @@ import {
 import { SegmentEditor } from '@/components/shorts/SegmentEditor';
 import { CinematicHeaderWizard } from '@/components/shorts/CinematicHeaderWizard';
 import { AudioTrackEditor } from '@/components/shorts/AudioTrackEditor';
+import { PlanAIPanel } from './PlanAIPanel';
 
 interface PlanEditorModalProps extends PlanEditorProps {
   open: boolean;
@@ -156,6 +157,9 @@ export function PlanEditor({
 
   // Cinematic style wizard state
   const [showStyleWizard, setShowStyleWizard] = useState(false);
+
+  // AI assistant panel state
+  const [showAIPanel, setShowAIPanel] = useState(false);
 
   // Editor tab state: 'plan' for frames/video, 'montage' for audio timeline
   const [editorTab, setEditorTab] = useState<'plan' | 'montage'>('plan');
@@ -869,6 +873,16 @@ export function PlanEditor({
 
               {/* Generate button */}
               <div className="flex items-center gap-2">
+                {/* AI Assistant button */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 border-purple-500/50 text-purple-400 hover:bg-purple-500/10 hover:text-purple-300"
+                  onClick={() => setShowAIPanel(true)}
+                >
+                  <Sparkles className="w-3.5 h-3.5 mr-1.5" />
+                  IA
+                </Button>
 
                 {/* Generate button */}
                 {config.showVideoGeneration && (
@@ -1391,6 +1405,19 @@ export function PlanEditor({
         sequencePlans={sequencePlans}
       />
     )}
+
+    {/* AI Assistant Panel */}
+    <PlanAIPanel
+      open={showAIPanel}
+      onClose={() => setShowAIPanel(false)}
+      projectId={projectId}
+      frameInUrl={plan.storyboard_image_url || plan.first_frame_url}
+      frameOutUrl={plan.last_frame_url}
+      projectAssets={projectAssets}
+      currentSegments={plan.segments || []}
+      onApplySegments={(segments) => handleSegmentsChange(segments)}
+      planDuration={plan.duration}
+    />
   </>
   );
 }
