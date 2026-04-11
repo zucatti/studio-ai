@@ -128,20 +128,48 @@ export async function POST(request: Request, { params }: RouteParams) {
       }
     }
 
+    // Get max sort_order for this project
+    const { data: maxData } = await supabase
+      .from('shots')
+      .select('sort_order, shot_number')
+      .eq('project_id', projectId)
+      .order('sort_order', { ascending: false })
+      .limit(1)
+      .single();
+
+    const nextOrder = (maxData?.sort_order ?? -1) + 1;
+    const nextNumber = (maxData?.shot_number ?? 0) + 1;
+
+    // Duration for segments
+    const duration = body.duration || 5;
+
+    // Default segment
+    const defaultSegment = {
+      id: crypto.randomUUID(),
+      start_time: 0,
+      end_time: duration,
+      shot_type: 'medium',
+      subject: '',
+    };
+
     // Create the shot
     const { data: shot, error } = await supabase
       .from('shots')
       .insert({
         scene_id: body.scene_id || null,
+        sequence_id: body.sequence_id ?? null,
         project_id: projectId,
-        shot_number: body.shot_number || 1,
+        shot_number: body.shot_number || nextNumber,
         description: body.description || '',
+        duration: duration,
         shot_type: body.shot_type || 'medium',
         camera_angle: body.camera_angle || 'eye_level',
         camera_movement: body.camera_movement || 'static',
         status: body.status || 'draft',
-        sort_order: body.shot_number || 1,
+        generation_status: 'not_started',
+        sort_order: body.sort_order ?? nextOrder,
         storyboard_image_url: body.storyboard_image_url || null,
+        segments: body.segments || [defaultSegment],
       })
       .select()
       .single();

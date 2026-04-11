@@ -417,28 +417,33 @@ export default function ClipPage() {
   }, [projectId, sequences, plans]);
 
   const handleAddPlan = useCallback(async (sequenceId?: string | null) => {
-    // Determine target sequence
-    const targetSequence = sequenceId
-      ? sequences.find(s => s.id === sequenceId)
-      : sequences[0];
-
-    if (!targetSequence) {
-      toast.error('Créez d\'abord une séquence');
-      return;
-    }
-
     try {
-      const res = await fetch(`/api/projects/${projectId}/sequences/${targetSequence.id}/shots`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description: '', duration: 5 }),
-      });
+      // If sequenceId is provided, add to that sequence
+      // If null/undefined, add to Rush (unassigned)
+      const targetSequenceId = sequenceId || null;
+
+      let res;
+      if (targetSequenceId) {
+        // Add to specific sequence
+        res = await fetch(`/api/projects/${projectId}/sequences/${targetSequenceId}/shots`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: '', duration: 5 }),
+        });
+      } else {
+        // Add to Rush (unassigned) - use generic shots endpoint
+        res = await fetch(`/api/projects/${projectId}/shots`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ description: '', duration: 5, sequence_id: null }),
+        });
+      }
 
       if (res.ok) {
         const data = await res.json();
         const newPlan: Plan = {
           ...data.shot,
-          sequence_id: targetSequence.id,
+          sequence_id: targetSequenceId,
           short_id: '',
           shot_number: data.shot.sort_order + 1,
           segments: data.shot.segments || [],
@@ -454,7 +459,7 @@ export default function ClipPage() {
       console.error('Error adding plan:', error);
       toast.error('Erreur lors de l\'ajout');
     }
-  }, [projectId, sequences]);
+  }, [projectId]);
 
   const handleSelectPlan = useCallback((planId: string) => {
     setSelectedPlanId(planId);

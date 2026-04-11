@@ -15,6 +15,12 @@ import {
   Play,
   Plus,
 } from 'lucide-react';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -45,6 +51,50 @@ import type { Sequence, CinematicHeaderConfig } from '@/types/cinematic';
 import { CINEMATIC_STYLE_OPTIONS } from '@/types/cinematic';
 import type { Plan } from '@/store/shorts-store';
 import { PlanCard } from './PlanCard';
+
+// Sortable wrapper for PlanCard
+const SortablePlanCard = ({
+  plan,
+  isSelected,
+  onSelect,
+  onEdit,
+  onDelete,
+}: {
+  plan: Plan;
+  isSelected: boolean;
+  onSelect: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: plan.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  return (
+    <div ref={setNodeRef} style={style} {...attributes}>
+      <PlanCard
+        plan={plan}
+        isSelected={isSelected}
+        onSelect={onSelect}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        dragHandleProps={listeners}
+        compact
+      />
+    </div>
+  );
+};
 
 type AssemblyStatus = 'idle' | 'checking' | 'queued' | 'processing' | 'completed' | 'failed';
 
@@ -455,23 +505,24 @@ export function SequenceCard({
         {/* Plans List */}
         {isExpanded && (
           <div className="p-2 space-y-1">
-            {plans.length === 0 ? (
-              <div className="py-4 text-center text-xs text-slate-500">
-                Aucun plan dans cette séquence
-              </div>
-            ) : (
-              plans.map((plan) => (
-                <PlanCard
-                  key={plan.id}
-                  plan={plan}
-                  isSelected={selectedPlanId === plan.id}
-                  onSelect={() => onSelectPlan(plan.id)}
-                  onEdit={() => onEditPlan(plan.id)}
-                  onDelete={() => onDeletePlan(plan.id)}
-                  compact
-                />
-              ))
-            )}
+            <SortableContext items={plans.map(p => p.id)} strategy={verticalListSortingStrategy}>
+              {plans.length === 0 ? (
+                <div className="py-4 text-center text-xs text-slate-500">
+                  Aucun plan dans cette séquence
+                </div>
+              ) : (
+                plans.map((plan) => (
+                  <SortablePlanCard
+                    key={plan.id}
+                    plan={plan}
+                    isSelected={selectedPlanId === plan.id}
+                    onSelect={() => onSelectPlan(plan.id)}
+                    onEdit={() => onEditPlan(plan.id)}
+                    onDelete={() => onDeletePlan(plan.id)}
+                  />
+                ))
+              )}
+            </SortableContext>
           </div>
         )}
 
