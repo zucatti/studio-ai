@@ -2,6 +2,8 @@
 const nextConfig = {
   // Standalone output for Docker/K8s deployment
   output: 'standalone',
+  // Transpile react-pdf to handle CSS imports properly
+  transpilePackages: ['react-pdf'],
   images: {
     remotePatterns: [
       {
