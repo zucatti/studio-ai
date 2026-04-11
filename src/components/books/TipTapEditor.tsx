@@ -85,34 +85,13 @@ export function TipTapEditor({
         style: 'font-family: "Times New Roman", Times, Georgia, serif; font-size: 20px; line-height: 1.8;',
       },
       handlePaste: (view, event) => {
-        // First, try to get HTML content (preserves paragraph structure from Pages, Word, etc.)
+        // If HTML content is available (from Pages, Word, etc.), let TipTap handle it natively
         const htmlContent = event.clipboardData?.getData('text/html');
-
         if (htmlContent && htmlContent.includes('<p')) {
-          // Rich content from apps like Pages - use it directly
-          // Clean up the HTML to keep only relevant tags
-          const tempDiv = document.createElement('div');
-          tempDiv.innerHTML = htmlContent;
-
-          // Remove style tags and scripts
-          tempDiv.querySelectorAll('style, script, meta, link').forEach(el => el.remove());
-
-          // Get the body content if present, otherwise use all content
-          const body = tempDiv.querySelector('body');
-          const cleanHtml = body ? body.innerHTML : tempDiv.innerHTML;
-
-          const parseDiv = document.createElement('div');
-          parseDiv.innerHTML = cleanHtml;
-
-          const { state, dispatch } = view;
-          const slice = ProseDOMParser.fromSchema(state.schema).parseSlice(parseDiv);
-          const tr = state.tr.replaceSelection(slice);
-          dispatch(tr);
-          event.preventDefault();
-          return true;
+          return false; // Let TipTap handle it
         }
 
-        // Fallback: plain text processing
+        // Plain text processing (from plain text editors, terminal, etc.)
         const text = event.clipboardData?.getData('text/plain');
         if (!text) return false;
 
