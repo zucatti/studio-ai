@@ -129,12 +129,11 @@ function extractTextFromXhtml(xhtml: string): string {
   return '';
 }
 
-// Clean XHTML content for storage - preserves paragraph structure for TipTap
+// Clean XHTML content for storage - merges consecutive lines into paragraphs
 function cleanXhtmlContent(xhtml: string): string {
-  // Get body content - use greedy match and handle self-closing or missing body
+  // Get body content
   let content = '';
 
-  // Try to find body content
   const bodyStartMatch = xhtml.match(/<body[^>]*>/i);
   if (bodyStartMatch) {
     const bodyStart = xhtml.indexOf(bodyStartMatch[0]) + bodyStartMatch[0].length;
@@ -142,64 +141,71 @@ function cleanXhtmlContent(xhtml: string): string {
     if (bodyEnd > bodyStart) {
       content = xhtml.substring(bodyStart, bodyEnd);
     } else {
-      // No closing body tag, take everything after body open
       content = xhtml.substring(bodyStart);
     }
   } else {
-    // No body tag at all, use the whole content
     content = xhtml;
   }
 
   if (!content.trim()) {
     console.log('[EPUB Import] WARNING: No body content found');
-    console.log('[EPUB Import] XHTML preview:', xhtml.substring(0, 500));
     return '';
   }
 
-  // Remove scripts and styles
+  // Remove scripts, styles, chapter titles
   content = content.replace(/<script[\s\S]*?<\/script>/gi, '');
   content = content.replace(/<style[\s\S]*?<\/style>/gi, '');
-
-  // Remove chapter title (h1, h2) - we store it separately
   content = content.replace(/<h[12][^>]*>[\s\S]*?<\/h[12]>/gi, '');
 
-  // Remove wrapping div (Pages uses <div class="body s1" ...>)
-  content = content.replace(/<div[^>]*class="[^"]*body[^"]*"[^>]*>/gi, '');
-  content = content.replace(/<\/div>\s*$/gi, '');
+  // Remove wrapping divs
+  content = content.replace(/<div[^>]*>/gi, '');
+  content = content.replace(/<\/div>/gi, '');
 
-  // Remove excessive attributes but keep the tags
-  content = content.replace(/\s+class="[^"]*"/gi, '');
-  content = content.replace(/\s+style="[^"]*"/gi, '');
-  content = content.replace(/\s+id="[^"]*"/gi, '');
-  content = content.replace(/\s+epub:type="[^"]*"/gi, '');
-  content = content.replace(/\s+xmlns[^=]*="[^"]*"/gi, '');
+  // Remove attributes from p tags
+  content = content.replace(/<p[^>]*>/gi, '<p>');
 
-  // Convert spans to just their content (unwrap)
+  // Unwrap spans
   content = content.replace(/<span[^>]*>([\s\S]*?)<\/span>/gi, '$1');
 
-  // Convert divs to paragraphs if they contain text
-  content = content.replace(/<div([^>]*)>/gi, '<p$1>');
-  content = content.replace(/<\/div>/gi, '</p>');
-
-  // Convert section tags to nothing (unwrap)
+  // Remove section tags
   content = content.replace(/<\/?section[^>]*>/gi, '');
 
-  // Handle empty paragraphs used as spacers (Pages uses <p> </p> or just space)
-  // TipTap needs <p><br></p> or <p></p> for empty lines
-  // First normalize all "empty" paragraphs (with just space/nbsp)
-  content = content.replace(/<p>(\s|&nbsp;| |&#160;)*<\/p>/gi, '<p></p>');
+  // Extract all paragraphs
+  const paragraphRegex = /<p>([\s\S]*?)<\/p>/gi;
+  const paragraphs: string[] = [];
+  let match;
 
-  // Ensure br tags are self-closing
-  content = content.replace(/<br\s*>/gi, '<br>');
+  while ((match = paragraphRegex.exec(content)) !== null) {
+    const text = match[1]
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&#160;/g, ' ')
+      .trim();
+    paragraphs.push(text);
+  }
 
-  // Clean up multiple consecutive empty paragraphs (max 1 between text paragraphs)
-  // This preserves single blank lines but removes excessive spacing
-  content = content.replace(/(<p><\/p>){2,}/gi, '<p></p>');
+  // Merge consecutive non-empty paragraphs, empty ones are separators
+  const result: string[] = [];
+  let currentParagraph: string[] = [];
 
-  // Add newlines between paragraphs for readability in the stored HTML
-  content = content.replace(/<\/p><p/gi, '</p>\n<p');
+  for (const para of paragraphs) {
+    if (para === '' || para === ' ') {
+      // Empty paragraph = paragraph separator
+      if (currentParagraph.length > 0) {
+        result.push(`<p>${currentParagraph.join('<br>')}</p>`);
+        currentParagraph = [];
+      }
+    } else {
+      // Non-empty line, add to current paragraph
+      currentParagraph.push(para);
+    }
+  }
 
-  return content.trim();
+  // Don't forget the last paragraph
+  if (currentParagraph.length > 0) {
+    result.push(`<p>${currentParagraph.join('<br>')}</p>`);
+  }
+
+  return result.join('\n');
 }
 
 // POST /api/projects/[projectId]/books/[bookId]/import-epub
