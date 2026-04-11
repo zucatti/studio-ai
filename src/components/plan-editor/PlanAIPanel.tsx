@@ -242,7 +242,7 @@ export function PlanAIPanel({
   if (!open) return null;
 
   return (
-    <div className="absolute top-0 right-0 bottom-0 w-[400px] bg-[#0d1520] border-l border-white/10 flex flex-col z-50 shadow-2xl">
+    <div className="fixed top-[5vh] right-[2.5vw] bottom-[5vh] w-[400px] bg-[#0d1520] border border-white/10 rounded-r-xl flex flex-col z-[60] shadow-2xl">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-white/10">
         <div className="flex items-center gap-2">

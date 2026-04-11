@@ -158,7 +158,7 @@ export function SequenceCard({
 
   // Count plans with generated videos
   const plansWithVideos = plans.filter(p => p.generated_video_url);
-  const hasVideosToAssemble = plansWithVideos.length >= 2;
+  const hasVideosToAssemble = plansWithVideos.length >= 1;
   const allPlansHaveVideos = plans.length > 0 && plansWithVideos.length === plans.length;
 
   // Stable count of plans with videos (for dependency)
@@ -172,7 +172,7 @@ export function SequenceCard({
 
   // Check assembly status when component mounts or plans change
   useEffect(() => {
-    if (videoPlanCount < 2) return;
+    if (videoPlanCount < 1) return;
 
     const checkAssemblyStatus = async () => {
       try {
@@ -556,8 +556,8 @@ export function SequenceCard({
             {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Assembly buttons - only show when 2+ plans */}
-            {plans.length >= 2 && (
+            {/* Assembly buttons - show when at least 1 plan */}
+            {plans.length >= 1 && (
               <>
                 {/* Play button - show when video is available */}
                 {assembly.videoUrl && (

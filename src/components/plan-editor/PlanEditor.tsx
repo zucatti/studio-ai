@@ -1331,6 +1331,19 @@ export function PlanEditor({
 
       </DialogContent>
 
+      {/* AI Assistant Panel - positioned inside Dialog portal */}
+      <PlanAIPanel
+        open={showAIPanel}
+        onClose={() => setShowAIPanel(false)}
+        projectId={projectId}
+        frameInUrl={plan.storyboard_image_url || plan.first_frame_url}
+        frameOutUrl={plan.last_frame_url}
+        projectAssets={projectAssets}
+        currentSegments={plan.segments || []}
+        onApplySegments={(segments) => handleSegmentsChange(segments)}
+        planDuration={plan.duration}
+      />
+
       {/* Fullscreen Video */}
       {isFullscreen && signedVideoUrl && typeof document !== 'undefined' && createPortal(
         <div className="fixed inset-0 z-[100] bg-black flex items-center justify-center">
@@ -1406,18 +1419,6 @@ export function PlanEditor({
       />
     )}
 
-    {/* AI Assistant Panel */}
-    <PlanAIPanel
-      open={showAIPanel}
-      onClose={() => setShowAIPanel(false)}
-      projectId={projectId}
-      frameInUrl={plan.storyboard_image_url || plan.first_frame_url}
-      frameOutUrl={plan.last_frame_url}
-      projectAssets={projectAssets}
-      currentSegments={plan.segments || []}
-      onApplySegments={(segments) => handleSegmentsChange(segments)}
-      planDuration={plan.duration}
-    />
   </>
   );
 }

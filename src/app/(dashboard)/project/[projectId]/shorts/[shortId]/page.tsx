@@ -820,8 +820,9 @@ export default function ShortDetailPage() {
       const targetSequenceId = overId.replace('sequence-', '');
       if (draggedPlan.sequence_id !== targetSequenceId) {
         await handleAssignPlanToSequence(draggedPlanId, targetSequenceId);
+        return;
       }
-      return;
+      // Same sequence - fall through to reordering logic below
     }
 
     // Check if dropped on rush zone

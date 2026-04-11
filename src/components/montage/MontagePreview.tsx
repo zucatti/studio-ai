@@ -115,6 +115,19 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
   // Get signed URL for current clip video
   const { signedUrl, isLoading: isLoadingVideo, error: videoError } = useSignedUrl(currentClip?.assetUrl || null);
 
+  // Debug: log when clip or URL changes
+  useEffect(() => {
+    console.log('[MontagePreview] Clip/URL state:', {
+      currentClipId,
+      clipName: currentClip?.name,
+      assetUrl: currentClip?.assetUrl,
+      signedUrl: signedUrl ? signedUrl.substring(0, 80) + '...' : null,
+      isLoadingVideo,
+      videoError,
+      isPlaying,
+    });
+  }, [currentClipId, currentClip?.name, currentClip?.assetUrl, signedUrl, isLoadingVideo, videoError, isPlaying]);
+
   // Get signed URL for thumbnail (shown when not playing)
   const { signedUrl: thumbnailUrl } = useSignedUrl(currentClip?.thumbnailUrl || null);
 
@@ -175,12 +188,39 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
     }
   }, [currentClip, isPlaying]);
 
-  // Handle video ended
+  // Handle video ended - find next clip or stop
   const handleVideoEnded = useCallback(() => {
+    if (!currentClip) return;
+
     const store = useMontageStore.getState();
-    store.pause();
-    store.setCurrentTime(0);
-  }, []);
+    const currentClipEnd = currentClip.start + currentClip.duration;
+
+    // Find the next clip on any video track (clip that starts at or after current clip ends)
+    const allVideoClips = Object.values(store.clips)
+      .filter((c) => videoTrackIds.includes(c.trackId))
+      .sort((a, b) => a.start - b.start);
+
+    console.log('[MontagePreview] Video ended:', {
+      currentClipId: currentClip.id,
+      currentClipEnd,
+      allVideoClips: allVideoClips.map(c => ({ id: c.id, name: c.name, start: c.start, duration: c.duration, trackId: c.trackId })),
+      videoTrackIds,
+    });
+
+    const nextClip = allVideoClips.find((c) => c.start >= currentClipEnd - 0.1 && c.id !== currentClip.id);
+
+    console.log('[MontagePreview] Next clip:', nextClip ? { id: nextClip.id, name: nextClip.name, start: nextClip.start } : 'none');
+
+    if (nextClip) {
+      // Move to next clip and continue playing
+      store.setCurrentTime(nextClip.start);
+      setCurrentClipId(nextClip.id);
+    } else {
+      // No more clips - stop playback
+      store.pause();
+      store.setCurrentTime(0);
+    }
+  }, [currentClip, videoTrackIds]);
 
   // Play/pause video element
   useEffect(() => {
@@ -282,6 +322,7 @@ export function MontagePreview({ aspectRatio, className }: MontagePreviewProps) 
                 className="w-full h-full object-contain"
                 playsInline
                 preload="auto"
+                autoPlay={isPlaying}
                 muted={isVideoTrackMuted || isMuted}
                 onPlaying={() => setIsVideoReady(true)}
                 onCanPlay={() => setIsVideoReady(true)}

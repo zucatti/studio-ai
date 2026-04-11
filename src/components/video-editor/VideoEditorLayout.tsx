@@ -330,13 +330,14 @@ export function VideoEditorLayout({
 
     const overData = over.data.current as { type: string; sequenceId?: string } | undefined;
 
-    // Dropping on a sequence
+    // Dropping on a sequence (move between sequences)
     if (overData?.type === 'sequence' && overData.sequenceId) {
       const targetSequenceId = overData.sequenceId;
       if (plan.sequence_id !== targetSequenceId) {
         onMovePlanToSequence(planId, targetSequenceId);
+        return;
       }
-      return;
+      // Same sequence - fall through to reordering logic
     }
 
     // Dropping on rush
@@ -347,7 +348,7 @@ export function VideoEditorLayout({
       return;
     }
 
-    // Reordering within same container
+    // Reordering within same container (or when dropped on same sequence)
     if (active.id !== over.id) {
       const sourceSequenceId = plan.sequence_id;
       const sourcePlans = sourceSequenceId

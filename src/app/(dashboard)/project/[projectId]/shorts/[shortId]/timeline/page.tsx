@@ -102,6 +102,22 @@ export default function TimelineEditorPage() {
         shortId={shortId}
         aspectRatio={aspectRatio}
         className="flex-1 min-h-0"
+        sequences={(short.sequences || []).map(seq => ({
+          id: seq.id,
+          title: seq.title,
+          start_time: seq.start_time,
+          end_time: seq.end_time,
+          assembled_video_url: seq.assembled_video_url,
+        }))}
+        plans={short.plans.map(plan => ({
+          id: plan.id,
+          sequence_id: plan.sequence_id,
+          sort_order: plan.sort_order,
+          duration: plan.duration,
+          generated_video_url: plan.generated_video_url,
+          storyboard_image_url: plan.storyboard_image_url,
+          description: plan.description,
+        }))}
       />
     </div>
   );

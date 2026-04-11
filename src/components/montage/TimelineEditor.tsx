@@ -84,12 +84,13 @@ export function TimelineEditor({
 
   // Auto-import sequences/plans from Edition mode
   const importFromEdition = useCallback(() => {
-    if (plans.length === 0) return;
+    if (plans.length === 0 && sequences.length === 0) return;
 
     console.log('[TimelineEditor] Auto-importing from Edition mode:', {
       sequenceCount: sequences.length,
       planCount: plans.length,
-      plans: plans.map(p => ({ id: p.id, duration: p.duration, video: !!p.generated_video_url })),
+      sequences: sequences.map(s => ({ id: s.id, title: s.title, assembled: !!s.assembled_video_url })),
+      plans: plans.map(p => ({ id: p.id, seq: p.sequence_id, duration: p.duration, video: !!p.generated_video_url })),
     });
 
     // Reset store first to clear existing clips
@@ -101,18 +102,103 @@ export function TimelineEditor({
     addTrack('video', 'Video 2');
     addTrack('audio', 'Audio 1');
 
-    // Sort plans by sequence order and then by sort_order within sequence
-    const sequenceOrder = new Map(sequences.map((s, i) => [s.id, i]));
-    const sortedPlans = [...plans].sort((a, b) => {
-      const seqOrderA = a.sequence_id ? (sequenceOrder.get(a.sequence_id) ?? 999) : 999;
-      const seqOrderB = b.sequence_id ? (sequenceOrder.get(b.sequence_id) ?? 999) : 999;
-      if (seqOrderA !== seqOrderB) return seqOrderA - seqOrderB;
-      return a.sort_order - b.sort_order;
+    // Sort sequences by their order
+    const sortedSequences = [...sequences].sort((a, b) => {
+      // Use start_time if available, otherwise maintain original order
+      const timeA = a.start_time ?? 0;
+      const timeB = b.start_time ?? 0;
+      return timeA - timeB;
     });
 
-    // Add plans as clips on the video track
+    // Group plans by sequence
+    const plansBySequence = new Map<string, PlanData[]>();
+    for (const plan of plans) {
+      if (plan.sequence_id) {
+        const existing = plansBySequence.get(plan.sequence_id) || [];
+        existing.push(plan);
+        plansBySequence.set(plan.sequence_id, existing);
+      }
+    }
+
+    // Sort plans within each sequence
+    for (const [seqId, seqPlans] of plansBySequence) {
+      seqPlans.sort((a, b) => a.sort_order - b.sort_order);
+      plansBySequence.set(seqId, seqPlans);
+    }
+
+    // Add clips: either assembled sequence video OR individual plans
     let currentTime = 0;
-    for (const plan of sortedPlans) {
+    let clipCount = 0;
+
+    for (const sequence of sortedSequences) {
+      const seqPlans = plansBySequence.get(sequence.id) || [];
+
+      // If sequence has assembled video, use that as ONE clip
+      if (sequence.assembled_video_url) {
+        // Calculate total duration from plans or use sequence times
+        let sequenceDuration = 0;
+        if (sequence.start_time != null && sequence.end_time != null) {
+          sequenceDuration = sequence.end_time - sequence.start_time;
+        } else {
+          sequenceDuration = seqPlans.reduce((sum, p) => sum + (p.duration || 5), 0);
+        }
+
+        // Get thumbnail from first plan
+        const firstPlan = seqPlans[0];
+        const thumbnailUrl = firstPlan?.storyboard_image_url || undefined;
+
+        console.log('[TimelineEditor] Adding assembled sequence clip:', {
+          sequenceId: sequence.id,
+          title: sequence.title,
+          url: sequence.assembled_video_url?.substring(0, 60) + '...',
+          duration: sequenceDuration,
+          startTime: currentTime,
+        });
+
+        addClip({
+          type: 'video',
+          trackId: videoTrackId,
+          start: currentTime,
+          duration: sequenceDuration || 5,
+          assetUrl: sequence.assembled_video_url,
+          thumbnailUrl,
+          name: sequence.title || `Sequence ${clipCount + 1}`,
+          sourceStart: 0,
+          sourceEnd: sequenceDuration || 5,
+          sourceDuration: sequenceDuration || 5,
+        });
+
+        currentTime += sequenceDuration || 5;
+        clipCount++;
+      } else {
+        // No assembled video - add individual plans
+        for (const plan of seqPlans) {
+          const assetUrl = plan.generated_video_url || undefined;
+          const thumbnailUrl = plan.storyboard_image_url || undefined;
+          const clipType = assetUrl ? 'video' : (thumbnailUrl ? 'image' : 'video');
+
+          addClip({
+            type: clipType,
+            trackId: videoTrackId,
+            start: currentTime,
+            duration: plan.duration || 5,
+            assetUrl,
+            thumbnailUrl,
+            name: plan.description || `Plan ${plan.sort_order + 1}`,
+            sourceStart: 0,
+            sourceEnd: plan.duration || 5,
+            sourceDuration: plan.duration || 5,
+          });
+
+          currentTime += plan.duration || 5;
+          clipCount++;
+        }
+      }
+    }
+
+    // Handle orphan plans (not in any sequence)
+    const orphanPlans = plans.filter(p => !p.sequence_id);
+    for (const plan of orphanPlans) {
       const assetUrl = plan.generated_video_url || undefined;
       const thumbnailUrl = plan.storyboard_image_url || undefined;
       const clipType = assetUrl ? 'video' : (thumbnailUrl ? 'image' : 'video');
@@ -131,20 +217,100 @@ export function TimelineEditor({
       });
 
       currentTime += plan.duration || 5;
+      clipCount++;
     }
 
-    console.log('[TimelineEditor] Imported plans as clips:', {
-      clipCount: sortedPlans.length,
+    console.log('[TimelineEditor] Import complete:', {
+      clipCount,
       totalDuration: currentTime,
     });
 
-    toast.success(`${sortedPlans.length} plans importés`);
+    toast.success(`${clipCount} clips importés`);
   }, [projectId, entityId, aspectRatio, sequences, plans, reset, setProject, addTrack, addClip]);
 
   // Track if we've fetched from API
   const hasFetchedRef = useRef(false);
   // Track if we've imported from edition
   const hasImportedFromEditionRef = useRef(false);
+
+  // Update existing clips with new assembled video URLs (preserves other clips like audio)
+  const updateClipsWithAssembledVideos = useCallback(() => {
+    const store = useMontageStore.getState();
+    const clips = store.clips;
+    const updateClip = store.updateClip;
+
+    // Find sequences that have assembled videos
+    const assembledSequences = sequences.filter(s => s.assembled_video_url);
+    if (assembledSequences.length === 0) return 0;
+
+    let updatedCount = 0;
+
+    for (const sequence of assembledSequences) {
+      // Find clips that match this sequence (by name or by checking if they're individual plans from this sequence)
+      const seqPlans = plans.filter(p => p.sequence_id === sequence.id);
+      const planDescriptions = seqPlans.map(p => p.description || `Plan ${p.sort_order + 1}`);
+
+      // Look for clips that are individual plans from this sequence
+      const clipsToUpdate = Object.values(clips).filter(clip => {
+        // Check if clip name matches sequence title or any plan description
+        if (clip.name === sequence.title) return true;
+        if (planDescriptions.includes(clip.name || '')) return true;
+        return false;
+      });
+
+      if (clipsToUpdate.length > 0) {
+        // Calculate total duration
+        let sequenceDuration = 0;
+        if (sequence.start_time != null && sequence.end_time != null) {
+          sequenceDuration = sequence.end_time - sequence.start_time;
+        } else {
+          sequenceDuration = seqPlans.reduce((sum, p) => sum + (p.duration || 5), 0);
+        }
+
+        // Update the first clip with assembled video, remove others
+        const sortedClips = clipsToUpdate.sort((a, b) => a.start - b.start);
+        const firstClip = sortedClips[0];
+
+        console.log('[TimelineEditor] Updating clip with assembled video:', {
+          clipId: firstClip.id,
+          sequenceTitle: sequence.title,
+          newUrl: sequence.assembled_video_url?.substring(0, 60) + '...',
+        });
+
+        updateClip(firstClip.id, {
+          assetUrl: sequence.assembled_video_url!,
+          name: sequence.title || firstClip.name,
+          duration: sequenceDuration || firstClip.duration,
+          sourceEnd: sequenceDuration || firstClip.duration,
+          sourceDuration: sequenceDuration || firstClip.duration,
+        });
+
+        // Remove other clips from this sequence (they're now merged into the assembled video)
+        for (let i = 1; i < sortedClips.length; i++) {
+          store.removeClip(sortedClips[i].id);
+        }
+
+        updatedCount++;
+      }
+    }
+
+    return updatedCount;
+  }, [sequences, plans]);
+
+  // Check if sequences have assembled videos that aren't in the saved montage
+  const countNewAssembledVideos = useCallback((savedClips: Record<string, { assetUrl?: string }>) => {
+    const assembledUrls = sequences
+      .filter(s => s.assembled_video_url)
+      .map(s => s.assembled_video_url!);
+
+    if (assembledUrls.length === 0) return 0;
+
+    // Check if any assembled URL is NOT in the saved clips
+    const savedUrls = Object.values(savedClips).map(c => c.assetUrl).filter(Boolean);
+    const missingUrls = assembledUrls.filter(url => !savedUrls.includes(url));
+
+    return missingUrls.length;
+  }, [sequences]);
 
   // Load montage data from API (runs once)
   useEffect(() => {
@@ -169,15 +335,32 @@ export function TimelineEditor({
             trackCount: data.montageData?.tracks?.length || 0,
           });
 
-          if (data.montageData && (data.montageData.clips?.length > 0 || Object.keys(data.montageData.clips || {}).length > 0)) {
-            // Import saved montage data
+          const savedClips = data.montageData?.clips || {};
+          const hasClips = Object.keys(savedClips).length > 0 || (Array.isArray(savedClips) && savedClips.length > 0);
+
+          if (hasClips) {
+            // Always import saved montage data first (preserves user's work)
             importFromJSON(data.montageData);
-            hasImportedFromEditionRef.current = true; // Mark as done so we don't re-import
+            hasImportedFromEditionRef.current = true;
+
             const storeState = useMontageStore.getState();
             console.log('[TimelineEditor] Imported saved data to store:', {
               clips: Object.keys(storeState.clips).length,
               tracks: storeState.tracks.length,
             });
+
+            // Check if there are new assembled videos to update
+            const newAssembledCount = countNewAssembledVideos(savedClips);
+            if (newAssembledCount > 0) {
+              console.log('[TimelineEditor] Found new assembled videos, updating clips in place...');
+              // Use setTimeout to ensure the import is complete
+              setTimeout(() => {
+                const updated = updateClipsWithAssembledVideos();
+                if (updated > 0) {
+                  toast.success(`${updated} séquence(s) mise(s) à jour avec vidéo assemblée`);
+                }
+              }, 100);
+            }
           } else {
             // No saved data - we'll import from Edition in the next effect
             console.log('[TimelineEditor] No saved data, will check for Edition plans');
@@ -191,7 +374,7 @@ export function TimelineEditor({
     };
 
     loadMontage();
-  }, [apiBase, importFromJSON]);
+  }, [apiBase, importFromJSON, countNewAssembledVideos, updateClipsWithAssembledVideos]);
 
   // Auto-import from Edition when plans are available and no saved data
   useEffect(() => {

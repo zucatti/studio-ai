@@ -1223,8 +1223,17 @@ async function processMontageRender(data: FFmpegJobData): Promise<void> {
         const transitionOffset = prevClip.start + prevClip.duration - transitionDuration;
         const xfadeType = mapTransitionToXfade(transitionType);
 
+        // Normalize both inputs to same timebase before xfade (required by FFmpeg)
+        const normLabel1 = `norm${i}a`;
+        const normLabel2 = `norm${i}b`;
         filterParts.push(
-          `[${lastVideoLabel}][${scaleLabel}]xfade=transition=${xfadeType}:duration=${transitionDuration}:offset=${transitionOffset}[${overlayLabel}]`
+          `[${lastVideoLabel}]fps=30,settb=AVTB[${normLabel1}]`
+        );
+        filterParts.push(
+          `[${scaleLabel}]fps=30,settb=AVTB[${normLabel2}]`
+        );
+        filterParts.push(
+          `[${normLabel1}][${normLabel2}]xfade=transition=${xfadeType}:duration=${transitionDuration}:offset=${transitionOffset}[${overlayLabel}]`
         );
       } else {
         // Standard overlay without transition
