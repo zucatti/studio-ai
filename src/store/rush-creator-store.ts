@@ -149,8 +149,10 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
 
       // Computed
       getTotalItems: () => {
-        const { media, pendingJobs } = get();
-        return pendingJobs.length + media.length;
+        const { media, pendingJobs, sourceImageUrl } = get();
+        // Include source image in total count if present
+        const sourceCount = sourceImageUrl ? 1 : 0;
+        return sourceCount + pendingJobs.length + media.length;
       },
 
       isGenerating: () => {
