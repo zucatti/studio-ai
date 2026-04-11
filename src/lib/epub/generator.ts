@@ -64,24 +64,27 @@ function htmlToEpubXhtml(content: string): string {
     .replace(/&rdquo;/g, '&#8221;')
     .replace(/&hellip;/g, '&#8230;');
 
-  // Convert <br> inside paragraphs to paragraph breaks
-  // This ensures each line gets its own text-indent
-  result = result.replace(/<br\s*\/?>/gi, '</p>\n<p>');
-
-  // Add p-body class to all paragraphs
+  // First, mark real paragraph starts with p-body class (has margin)
   result = result
     .replace(/<p>/g, '<p class="p-body">')
     .replace(/<p\s+style="/g, '<p class="p-body" style="')
-    .replace(/<p\s+class="([^"]*)"/g, '<p class="p-body $1">')
-    // Ensure hr tags are self-closing
+    .replace(/<p\s+class="([^"]*)">/g, '<p class="p-body $1">');
+
+  // Convert <br> inside paragraphs to p-line (no margin, just indent)
+  // This creates continuous lines within a "thought block"
+  result = result.replace(/<br\s*\/?>/gi, '</p>\n<p class="p-line">');
+
+  // Ensure hr tags are self-closing
+  result = result
     .replace(/<hr>/g, '<hr/>')
     // Convert h1/h2/h3 to styled headings
     .replace(/<h1>/g, '<h1 class="chapter-heading">')
     .replace(/<h2>/g, '<h2 class="section-heading">')
     .replace(/<h3>/g, '<h3 class="subsection-heading">');
 
-  // Clean up empty paragraphs that may result from br conversion
+  // Clean up empty paragraphs
   result = result.replace(/<p class="p-body">\s*<\/p>/g, '');
+  result = result.replace(/<p class="p-line">\s*<\/p>/g, '');
 
   return result;
 }
@@ -120,7 +123,7 @@ h1.chapter-title {
   letter-spacing: -0.02em;
 }
 
-/* Body paragraphs */
+/* Body paragraphs - start of a new thought block (has margin) */
 p.p-body {
   font-family: "Georgia", "Times New Roman", serif;
   font-size: 1em;
@@ -128,7 +131,22 @@ p.p-body {
   color: #000000;
   text-align: justify;
   text-indent: 1.5em;
-  margin: 0 0 0.8em 0;
+  margin: 0.8em 0 0 0;
+  padding: 0;
+  line-height: 1.5;
+  hyphens: auto;
+  -webkit-hyphens: auto;
+}
+
+/* Continuation lines within a thought block (no margin) */
+p.p-line {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 1em;
+  font-weight: 400;
+  color: #000000;
+  text-align: justify;
+  text-indent: 1.5em;
+  margin: 0;
   padding: 0;
   line-height: 1.5;
   hyphens: auto;
