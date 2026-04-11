@@ -416,9 +416,12 @@ export default function ClipPage() {
     }
   }, [projectId, sequences, plans]);
 
-  const handleAddPlan = useCallback(async () => {
-    // Add to first sequence or create one
-    const targetSequence = sequences[0];
+  const handleAddPlan = useCallback(async (sequenceId?: string | null) => {
+    // Determine target sequence
+    const targetSequence = sequenceId
+      ? sequences.find(s => s.id === sequenceId)
+      : sequences[0];
+
     if (!targetSequence) {
       toast.error('Créez d\'abord une séquence');
       return;
