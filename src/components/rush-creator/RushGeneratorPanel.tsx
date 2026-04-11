@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useCallback, useEffect } from 'react';
-import { Sparkles, Loader2, ChevronDown, Minus, Plus, Maximize2, Minimize2, ImageIcon, X } from 'lucide-react';
+import { Sparkles, Loader2, ChevronDown, Minus, Plus, Maximize2, Minimize2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MentionInput } from '@/components/ui/mention-input';
 import { cn } from '@/lib/utils';
@@ -55,8 +55,6 @@ export function RushGeneratorPanel() {
     generate,
     isPromptFullscreen,
     togglePromptFullscreen,
-    sourceImageUrl,
-    setSourceImageUrl,
   } = useRushCreatorStore();
 
   // Get duration limits for current model
@@ -254,24 +252,6 @@ export function RushGeneratorPanel() {
           )}
         </Button>
       </div>
-
-      {/* Source image indicator */}
-      {sourceImageUrl && (
-        <div className="flex items-center gap-2 mb-2 px-2 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg">
-          <ImageIcon className="w-4 h-4 text-amber-400 shrink-0" />
-          <span className="text-xs text-amber-300 truncate flex-1">
-            Image source chargée - sera utilisée comme référence
-          </span>
-          <button
-            type="button"
-            onClick={() => setSourceImageUrl(null)}
-            className="w-5 h-5 rounded hover:bg-amber-500/20 flex items-center justify-center text-amber-400 hover:text-amber-300 transition-colors"
-            title="Retirer l'image source"
-          >
-            <X className="w-3 h-3" />
-          </button>
-        </div>
-      )}
 
       {/* Prompt input - full width with expand/collapse */}
       <div className={cn(
