@@ -129,7 +129,7 @@ interface ShortsStore {
   reorderShorts: (projectId: string, orderedIds: string[]) => Promise<void>;
 
   // Plan CRUD
-  createPlan: (projectId: string, shortId: string, description?: string, duration?: number) => Promise<Plan | null>;
+  createPlan: (projectId: string, shortId: string, description?: string, duration?: number, sequenceId?: string | null) => Promise<Plan | null>;
   updatePlan: (projectId: string, planId: string, updates: Partial<Plan>) => Promise<void>;
   deletePlan: (projectId: string, planId: string) => Promise<void>;
   reorderPlans: (projectId: string, shortId: string, orderedIds: string[]) => Promise<void>;
@@ -308,12 +308,12 @@ export const useShortsStore = create<ShortsStore>((set, get) => ({
   },
 
   // Create a new plan
-  createPlan: async (projectId: string, shortId: string, description = '', duration = 5) => {
+  createPlan: async (projectId: string, shortId: string, description = '', duration = 5, sequenceId?: string | null) => {
     try {
       const res = await fetch(`/api/projects/${projectId}/shorts/${shortId}/plans`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ description, duration }),
+        body: JSON.stringify({ description, duration, sequence_id: sequenceId ?? null }),
       });
 
       if (res.ok) {

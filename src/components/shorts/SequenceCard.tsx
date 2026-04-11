@@ -13,6 +13,7 @@ import {
   Loader2,
   Check,
   Play,
+  Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -66,6 +67,7 @@ interface SequenceCardProps {
   onSelectPlan: (planId: string) => void;
   onEditPlan: (planId: string) => void;
   onDeletePlan: (planId: string) => void;
+  onAddPlan?: () => void;
   onOpenCinematicWizard: () => void;
   selectedPlanId?: string;
   dragHandleProps?: React.HTMLAttributes<HTMLDivElement>;
@@ -85,6 +87,7 @@ export function SequenceCard({
   onSelectPlan,
   onEditPlan,
   onDeletePlan,
+  onAddPlan,
   onOpenCinematicWizard,
   selectedPlanId,
   dragHandleProps,
@@ -468,6 +471,16 @@ export function SequenceCard({
                   compact
                 />
               ))
+            )}
+            {/* Add Plan button */}
+            {onAddPlan && (
+              <button
+                onClick={onAddPlan}
+                className="w-full py-1.5 rounded border border-dashed border-white/10 hover:border-purple-500/50 hover:bg-purple-500/5 text-slate-500 hover:text-purple-400 text-xs flex items-center justify-center gap-1.5 transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                Plan
+              </button>
             )}
           </div>
         )}

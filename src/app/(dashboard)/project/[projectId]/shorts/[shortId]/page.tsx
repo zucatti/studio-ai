@@ -658,8 +658,8 @@ export default function ShortDetailPage() {
     toast.success('Titre mis à jour');
   };
 
-  const handleAddPlan = async () => {
-    const newPlan = await createPlan(projectId, shortId, '', 5);
+  const handleAddPlan = async (sequenceId?: string | null) => {
+    const newPlan = await createPlan(projectId, shortId, '', 5, sequenceId);
     if (newPlan) {
       setSelectedPlanId(newPlan.id);
       setIsModalOpen(true);
@@ -1443,26 +1443,15 @@ export default function ShortDetailPage() {
               <Layers className="w-4 h-4" />
               Plans
             </h2>
-            <div className="flex items-center gap-1">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCreateSequence}
-                className="h-7 gap-1 text-xs bg-[#0d1218] border-white/10 hover:bg-[#1a2433] text-slate-300"
-              >
-                <Plus className="w-3 h-3" />
-                Séq
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleAddPlan}
-                className="h-7 gap-1 text-xs bg-[#0d1218] border-white/10 hover:bg-[#1a2433] text-slate-300"
-              >
-                <Plus className="w-3 h-3" />
-                Plan
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleCreateSequence}
+              className="h-7 gap-1 text-xs bg-[#0d1218] border-white/10 hover:bg-[#1a2433] text-slate-300"
+            >
+              <Plus className="w-3 h-3" />
+              Séq
+            </Button>
           </div>
 
           {/* Scrollable list */}
@@ -1502,6 +1491,7 @@ export default function ShortDetailPage() {
                       setIsModalOpen(true);
                     }}
                     onDeletePlan={handleDeletePlan}
+                    onAddPlan={() => handleAddPlan(sequence.id)}
                     onOpenCinematicWizard={() => setEditingSequenceCinematic(sequence.id)}
                     selectedPlanId={selectedPlanId || undefined}
                     projectId={projectId}
@@ -1525,7 +1515,7 @@ export default function ShortDetailPage() {
                   <SortableContext items={unassignedPlans.map(p => p.id)} strategy={verticalListSortingStrategy}>
                     {unassignedPlans.length === 0 ? (
                       <div className="text-center py-3 text-[10px] text-slate-600">
-                        Tous les plans sont assignés
+                        Glissez des plans ici ou créez-en un
                       </div>
                     ) : (
                       unassignedPlans.map((plan) => (
@@ -1542,6 +1532,14 @@ export default function ShortDetailPage() {
                       ))
                     )}
                   </SortableContext>
+                  {/* Add Plan to Rush button */}
+                  <button
+                    onClick={() => handleAddPlan(null)}
+                    className="w-full py-1.5 rounded border border-dashed border-white/10 hover:border-blue-500/50 hover:bg-blue-500/5 text-slate-500 hover:text-blue-400 text-xs flex items-center justify-center gap-1.5 transition-colors"
+                  >
+                    <Plus className="w-3 h-3" />
+                    Plan
+                  </button>
                 </div>
               </div>
             </DroppableRush>

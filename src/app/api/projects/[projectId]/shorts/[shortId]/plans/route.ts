@@ -17,7 +17,7 @@ export async function POST(request: Request, { params }: RouteParams) {
 
     const { projectId, shortId } = await params;
     const body = await request.json();
-    const { description = '', duration = 5 } = body;
+    const { description = '', duration = 5, sequence_id = null } = body;
 
     const supabase = createServerSupabaseClient();
 
@@ -79,6 +79,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         status: 'draft',
         generation_status: 'not_started',
         segments: [defaultSegment],
+        sequence_id: sequence_id,
       })
       .select()
       .single();
@@ -101,6 +102,7 @@ export async function POST(request: Request, { params }: RouteParams) {
         storyboard_image_url: shot.storyboard_image_url,
         generation_status: shot.generation_status || 'not_started',
         sort_order: shot.sort_order,
+        sequence_id: shot.sequence_id,
         // Cinematic fields
         title: shot.title,
         cinematic_header: shot.cinematic_header,
