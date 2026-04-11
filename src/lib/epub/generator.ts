@@ -64,10 +64,11 @@ function htmlToEpubXhtml(content: string): string {
     .replace(/&rdquo;/g, '&#8221;')
     .replace(/&hellip;/g, '&#8230;');
 
-  // Convert empty paragraphs to spacers first
-  result = result.replace(/<p>\s*<\/p>/g, '<p class="p-spacer">&#160;</p>');
+  // Mark paragraphs after empty ones with p-after-break class (has margin-top)
+  // Empty paragraphs become markers that we'll remove after processing
+  result = result.replace(/<p>\s*<\/p>\s*<p>/g, '<p class="p-after-break">');
 
-  // Then mark non-empty paragraphs with p-body class
+  // Mark remaining paragraphs with p-body class (no margin)
   result = result
     .replace(/<p>/g, '<p class="p-body">')
     .replace(/<p\s+style="/g, '<p class="p-body" style="')
@@ -121,7 +122,7 @@ h1.chapter-title {
   letter-spacing: -0.02em;
 }
 
-/* Body paragraphs - no margin, spacing comes from empty paragraphs */
+/* Body paragraphs - tight spacing */
 p.p-body {
   font-family: "Georgia", "Times New Roman", serif;
   font-size: 1em;
@@ -131,16 +132,24 @@ p.p-body {
   text-indent: 1.5em;
   margin: 0;
   padding: 0;
-  line-height: 1.6;
+  line-height: 1.5;
   hyphens: auto;
   -webkit-hyphens: auto;
 }
 
-/* Empty paragraph used as spacer between thought blocks */
-p.p-spacer {
-  margin: 0;
+/* Paragraph after a blank line - has top margin for spacing */
+p.p-after-break {
+  font-family: "Georgia", "Times New Roman", serif;
+  font-size: 1em;
+  font-weight: 400;
+  color: #000000;
+  text-align: justify;
+  text-indent: 1.5em;
+  margin: 0.8em 0 0 0;
   padding: 0;
-  height: 1em;
+  line-height: 1.5;
+  hyphens: auto;
+  -webkit-hyphens: auto;
 }
 
 /* Text formatting */
