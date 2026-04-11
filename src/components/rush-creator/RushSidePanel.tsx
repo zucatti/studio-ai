@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, BookOpen, Grid3X3, Archive, User, MapPin, Package, Loader2, Check, Users, Book, ImagePlus, ChevronDown, ChevronRight, Shirt } from 'lucide-react';
+import { X, BookOpen, Grid3X3, Archive, User, MapPin, Package, Loader2, Check, Users, Book, ImagePlus, ChevronLeft, ChevronRight, Shirt } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRushCreatorStore } from '@/store/rush-creator-store';
 import { useBibleStore } from '@/store/bible-store';
@@ -93,7 +93,12 @@ function BibleContent({ projectId }: { projectId: string }) {
   const { prompt, setPrompt, setSourceImageUrl, sourceImageUrl } = useRushCreatorStore();
   const [activeTab, setActiveTab] = useState<'project' | 'global'>('project');
   const [activeType, setActiveType] = useState<'characters' | 'locations' | 'props'>('characters');
-  const [expandedCharacters, setExpandedCharacters] = useState<Set<string>>(new Set());
+  // Selected character for looks panel (sliding view)
+  const [selectedCharacter, setSelectedCharacter] = useState<{
+    id: string;
+    name: string;
+    looks: Array<{ id?: string; name: string; description?: string; imageUrl: string }>;
+  } | null>(null);
 
   useEffect(() => {
     fetchProjectAssets(projectId);
@@ -118,16 +123,11 @@ function BibleContent({ projectId }: { projectId: string }) {
     setPrompt(prompt + mention + ' ');
   };
 
-  const toggleCharacterExpanded = (characterId: string) => {
-    setExpandedCharacters(prev => {
-      const next = new Set(prev);
-      if (next.has(characterId)) {
-        next.delete(characterId);
-      } else {
-        next.add(characterId);
-      }
-      return next;
-    });
+  const openLooksPanel = (asset: { id: string; name: string; data: unknown }) => {
+    const looks = (asset.data as { looks?: Array<{ id?: string; name: string; description?: string; imageUrl: string }> })?.looks || [];
+    if (looks.length > 0) {
+      setSelectedCharacter({ id: asset.id, name: asset.name, looks });
+    }
   };
 
   if (isLoading) {
@@ -145,236 +145,277 @@ function BibleContent({ projectId }: { projectId: string }) {
   const currentFigurants = activeTab === 'project' && activeType === 'characters' ? figurants : [];
 
   return (
-    <div className="p-4">
-      {/* Bible Type Tabs */}
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setActiveTab('project')}
-          className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-            activeTab === 'project'
-              ? 'bg-green-500/20 text-green-400'
-              : 'text-slate-400 hover:text-white hover:bg-white/5'
-          )}
-        >
-          <Book className="w-4 h-4" />
-          Bible Projet
-        </button>
-        <button
-          onClick={() => setActiveTab('global')}
-          className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-            activeTab === 'global'
-              ? 'bg-blue-500/20 text-blue-400'
-              : 'text-slate-400 hover:text-white hover:bg-white/5'
-          )}
-        >
-          <BookOpen className="w-4 h-4" />
-          Bible Générale
-        </button>
-      </div>
+    <div className="h-full overflow-hidden">
+      {/* Sliding panels container */}
+      <div
+        className="flex h-full transition-transform duration-300 ease-out"
+        style={{ transform: selectedCharacter ? 'translateX(-100%)' : 'translateX(0)' }}
+      >
+        {/* Panel 1: Main list */}
+        <div className="w-full flex-shrink-0 p-4 overflow-y-auto">
+          {/* Bible Type Tabs */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setActiveTab('project')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                activeTab === 'project'
+                  ? 'bg-green-500/20 text-green-400'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              )}
+            >
+              <Book className="w-4 h-4" />
+              Bible Projet
+            </button>
+            <button
+              onClick={() => setActiveTab('global')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                activeTab === 'global'
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              )}
+            >
+              <BookOpen className="w-4 h-4" />
+              Bible Générale
+            </button>
+          </div>
 
-      {/* Asset Type Tabs */}
-      <div className="flex gap-2 mb-4">
-        <button
-          onClick={() => setActiveType('characters')}
-          className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-            activeType === 'characters'
-              ? 'bg-blue-500/20 text-blue-400'
-              : 'text-slate-400 hover:text-white hover:bg-white/5'
-          )}
-        >
-          <User className="w-4 h-4" />
-          Personnages
-        </button>
-        <button
-          onClick={() => setActiveType('locations')}
-          className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-            activeType === 'locations'
-              ? 'bg-green-500/20 text-green-400'
-              : 'text-slate-400 hover:text-white hover:bg-white/5'
-          )}
-        >
-          <MapPin className="w-4 h-4" />
-          Lieux
-        </button>
-        <button
-          onClick={() => setActiveType('props')}
-          className={cn(
-            'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
-            activeType === 'props'
-              ? 'bg-orange-500/20 text-orange-400'
-              : 'text-slate-400 hover:text-white hover:bg-white/5'
-          )}
-        >
-          <Package className="w-4 h-4" />
-          Props
-        </button>
-      </div>
+          {/* Asset Type Tabs */}
+          <div className="flex gap-2 mb-4">
+            <button
+              onClick={() => setActiveType('characters')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                activeType === 'characters'
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              )}
+            >
+              <User className="w-4 h-4" />
+              Personnages
+            </button>
+            <button
+              onClick={() => setActiveType('locations')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                activeType === 'locations'
+                  ? 'bg-green-500/20 text-green-400'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              )}
+            >
+              <MapPin className="w-4 h-4" />
+              Lieux
+            </button>
+            <button
+              onClick={() => setActiveType('props')}
+              className={cn(
+                'flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                activeType === 'props'
+                  ? 'bg-orange-500/20 text-orange-400'
+                  : 'text-slate-400 hover:text-white hover:bg-white/5'
+              )}
+            >
+              <Package className="w-4 h-4" />
+              Props
+            </button>
+          </div>
 
-      {/* Content */}
-      <p className="text-amber-400 text-xs mb-3 flex items-center gap-1.5">
-        <ImagePlus className="w-3.5 h-3.5" />
-        Survolez une image pour l'utiliser comme référence
-      </p>
+          {/* Content */}
+          <p className="text-amber-400 text-xs mb-3 flex items-center gap-1.5">
+            <ImagePlus className="w-3.5 h-3.5" />
+            Survolez une image pour l'utiliser comme référence
+          </p>
 
-      {currentAssets.length === 0 && currentFigurants.length === 0 ? (
-        <p className="text-slate-500 text-sm text-center py-8">
-          {activeTab === 'project' ? 'Aucun élément dans la Bible du projet' : 'Aucun élément dans la Bible générale'}
-        </p>
-      ) : activeType === 'characters' ? (
-        // Character list with expandable looks - compact version
-        <div className="space-y-1.5">
-          {currentAssets.map((asset) => {
-            const refImage = asset.reference_images?.[0];
-            const looks = (asset.data as { looks?: Array<{ id?: string; name: string; description?: string; imageUrl: string }> })?.looks || [];
-            const isExpanded = expandedCharacters.has(asset.id);
-            const hasLooks = looks.length > 0;
+          {currentAssets.length === 0 && currentFigurants.length === 0 ? (
+            <p className="text-slate-500 text-sm text-center py-8">
+              {activeTab === 'project' ? 'Aucun élément dans la Bible du projet' : 'Aucun élément dans la Bible générale'}
+            </p>
+          ) : activeType === 'characters' ? (
+            // Character list
+            <div className="space-y-1.5">
+              {currentAssets.map((asset) => {
+                const refImage = asset.reference_images?.[0];
+                const looks = (asset.data as { looks?: Array<{ id?: string; name: string; description?: string; imageUrl: string }> })?.looks || [];
+                const hasLooks = looks.length > 0;
 
-            return (
-              <div key={asset.id} className="rounded-lg bg-white/5 border border-blue-500/20 overflow-hidden">
-                {/* Character header - compact */}
-                <div className="flex items-center gap-2 p-2">
-                  {/* Small thumbnail */}
-                  <div className="relative group flex-shrink-0">
-                    {refImage ? (
-                      <>
-                        <StorageThumbnail src={refImage} alt={asset.name} size={32} className="rounded" />
-                        <button
-                          onClick={(e) => { e.stopPropagation(); setSourceImageUrl(refImage); }}
-                          className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center"
-                        >
-                          <ImagePlus className="w-3.5 h-3.5 text-amber-400" />
-                        </button>
-                        {sourceImageUrl === refImage && (
-                          <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-500 flex items-center justify-center">
-                            <Check className="w-2 h-2 text-white" />
-                          </div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="w-8 h-8 rounded flex items-center justify-center text-blue-400 bg-blue-500/20">
-                        <User className="w-4 h-4" />
-                      </div>
+                return (
+                  <div key={asset.id} className="flex items-center gap-2 p-2 rounded-lg bg-white/5 border border-blue-500/20">
+                    {/* Thumbnail */}
+                    <div className="relative group flex-shrink-0">
+                      {refImage ? (
+                        <>
+                          <StorageThumbnail src={refImage} alt={asset.name} size={40} className="rounded" />
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setSourceImageUrl(refImage); }}
+                            className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center"
+                          >
+                            <ImagePlus className="w-4 h-4 text-amber-400" />
+                          </button>
+                          {sourceImageUrl === refImage && (
+                            <div className="absolute -top-0.5 -right-0.5 w-3 h-3 rounded-full bg-amber-500 flex items-center justify-center">
+                              <Check className="w-2 h-2 text-white" />
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <div className="w-10 h-10 rounded flex items-center justify-center text-blue-400 bg-blue-500/20">
+                          <User className="w-5 h-5" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Name - clickable to insert mention */}
+                    <button
+                      onClick={() => insertMention(asset.name, '@')}
+                      className="flex-1 text-left hover:opacity-80 transition-opacity min-w-0"
+                    >
+                      <p className="text-white font-medium text-sm truncate">{asset.name}</p>
+                      <p className="text-xs text-blue-400 font-mono truncate">
+                        @{generateReferenceName(asset.name, '@').slice(1)}
+                      </p>
+                    </button>
+
+                    {/* Looks button - opens slide panel */}
+                    {hasLooks && (
+                      <button
+                        onClick={() => openLooksPanel(asset)}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-purple-500/20 hover:bg-purple-500/30 transition-colors text-purple-400"
+                      >
+                        <Shirt className="w-4 h-4" />
+                        <span className="text-xs font-medium">{looks.length}</span>
+                        <ChevronRight className="w-4 h-4" />
+                      </button>
                     )}
                   </div>
+                );
+              })}
 
-                  {/* Name - clickable */}
-                  <button
-                    onClick={() => insertMention(asset.name, '@')}
-                    className="flex-1 text-left hover:opacity-80 transition-opacity min-w-0"
-                  >
-                    <p className="text-white font-medium text-xs truncate">{asset.name}</p>
-                    <p className="text-[10px] text-blue-400 font-mono truncate">
-                      @{generateReferenceName(asset.name, '@').slice(1)}
-                    </p>
-                  </button>
+              {/* Figurants */}
+              {currentFigurants.map((figurant) => {
+                const images = figurant.local_overrides?.reference_images_metadata;
+                const image = images?.[0]?.url;
+                return (
+                  <AssetButton
+                    key={figurant.project_generic_asset_id}
+                    name={figurant.name_override || figurant.name}
+                    image={image}
+                    type="characters"
+                    isGeneric
+                    onClick={() => insertMention(figurant.name_override || figurant.name, '@')}
+                    onSetAsReference={image ? () => setSourceImageUrl(image) : undefined}
+                    isReferenceSelected={image ? sourceImageUrl === image : false}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            // Grid for locations and props (no looks)
+            <div className="grid grid-cols-2 gap-3">
+              {currentAssets.map((asset) => {
+                const refImage = asset.reference_images?.[0];
+                return (
+                  <AssetButton
+                    key={asset.id}
+                    name={asset.name}
+                    image={refImage}
+                    type={activeType}
+                    onClick={() => insertMention(asset.name, '#')}
+                    onSetAsReference={refImage ? () => setSourceImageUrl(refImage) : undefined}
+                    isReferenceSelected={refImage ? sourceImageUrl === refImage : false}
+                  />
+                );
+              })}
+            </div>
+          )}
 
-                  {/* Expand button */}
-                  {hasLooks && (
-                    <button
-                      onClick={() => toggleCharacterExpanded(asset.id)}
-                      className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/5 hover:bg-white/10 transition-colors text-slate-400 hover:text-white"
-                    >
-                      <Shirt className="w-3 h-3" />
-                      <span className="text-[10px]">{looks.length}</span>
-                      {isExpanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-                    </button>
-                  )}
-                </div>
+          <p className="text-slate-500 text-xs mt-4 text-center">
+            Cliquez sur un élément pour l'ajouter au prompt
+          </p>
+        </div>
 
-                {/* Looks grid - compact */}
-                {hasLooks && isExpanded && (
-                  <div className="px-2 pb-2 pt-1 border-t border-white/5">
-                    <div className="grid grid-cols-4 gap-1">
-                      {looks.map((look, idx) => {
-                        const isLookRef = look.imageUrl && sourceImageUrl === look.imageUrl;
-                        return (
-                          <button
-                            key={look.id || idx}
-                            onClick={() => insertMention(asset.name, '@', look.name)}
-                            className={cn(
-                              'relative group rounded overflow-hidden border transition-all',
-                              isLookRef ? 'ring-1 ring-amber-500 border-amber-500/50' : 'border-white/10 hover:border-purple-500/50'
-                            )}
-                            title={`${look.name} - ${generateLookReferenceName(look.name)}`}
-                          >
-                            {look.imageUrl ? (
-                              <StorageThumbnail src={look.imageUrl} alt={look.name} size={48} className="w-full aspect-square object-cover" />
-                            ) : (
-                              <div className="w-full aspect-square bg-purple-500/20 flex items-center justify-center">
-                                <Shirt className="w-4 h-4 text-purple-400" />
-                              </div>
-                            )}
-                            {/* Overlay with name */}
-                            <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-0.5">
-                              <p className="text-white text-[9px] font-medium truncate text-center">{look.name}</p>
-                            </div>
-                            {/* Reference button on hover */}
-                            {look.imageUrl && (
-                              <div
-                                onClick={(e) => { e.stopPropagation(); setSourceImageUrl(look.imageUrl); }}
-                                className="absolute top-0.5 right-0.5 w-4 h-4 rounded bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer"
-                              >
-                                <ImagePlus className="w-2.5 h-2.5 text-amber-400" />
-                              </div>
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
+        {/* Panel 2: Looks (Pinterest style) */}
+        <div className="w-full flex-shrink-0 flex flex-col h-full">
+          {/* Header with back button */}
+          <div className="flex items-center gap-3 p-4 border-b border-white/10">
+            <button
+              onClick={() => setSelectedCharacter(null)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-slate-400 hover:text-white"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              <span className="text-sm">Retour</span>
+            </button>
+            {selectedCharacter && (
+              <div className="flex-1 min-w-0">
+                <p className="text-white font-medium truncate">{selectedCharacter.name}</p>
+                <p className="text-xs text-purple-400">{selectedCharacter.looks.length} looks</p>
               </div>
-            );
-          })}
+            )}
+          </div>
 
-          {/* Figurants (generic characters) */}
-          {currentFigurants.map((figurant) => {
-            const images = figurant.local_overrides?.reference_images_metadata;
-            const image = images?.[0]?.url;
-            return (
-              <AssetButton
-                key={figurant.project_generic_asset_id}
-                name={figurant.name_override || figurant.name}
-                image={image}
-                type="characters"
-                isGeneric
-                onClick={() => insertMention(figurant.name_override || figurant.name, '@')}
-                onSetAsReference={image ? () => setSourceImageUrl(image) : undefined}
-                isReferenceSelected={image ? sourceImageUrl === image : false}
-              />
-            );
-          })}
+          {/* Looks grid - Pinterest/masonry style */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {selectedCharacter && (
+              <div className="columns-2 gap-3 space-y-3">
+                {selectedCharacter.looks.map((look, idx) => {
+                  const isLookRef = look.imageUrl && sourceImageUrl === look.imageUrl;
+                  return (
+                    <button
+                      key={look.id || idx}
+                      onClick={() => {
+                        insertMention(selectedCharacter.name, '@', look.name);
+                        setSelectedCharacter(null);
+                      }}
+                      className={cn(
+                        'relative group w-full rounded-xl overflow-hidden border-2 transition-all break-inside-avoid mb-3',
+                        isLookRef
+                          ? 'ring-2 ring-amber-500 border-amber-500'
+                          : 'border-white/10 hover:border-purple-500'
+                      )}
+                    >
+                      {look.imageUrl ? (
+                        <StorageImg
+                          src={look.imageUrl}
+                          alt={look.name}
+                          className="w-full object-cover"
+                        />
+                      ) : (
+                        <div className="w-full aspect-[3/4] bg-purple-500/20 flex items-center justify-center">
+                          <Shirt className="w-12 h-12 text-purple-400" />
+                        </div>
+                      )}
+                      {/* Overlay with name and reference */}
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/60 to-transparent p-3 pt-8">
+                        <p className="text-white font-medium text-sm">{look.name}</p>
+                        <p className="text-purple-400 text-xs font-mono mt-0.5">
+                          {generateLookReferenceName(look.name)}
+                        </p>
+                      </div>
+                      {/* Reference button */}
+                      {look.imageUrl && (
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSourceImageUrl(look.imageUrl);
+                          }}
+                          className="absolute top-2 right-2 w-8 h-8 rounded-lg bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer hover:bg-amber-500"
+                        >
+                          <ImagePlus className="w-4 h-4 text-amber-400 group-hover:text-white" />
+                        </div>
+                      )}
+                      {isLookRef && (
+                        <div className="absolute top-2 left-2 px-2 py-1 rounded bg-amber-500 text-white text-xs font-medium">
+                          Référence
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
         </div>
-      ) : (
-        // Grid for locations and props (no looks)
-        <div className="grid grid-cols-2 gap-3">
-          {currentAssets.map((asset) => {
-            const refImage = asset.reference_images?.[0];
-            return (
-              <AssetButton
-                key={asset.id}
-                name={asset.name}
-                image={refImage}
-                type={activeType}
-                onClick={() => insertMention(asset.name, '#')}
-                onSetAsReference={refImage ? () => setSourceImageUrl(refImage) : undefined}
-                isReferenceSelected={refImage ? sourceImageUrl === refImage : false}
-              />
-            );
-          })}
-        </div>
-      )}
-
-      <p className="text-slate-500 text-xs mt-4 text-center">
-        {activeType === 'characters'
-          ? 'Cliquez sur le nom ou un look pour ajouter au prompt'
-          : 'Cliquez sur le nom pour ajouter au prompt'
-        }
-      </p>
+      </div>
     </div>
   );
 }
