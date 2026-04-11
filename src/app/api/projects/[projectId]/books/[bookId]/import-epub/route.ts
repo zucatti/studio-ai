@@ -171,26 +171,40 @@ function cleanXhtmlContent(xhtml: string): string {
   content = content.replace(/<div[^>]*>/gi, '');
   content = content.replace(/<\/div>/gi, '');
 
-  // Remove attributes from p tags
-  content = content.replace(/<p[^>]*>/gi, '<p>');
+  // Convert italic spans to <em>
+  content = content.replace(/<span[^>]*(?:font-style:\s*italic|class="[^"]*italic[^"]*")[^>]*>([\s\S]*?)<\/span>/gi, '<em>$1</em>');
 
-  // Unwrap spans
+  // Convert bold spans to <strong>
+  content = content.replace(/<span[^>]*(?:font-weight:\s*bold|class="[^"]*bold[^"]*")[^>]*>([\s\S]*?)<\/span>/gi, '<strong>$1</strong>');
+
+  // Keep <i> and <b> tags, convert to <em> and <strong>
+  content = content.replace(/<i\b[^>]*>([\s\S]*?)<\/i>/gi, '<em>$1</em>');
+  content = content.replace(/<b\b[^>]*>([\s\S]*?)<\/b>/gi, '<strong>$1</strong>');
+
+  // Preserve text-align center on paragraphs
+  content = content.replace(/<p[^>]*text-align:\s*center[^>]*>/gi, '<p style="text-align: center">');
+
+  // Remove attributes from other p tags (but keep the centered ones)
+  content = content.replace(/<p(?![^>]*style="text-align: center")[^>]*>/gi, '<p>');
+
+  // Unwrap remaining spans (without formatting)
   content = content.replace(/<span[^>]*>([\s\S]*?)<\/span>/gi, '$1');
 
   // Remove section tags
   content = content.replace(/<\/?section[^>]*>/gi, '');
 
-  // Extract all paragraphs
-  const paragraphRegex = /<p>([\s\S]*?)<\/p>/gi;
-  const paragraphs: string[] = [];
+  // Extract all paragraphs (with optional style attribute)
+  const paragraphRegex = /<p(\s+style="[^"]*")?>([\s\S]*?)<\/p>/gi;
+  const paragraphs: { style: string; text: string }[] = [];
   let match;
 
   while ((match = paragraphRegex.exec(content)) !== null) {
-    const text = match[1]
+    const style = match[1] || '';
+    const text = match[2]
       .replace(/&nbsp;/g, ' ')
       .replace(/&#160;/g, ' ')
       .trim();
-    paragraphs.push(text);
+    paragraphs.push({ style, text });
   }
 
   // Keep each line as a separate <p> for proper indent
@@ -198,11 +212,11 @@ function cleanXhtmlContent(xhtml: string): string {
   const result: string[] = [];
 
   for (const para of paragraphs) {
-    if (para === '' || para === ' ') {
+    if (para.text === '' || para.text === ' ') {
       // Empty paragraph = visual spacer
       result.push('<p></p>');
     } else {
-      result.push(`<p>${para}</p>`);
+      result.push(`<p${para.style}>${para.text}</p>`);
     }
   }
 
