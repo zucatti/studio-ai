@@ -54,6 +54,15 @@ function htmlToEpubXhtml(content: string): string {
 
   // TipTap HTML: add classes for consistent EPUB styling
   return content
+    // Convert HTML entities to XHTML-safe numeric entities
+    .replace(/&nbsp;/g, '&#160;')
+    .replace(/&mdash;/g, '&#8212;')
+    .replace(/&ndash;/g, '&#8211;')
+    .replace(/&lsquo;/g, '&#8216;')
+    .replace(/&rsquo;/g, '&#8217;')
+    .replace(/&ldquo;/g, '&#8220;')
+    .replace(/&rdquo;/g, '&#8221;')
+    .replace(/&hellip;/g, '&#8230;')
     // Add p-body class to paragraphs
     .replace(/<p>/g, '<p class="p-body">')
     // Make sure br tags are self-closing for XHTML
