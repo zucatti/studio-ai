@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { X, BookOpen, Grid3X3, Archive, User, MapPin, Package, Loader2, Check, Users, Book } from 'lucide-react';
+import { X, BookOpen, Grid3X3, Archive, User, MapPin, Package, Loader2, Check, Users, Book, ImagePlus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useRushCreatorStore } from '@/store/rush-creator-store';
 import { useBibleStore } from '@/store/bible-store';
@@ -90,7 +90,7 @@ function BibleContent({ projectId }: { projectId: string }) {
     fetchProjectGenericAssets,
   } = useBibleStore();
 
-  const { prompt, setPrompt } = useRushCreatorStore();
+  const { prompt, setPrompt, setSourceImageUrl, sourceImageUrl } = useRushCreatorStore();
   const [activeTab, setActiveTab] = useState<'project' | 'global'>('project');
   const [activeType, setActiveType] = useState<'characters' | 'locations' | 'props'>('characters');
 
@@ -200,6 +200,10 @@ function BibleContent({ projectId }: { projectId: string }) {
       </div>
 
       {/* Content Grid */}
+      <p className="text-amber-400 text-xs mb-3 flex items-center gap-1.5">
+        <ImagePlus className="w-3.5 h-3.5" />
+        Survolez une image pour l'utiliser comme référence
+      </p>
       <div className="grid grid-cols-2 gap-3">
         {currentAssets.length === 0 && currentFigurants.length === 0 ? (
           <p className="text-slate-500 text-sm col-span-2 text-center py-8">
@@ -208,15 +212,20 @@ function BibleContent({ projectId }: { projectId: string }) {
         ) : (
           <>
             {/* Regular assets */}
-            {currentAssets.map((asset) => (
-              <AssetButton
-                key={asset.id}
-                name={asset.name}
-                image={asset.reference_images?.[0]}
-                type={activeType}
-                onClick={() => insertMention(asset.name, activeType === 'characters' ? '@' : '#')}
-              />
-            ))}
+            {currentAssets.map((asset) => {
+              const refImage = asset.reference_images?.[0];
+              return (
+                <AssetButton
+                  key={asset.id}
+                  name={asset.name}
+                  image={refImage}
+                  type={activeType}
+                  onClick={() => insertMention(asset.name, activeType === 'characters' ? '@' : '#')}
+                  onSetAsReference={refImage ? () => setSourceImageUrl(refImage) : undefined}
+                  isReferenceSelected={refImage ? sourceImageUrl === refImage : false}
+                />
+              );
+            })}
 
             {/* Figurants (generic characters) - only for project characters */}
             {currentFigurants.map((figurant) => {
@@ -231,6 +240,8 @@ function BibleContent({ projectId }: { projectId: string }) {
                   type="characters"
                   isGeneric
                   onClick={() => insertMention(figurant.name_override || figurant.name, '@')}
+                  onSetAsReference={image ? () => setSourceImageUrl(image) : undefined}
+                  isReferenceSelected={image ? sourceImageUrl === image : false}
                 />
               );
             })}
@@ -239,7 +250,7 @@ function BibleContent({ projectId }: { projectId: string }) {
       </div>
 
       <p className="text-slate-500 text-xs mt-4 text-center">
-        Cliquez pour ajouter au prompt
+        Cliquez sur le nom pour ajouter au prompt
       </p>
     </div>
   );
@@ -252,12 +263,16 @@ function AssetButton({
   type,
   isGeneric,
   onClick,
+  onSetAsReference,
+  isReferenceSelected,
 }: {
   name: string;
   image?: string;
   type: 'characters' | 'locations' | 'props';
   isGeneric?: boolean;
   onClick: () => void;
+  onSetAsReference?: () => void;
+  isReferenceSelected?: boolean;
 }) {
   const prefix = type === 'characters' ? '@' : '#';
   const colorClasses = {
@@ -273,26 +288,54 @@ function AssetButton({
   const IconComponent = type === 'characters' ? (isGeneric ? Users : User) : type === 'locations' ? MapPin : Package;
 
   return (
-    <button
-      onClick={onClick}
+    <div
       className={cn(
         'flex items-start gap-3 p-3 rounded-xl bg-white/5 border text-left transition-colors',
-        colorClasses[type]
+        colorClasses[type],
+        isReferenceSelected && 'ring-2 ring-amber-500'
       )}
     >
-      {image ? (
-        <StorageThumbnail
-          src={image}
-          alt={name}
-          size={48}
-          className="rounded-lg flex-shrink-0"
-        />
-      ) : (
-        <div className={cn('w-12 h-12 rounded-lg flex items-center justify-center flex-shrink-0', iconColors[type])}>
-          <IconComponent className="w-6 h-6" />
-        </div>
-      )}
-      <div className="min-w-0 flex-1">
+      {/* Image with reference button overlay */}
+      <div className="relative group flex-shrink-0">
+        {image ? (
+          <>
+            <StorageThumbnail
+              src={image}
+              alt={name}
+              size={48}
+              className="rounded-lg"
+            />
+            {onSetAsReference && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSetAsReference();
+                }}
+                className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center"
+                title="Utiliser comme référence"
+              >
+                <ImagePlus className="w-5 h-5 text-amber-400" />
+              </button>
+            )}
+            {isReferenceSelected && (
+              <div className="absolute -top-1 -right-1">
+                <div className="w-4 h-4 rounded-full bg-amber-500 flex items-center justify-center">
+                  <Check className="w-2.5 h-2.5 text-white" />
+                </div>
+              </div>
+            )}
+          </>
+        ) : (
+          <div className={cn('w-12 h-12 rounded-lg flex items-center justify-center', iconColors[type])}>
+            <IconComponent className="w-6 h-6" />
+          </div>
+        )}
+      </div>
+      {/* Name and mention - clickable to insert mention */}
+      <button
+        onClick={onClick}
+        className="min-w-0 flex-1 text-left hover:opacity-80 transition-opacity"
+      >
         <p className="text-white font-medium text-sm truncate">{name}</p>
         <p className={cn(
           'text-xs mt-0.5 font-mono',
@@ -300,8 +343,8 @@ function AssetButton({
         )}>
           {prefix}{generateReferenceName(name, prefix).slice(1)}
         </p>
-      </div>
-    </button>
+      </button>
+    </div>
   );
 }
 
@@ -309,6 +352,7 @@ function AssetButton({
 function GalleryContent({ projectId }: { projectId: string }) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { setSourceImageUrl, sourceImageUrl } = useRushCreatorStore();
 
   useEffect(() => {
     const fetchGallery = async () => {
@@ -329,6 +373,10 @@ function GalleryContent({ projectId }: { projectId: string }) {
     fetchGallery();
   }, [projectId]);
 
+  const handleSetAsReference = (url: string) => {
+    setSourceImageUrl(url);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -339,6 +387,10 @@ function GalleryContent({ projectId }: { projectId: string }) {
 
   return (
     <div className="p-4">
+      <p className="text-amber-400 text-xs mb-3 flex items-center gap-1.5">
+        <ImagePlus className="w-3.5 h-3.5" />
+        Cliquez sur une image pour l'utiliser comme référence
+      </p>
       {images.length === 0 ? (
         <div className="text-center py-12">
           <Grid3X3 className="w-12 h-12 text-slate-600 mx-auto mb-3" />
@@ -351,25 +403,44 @@ function GalleryContent({ projectId }: { projectId: string }) {
         <>
           <p className="text-slate-400 text-sm mb-3">{images.length} élément{images.length > 1 ? 's' : ''} dans la Gallery</p>
           <div className="grid grid-cols-3 gap-2">
-            {images.map((img) => (
-              <div key={img.id} className="relative group">
-                <StorageImg
-                  src={img.url}
-                  alt={img.prompt || 'Gallery image'}
-                  className="w-full aspect-square object-cover rounded-lg"
-                />
-                <div className="absolute top-1 right-1">
-                  <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
-                    <Check className="w-3 h-3 text-white" />
+            {images.map((img) => {
+              const isSelected = sourceImageUrl === img.url;
+              return (
+                <button
+                  key={img.id}
+                  onClick={() => handleSetAsReference(img.url)}
+                  className={cn(
+                    'relative group rounded-lg overflow-hidden transition-all',
+                    isSelected ? 'ring-2 ring-amber-500 ring-offset-2 ring-offset-[#0d1520]' : 'hover:ring-2 hover:ring-white/30'
+                  )}
+                >
+                  <StorageImg
+                    src={img.url}
+                    alt={img.prompt || 'Gallery image'}
+                    className="w-full aspect-square object-cover"
+                  />
+                  <div className="absolute top-1 right-1">
+                    {isSelected ? (
+                      <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center">
+                        <ImagePlus className="w-3 h-3 text-white" />
+                      </div>
+                    ) : (
+                      <div className="w-5 h-5 rounded-full bg-green-500 flex items-center justify-center">
+                        <Check className="w-3 h-3 text-white" />
+                      </div>
+                    )}
                   </div>
-                </div>
-                {img.prompt && (
-                  <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-end p-2">
-                    <p className="text-white text-xs line-clamp-3">{img.prompt}</p>
+                  {/* Hover overlay with prompt and action */}
+                  <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-2">
+                    <ImagePlus className="w-5 h-5 text-amber-400 mb-1" />
+                    <p className="text-amber-400 text-xs font-medium">Référence</p>
+                    {img.prompt && (
+                      <p className="text-white text-xs line-clamp-2 mt-1 text-center">{img.prompt}</p>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                </button>
+              );
+            })}
           </div>
         </>
       )}
@@ -381,6 +452,7 @@ function GalleryContent({ projectId }: { projectId: string }) {
 function RushContent({ projectId }: { projectId: string }) {
   const [images, setImages] = useState<GalleryImage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const { setSourceImageUrl, sourceImageUrl } = useRushCreatorStore();
 
   useEffect(() => {
     const fetchRush = async () => {
@@ -401,6 +473,10 @@ function RushContent({ projectId }: { projectId: string }) {
     fetchRush();
   }, [projectId]);
 
+  const handleSetAsReference = (url: string) => {
+    setSourceImageUrl(url);
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -411,6 +487,10 @@ function RushContent({ projectId }: { projectId: string }) {
 
   return (
     <div className="p-4">
+      <p className="text-amber-400 text-xs mb-3 flex items-center gap-1.5">
+        <ImagePlus className="w-3.5 h-3.5" />
+        Cliquez sur une image pour l'utiliser comme référence
+      </p>
       {images.length === 0 ? (
         <div className="text-center py-12">
           <Archive className="w-12 h-12 text-slate-600 mx-auto mb-3" />
@@ -423,20 +503,40 @@ function RushContent({ projectId }: { projectId: string }) {
         <>
           <p className="text-slate-400 text-sm mb-3">{images.length} élément{images.length > 1 ? 's' : ''} dans les Rush</p>
           <div className="grid grid-cols-3 gap-2">
-            {images.map((img) => (
-              <div key={img.id} className="relative group">
-                <StorageImg
-                  src={img.url}
-                  alt={img.prompt || 'Rush image'}
-                  className="w-full aspect-square object-cover rounded-lg"
-                />
-                {img.prompt && (
-                  <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-end p-2">
-                    <p className="text-white text-xs line-clamp-3">{img.prompt}</p>
+            {images.map((img) => {
+              const isSelected = sourceImageUrl === img.url;
+              return (
+                <button
+                  key={img.id}
+                  onClick={() => handleSetAsReference(img.url)}
+                  className={cn(
+                    'relative group rounded-lg overflow-hidden transition-all',
+                    isSelected ? 'ring-2 ring-amber-500 ring-offset-2 ring-offset-[#0d1520]' : 'hover:ring-2 hover:ring-white/30'
+                  )}
+                >
+                  <StorageImg
+                    src={img.url}
+                    alt={img.prompt || 'Rush image'}
+                    className="w-full aspect-square object-cover"
+                  />
+                  {isSelected && (
+                    <div className="absolute top-1 right-1">
+                      <div className="w-5 h-5 rounded-full bg-amber-500 flex items-center justify-center">
+                        <ImagePlus className="w-3 h-3 text-white" />
+                      </div>
+                    </div>
+                  )}
+                  {/* Hover overlay with prompt and action */}
+                  <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center p-2">
+                    <ImagePlus className="w-5 h-5 text-amber-400 mb-1" />
+                    <p className="text-amber-400 text-xs font-medium">Référence</p>
+                    {img.prompt && (
+                      <p className="text-white text-xs line-clamp-2 mt-1 text-center">{img.prompt}</p>
+                    )}
                   </div>
-                )}
-              </div>
-            ))}
+                </button>
+              );
+            })}
           </div>
         </>
       )}
