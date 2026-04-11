@@ -228,6 +228,7 @@ export async function POST(request: Request) {
       aspectRatio = '9:16',
       resolution = '2K',
       model,
+      sourceImageUrl, // Image to use as reference for image-to-image generation
     } = body;
 
     if (!projectId) {
@@ -267,6 +268,20 @@ export async function POST(request: Request) {
 
     // Build reference images with metadata
     const referenceImages: ReferenceImageData[] = [];
+
+    // Add source image as primary reference if provided (for image-to-image)
+    if (sourceImageUrl) {
+      const signedSourceUrl = await signUrl(sourceImageUrl);
+      if (signedSourceUrl) {
+        referenceImages.push({
+          url: signedSourceUrl,
+          label: 'source',
+          type: 'location', // Use location type as neutral category
+          description: 'Source image for modification',
+        });
+        console.log('[RushCreator/GenerateImage] Added source image as primary reference');
+      }
+    }
 
     for (const entity of mentionedEntities) {
       const images = getBestReferenceImages(entity, 2);
@@ -321,6 +336,7 @@ export async function POST(request: Request) {
           resolution,
           model,
           referenceCount: finalReferences.length,
+          hasSourceImage: !!sourceImageUrl,
           targetTable: 'rush_media', // Signal to worker to store in rush_media
         },
         queued_at: new Date().toISOString(),

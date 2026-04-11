@@ -373,9 +373,16 @@ export function PlanEditor({
   }, []);
 
   const openRushCreatorForFrame = useCallback((frameType: 'in' | 'out') => {
-    console.log('[PlanEditor] Opening Rush Creator for frame:', frameType);
+    // Get existing image to use as reference for generation
+    const existingImageUrl = frameType === 'in'
+      ? (plan?.storyboard_image_url || plan?.first_frame_url)
+      : plan?.last_frame_url;
+
+    console.log('[PlanEditor] Opening Rush Creator for frame:', frameType, 'with source:', existingImageUrl ? 'yes' : 'no');
     openRushCreator(projectId, {
       type: frameType === 'in' ? 'frame-in' : 'frame-out',
+      // Pass existing image as source for image-to-image generation
+      sourceImageUrl: existingImageUrl || undefined,
       callback: (imageUrl: string) => {
         if (frameType === 'in') {
           onUpdate({ storyboard_image_url: imageUrl, first_frame_url: imageUrl });
@@ -386,7 +393,7 @@ export function PlanEditor({
         }
       },
     });
-  }, [projectId, openRushCreator, onUpdate]);
+  }, [projectId, openRushCreator, onUpdate, plan?.storyboard_image_url, plan?.first_frame_url, plan?.last_frame_url]);
 
   const handleImageSelect = useCallback((url: string) => {
     const frameType = pickingFrame; // Capture before clearing

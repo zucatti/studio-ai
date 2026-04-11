@@ -21,6 +21,8 @@ export interface PendingJob {
 export interface ValidationContext {
   type: 'frame-in' | 'frame-out';
   callback: (imageUrl: string) => void;
+  /** Optional source image URL to use as reference for generation */
+  sourceImageUrl?: string;
 }
 
 export interface RushCreatorStore {
@@ -32,6 +34,8 @@ export interface RushCreatorStore {
 
   // Validation context (Frame In/Out)
   validationContext: ValidationContext | null;
+  /** Source image URL for image-to-image generation */
+  sourceImageUrl: string | null;
 
   // Media data
   media: RushMedia[];
@@ -85,6 +89,7 @@ export interface RushCreatorStore {
   // Actions - Validation (Frame In/Out)
   validateSelection: () => Promise<void>;
   clearValidationContext: () => void;
+  setSourceImageUrl: (url: string | null) => void;
 
   // Actions - Generation
   setPrompt: (prompt: string) => void;
@@ -118,6 +123,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
 
       // Validation context
       validationContext: null,
+      sourceImageUrl: null,
 
       // Media data
       media: [],
@@ -158,6 +164,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
         set({
           isOpen: true,
           validationContext: context || null,
+          sourceImageUrl: context?.sourceImageUrl || null,
           ...(projectId ? { currentProjectId: projectId } : {}),
         });
         if (projectId) {
@@ -171,6 +178,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
         selectedIds: new Set(),
         currentIndex: 0,
         validationContext: null,
+        sourceImageUrl: null,
         isPromptFullscreen: false,
       }),
 
@@ -366,7 +374,9 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
         get().close();
       },
 
-      clearValidationContext: () => set({ validationContext: null }),
+      clearValidationContext: () => set({ validationContext: null, sourceImageUrl: null }),
+
+      setSourceImageUrl: (url) => set({ sourceImageUrl: url }),
 
       // Actions - Import
       importToBible: async (type, name) => {
@@ -419,7 +429,7 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
       },
 
       generate: async () => {
-        const { currentProjectId, mode, prompt, aspectRatio, model, resolution, duration } = get();
+        const { currentProjectId, mode, prompt, aspectRatio, model, resolution, duration, sourceImageUrl } = get();
         if (!currentProjectId || !prompt.trim()) return null;
 
         try {
@@ -437,6 +447,8 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
               model,
               resolution,
               ...(mode === 'video' && { duration }),
+              // Pass source image for image-to-image generation
+              ...(sourceImageUrl && { sourceImageUrl }),
             }),
           });
 
