@@ -185,6 +185,8 @@ export const useRushCreatorStore = create<RushCreatorStore>()(
           }
         }
 
+        console.log('[RushCreatorStore] Opening with projectAspectRatio:', projectAspectRatio);
+
         // Set all state in a single call to avoid race conditions
         set({
           isOpen: true,

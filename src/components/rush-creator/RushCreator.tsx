@@ -44,11 +44,13 @@ export function RushCreator({ projectId }: RushCreatorProps) {
       try {
         const res = await fetch(`/api/projects/${currentProjectId}`);
         if (res.ok) {
-          const project = await res.json();
-          if (project.aspect_ratio) {
+          const data = await res.json();
+          const ratio = data.project?.aspect_ratio;
+          if (ratio) {
+            console.log('[RushCreator] Locking aspect ratio to project:', ratio);
             // Set the aspect ratio and lock it
-            setAspectRatio(project.aspect_ratio as AspectRatio);
-            useRushCreatorStore.setState({ projectAspectRatio: project.aspect_ratio as AspectRatio });
+            setAspectRatio(ratio as AspectRatio);
+            useRushCreatorStore.setState({ projectAspectRatio: ratio as AspectRatio });
           }
         }
       } catch (error) {
