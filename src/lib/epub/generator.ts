@@ -63,8 +63,10 @@ function htmlToEpubXhtml(content: string): string {
     .replace(/&ldquo;/g, '&#8220;')
     .replace(/&rdquo;/g, '&#8221;')
     .replace(/&hellip;/g, '&#8230;')
-    // Add p-body class to paragraphs
+    // Add p-body class to all paragraphs
     .replace(/<p>/g, '<p class="p-body">')
+    .replace(/<p\s+style="/g, '<p class="p-body" style="')
+    .replace(/<p\s+class="([^"]*)"/g, '<p class="p-body $1"')
     // Make sure br tags are self-closing for XHTML
     .replace(/<br>/g, '<br/>')
     // Ensure hr tags are self-closing
