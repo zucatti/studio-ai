@@ -6,7 +6,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import Underline from '@tiptap/extension-underline';
 import TextAlign from '@tiptap/extension-text-align';
 import { DOMParser as ProseDOMParser } from '@tiptap/pm/model';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { SlashCommands } from './SlashCommands';
 import type { Editor } from '@tiptap/react';
 
@@ -57,6 +57,10 @@ export function TipTapEditor({
   placeholder = 'Commencez à écrire...',
   className,
 }: TipTapEditorProps) {
+  // Track if we initiated the last change (to skip external sync)
+  const isLocalChange = useRef(false);
+  const lastContentRef = useRef(content);
+
   // Convert plain text to HTML on initial load
   const initialContent = useMemo(() => textToHtml(content), []);
 
@@ -131,6 +135,8 @@ export function TipTapEditor({
     onUpdate: ({ editor }) => {
       // Get HTML content to preserve formatting
       const html = editor.getHTML();
+      // Mark as local change to skip sync in useEffect
+      isLocalChange.current = true;
       onChange(html);
     },
   });
@@ -143,16 +149,36 @@ export function TipTapEditor({
   }, [editor, onEditorReady]);
 
   // Sync external content changes (e.g., switching chapters)
+  // Skip if we just made a local change to avoid cursor jumping
   useEffect(() => {
     if (!editor) return;
+
+    // Skip sync if this is our own change coming back from the parent
+    if (isLocalChange.current) {
+      isLocalChange.current = false;
+      lastContentRef.current = content;
+      return;
+    }
 
     const htmlContent = textToHtml(content);
     const currentHtml = editor.getHTML();
 
     // Only update if content actually differs (to avoid cursor jumping)
     if (htmlContent !== currentHtml) {
+      // Save cursor position
+      const { from, to } = editor.state.selection;
       editor.commands.setContent(htmlContent);
+      // Restore cursor if possible
+      try {
+        const maxPos = editor.state.doc.content.size;
+        const safeFrom = Math.min(from, maxPos);
+        const safeTo = Math.min(to, maxPos);
+        editor.commands.setTextSelection({ from: safeFrom, to: safeTo });
+      } catch {
+        // Ignore cursor restoration errors
+      }
     }
+    lastContentRef.current = content;
   }, [editor, content]);
 
   // Cleanup

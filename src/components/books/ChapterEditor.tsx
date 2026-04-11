@@ -57,7 +57,8 @@ export function ChapterEditor({
     };
   }, [editor]);
 
-  // Sync state with chapter prop
+  // Sync state with chapter prop - only when switching chapters
+  // DO NOT include chapter.content in deps to avoid cursor jumping during auto-save
   useEffect(() => {
     if (chapter) {
       setTitle(chapter.title);
@@ -66,7 +67,8 @@ export function ChapterEditor({
       setTitle('');
       setContent('');
     }
-  }, [chapter?.id, chapter?.title, chapter?.content]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chapter?.id]);
 
   // Auto-save with debounce
   const saveChanges = useCallback(
